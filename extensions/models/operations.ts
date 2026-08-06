@@ -5,7 +5,12 @@
  * 要求），本模块只做汇总与调度，不再硬编码模型族 switch。
  */
 
-import { isPlainObject, PayloadWriter, type ModelOperationContext, type ThinkingApplier } from "./_tools.ts";
+import {
+	isPlainObject,
+	PayloadWriter,
+	type ModelOperationContext,
+	type ThinkingApplier,
+} from "./_tools.ts";
 import { deepseekThinking } from "./vendors/deepseek.ts";
 import { geminiThinking } from "./vendors/gemini.ts";
 import { glmThinking } from "./vendors/glm.ts";
@@ -36,8 +41,12 @@ const THINKING_STRATEGIES: Record<string, ThinkingApplier> = {
  * `payload`. Non-plain payloads and all non-TSGW requests are returned
  * unchanged. Models without a registered strategy pass through untouched.
  */
-export function applyModelOperations(payload: unknown, context: ModelOperationContext): unknown {
-	if (!isPlainObject(payload) || context.provider !== TSGW_PROVIDER) return payload;
+export function applyModelOperations(
+	payload: unknown,
+	context: ModelOperationContext,
+): unknown {
+	if (!isPlainObject(payload) || context.provider !== TSGW_PROVIDER)
+		return payload;
 	const writer = new PayloadWriter(payload);
 	const applier = THINKING_STRATEGIES[context.modelId];
 	if (applier) applier(writer, context);

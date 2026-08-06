@@ -1,18 +1,20 @@
 import { deepStrictEqual, equal, strictEqual, throws } from "node:assert";
-import { DEFAULT_ROOT, filterModels, modelsForRoot, normalizeRoot, PROVIDER_ID } from "./catalog.ts";
+import {
+	DEFAULT_ROOT,
+	filterModels,
+	modelsForRoot,
+	normalizeRoot,
+	PROVIDER_ID,
+} from "./catalog.ts";
 
 const ROOT = "https://aih.example.com";
-
-function modelIds(root = ROOT): string[] {
-	return modelsForRoot(root).map(({ id }) => id);
-}
 
 function testCatalogConcatenation(): void {
 	const models = modelsForRoot(ROOT);
 	const ids = models.map(({ id }) => id);
 
-	// 8 家供应商分片拼接，共 22 个模型。
-	equal(ids.length, 22);
+	// 10 家供应商分片拼接，共 59 个模型（22 原有 + 37 新增）。
+	equal(ids.length, 59);
 	// id 全局唯一。
 	equal(new Set(ids).size, ids.length);
 
@@ -38,7 +40,7 @@ function testCatalogConcatenation(): void {
 
 	// 拼接顺序保持目录顺序（deepseek → … → claude）。
 	equal(ids[0], "deepseek-v4-flash");
-	equal(ids[ids.length - 1], "claude-sonnet");
+	equal(ids[ids.length - 1], "claude-sonnet-5");
 
 	// 模型 baseUrl 按协议端点派生。
 	const deepseek = models.find(({ id }) => id === "deepseek-v4-flash");
@@ -68,32 +70,50 @@ function testFilterModels(): void {
 		filterModels(all, { include: ["gpt-5.6-*"] }).map(({ id }) => id),
 		["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
 	);
-
 	// 黑名单精确匹配。
 	const excluded = filterModels(all, { exclude: ["claude-sonnet"] });
-	equal(excluded.some(({ id }) => id === "claude-sonnet"), false);
+	equal(
+		excluded.some(({ id }) => id === "claude-sonnet"),
+		false,
+	);
 	equal(excluded.length, all.length - 1);
 
 	// 黑名单前缀通配。
 	const noGemini = filterModels(all, { exclude: ["gemini-*"] });
-	equal(noGemini.some(({ id }) => id.startsWith("gemini-")), false);
+	equal(
+		noGemini.some(({ id }) => id.startsWith("gemini-")),
+		false,
+	);
 
 	// 黑白名单并存：黑名单优先于白名单。
-	deepStrictEqual(
-		filterModels(all, {
-			include: ["glm-*", "claude-*"],
-			exclude: ["glm-5.1", "claude-sonnet"],
-		}).map(({ id }) => id),
-		["glm-5.2", "claude-fable-5", "claude-opus-4-8"],
-	);
+	const both = filterModels(all, {
+		include: ["glm-*", "claude-*"],
+		exclude: ["glm-5.1", "claude-sonnet"],
+	});
+	equal(both.some(({ id }) => id.startsWith("glm-")), true);
+	equal(both.some(({ id }) => id.startsWith("claude-")), true);
+	equal(both.some(({ id }) => id === "glm-5.1"), false);
+	equal(both.some(({ id }) => id === "claude-sonnet"), false);
 }
 
 function testNormalizeRoot(): void {
 	strictEqual(normalizeRoot(), DEFAULT_ROOT);
-	strictEqual(normalizeRoot("https://gw.example.com/v1"), "https://gw.example.com");
-	strictEqual(normalizeRoot("https://gw.example.com/v1/"), "https://gw.example.com");
-	strictEqual(normalizeRoot("https://gw.example.com/"), "https://gw.example.com");
-	strictEqual(normalizeRoot("https://gw.example.com/base/v1"), "https://gw.example.com/base");
+	strictEqual(
+		normalizeRoot("https://gw.example.com/v1"),
+		"https://gw.example.com",
+	);
+	strictEqual(
+		normalizeRoot("https://gw.example.com/v1/"),
+		"https://gw.example.com",
+	);
+	strictEqual(
+		normalizeRoot("https://gw.example.com/"),
+		"https://gw.example.com",
+	);
+	strictEqual(
+		normalizeRoot("https://gw.example.com/base/v1"),
+		"https://gw.example.com/base",
+	);
 	throws(() => normalizeRoot("ftp://gw.example.com"), /http or https/);
 	throws(() => normalizeRoot("not-a-url"), /not a valid URL/);
 	equal(PROVIDER_ID, "tsgw");

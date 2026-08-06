@@ -1,12 +1,12 @@
 {
   "name": "pi-tsgw",
   "version": "0.1.0",
-  "description": "Pi extension for the TOSSP AIH gateway: model catalog and per-model request operations for openai-completions, openai-responses, anthropic, and gemini wire protocols.",
+  "description": "Pi extension for the TOSSP AIH gateway: per-vendor model catalog and thinking operations for openai-completions, openai-responses, anthropic-messages, and google-generative-ai wire protocols.",
   "type": "module",
   "keywords": [
     "pi",
     "pi-package",
-    "aih",
+    "tsgw",
     "gateway",
     "models"
   ],
@@ -18,6 +18,9 @@
   },
   "scripts": {
     "test": "tsc && node dist/extensions/index.test.js && node dist/extensions/models/operations.test.js && node dist/extensions/models/catalog.test.js && node dist/extensions/web-search/web-search.test.js"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.82.0"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.83.0",

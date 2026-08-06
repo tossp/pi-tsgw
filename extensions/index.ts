@@ -3,7 +3,13 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { DEFAULT_ROOT, PROVIDER_ID, modelsForRoot, normalizeRoot, type ModelFilter } from "./models/catalog.ts";
+import {
+	DEFAULT_ROOT,
+	PROVIDER_ID,
+	modelsForRoot,
+	normalizeRoot,
+	type ModelFilter,
+} from "./models/catalog.ts";
 import { applyModelOperations } from "./models/operations.ts";
 import type { ThinkingLevel, WebSearchMode } from "./models/_tools.ts";
 import { applyWebSearchTool } from "./web-search/web-search.ts";
@@ -45,9 +51,11 @@ function readTsgwSettings(): TsgwSettings {
 		const raw: unknown = JSON.parse(
 			readFileSync(join(getAgentDir(), "settings.json"), "utf8"),
 		);
-		if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
+		if (raw === null || typeof raw !== "object" || Array.isArray(raw))
+			return {};
 		const tsgw = (raw as { tsgw?: unknown }).tsgw;
-		if (tsgw === null || typeof tsgw !== "object" || Array.isArray(tsgw)) return {};
+		if (tsgw === null || typeof tsgw !== "object" || Array.isArray(tsgw))
+			return {};
 		return tsgw as TsgwSettings;
 	} catch {
 		return {};
@@ -63,11 +71,19 @@ function rootForRuntime(configured: string | undefined): string {
 	}
 }
 
-function hasHeader(headers: Record<string, string | null>, name: string): boolean {
-	return Object.keys(headers).some((key) => key.toLowerCase() === name.toLowerCase());
+function hasHeader(
+	headers: Record<string, string | null>,
+	name: string,
+): boolean {
+	return Object.keys(headers).some(
+		(key) => key.toLowerCase() === name.toLowerCase(),
+	);
 }
 
-function requestStateFor(model: RequestModel | undefined, thinkingLevel: ThinkingLevel): RequestState | undefined {
+function requestStateFor(
+	model: RequestModel | undefined,
+	thinkingLevel: ThinkingLevel,
+): RequestState | undefined {
 	if (!model) return undefined;
 	return {
 		provider: model.provider,
@@ -103,7 +119,10 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 	};
 	let requestState: RequestState | undefined;
 
-	const refreshRequestState = (ctx: { model: RequestModel | undefined; thinkingLevel?: ThinkingLevel }): void => {
+	const refreshRequestState = (ctx: {
+		model: RequestModel | undefined;
+		thinkingLevel?: ThinkingLevel;
+	}): void => {
 		requestState = requestStateFor(ctx.model, ctx.thinkingLevel ?? "off");
 	};
 
@@ -122,10 +141,14 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 		refreshRequestState(ctx);
 	});
 	pi.on("model_select", (event) => {
-		requestState = requestStateFor(event.model, requestState?.thinkingLevel ?? "off");
+		requestState = requestStateFor(
+			event.model,
+			requestState?.thinkingLevel ?? "off",
+		);
 	});
 	pi.on("thinking_level_select", (event) => {
-		if (requestState) requestState = { ...requestState, thinkingLevel: event.level };
+		if (requestState)
+			requestState = { ...requestState, thinkingLevel: event.level };
 	});
 
 	pi.on("before_provider_request", (event) => {
@@ -154,7 +177,9 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 	pi.on("before_provider_headers", (event) => {
 		const state = requestState;
 		if (!state || !isTsgwTraceTarget(state, root)) return;
-		if (!hasHeader(event.headers, "AH-Thread-Id")) event.headers["AH-Thread-Id"] = threadId;
-		if (!hasHeader(event.headers, "AH-Trace-Id")) event.headers["AH-Trace-Id"] = traceId;
+		if (!hasHeader(event.headers, "AH-Thread-Id"))
+			event.headers["AH-Thread-Id"] = threadId;
+		if (!hasHeader(event.headers, "AH-Trace-Id"))
+			event.headers["AH-Trace-Id"] = traceId;
 	});
 }

@@ -45,6 +45,58 @@ export function kimiModels(root: string): ProviderModelConfig[] {
 			maxTokens: 131072,
 			compat: OPENAI_COMPLETIONS_COMPAT,
 		},
+		{
+			id: "kimi-k2.7-code",
+			name: "Kimi K2.7 Code",
+			api: "openai-completions",
+			baseUrl: v1,
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 0.95, output: 4, cacheRead: 0.19, cacheWrite: 0 },
+			contextWindow: 262144,
+			// 官方未公布最大输出上限，保守取上下文窗口。
+			maxTokens: 262144,
+			compat: OPENAI_COMPLETIONS_COMPAT,
+		},
+		{
+			id: "kimi-k2.7-code-highspeed",
+			name: "Kimi K2.7 Code HighSpeed",
+			api: "openai-completions",
+			baseUrl: v1,
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 1.9, output: 8, cacheRead: 0.38, cacheWrite: 0 },
+			contextWindow: 262144,
+			// 官方未公布最大输出上限，保守取上下文窗口。
+			maxTokens: 262144,
+			compat: OPENAI_COMPLETIONS_COMPAT,
+		},
+		{
+			id: "kimi-k2.6",
+			name: "Kimi K2.6",
+			api: "openai-completions",
+			baseUrl: v1,
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 0.95, output: 4, cacheRead: 0.16, cacheWrite: 0 },
+			contextWindow: 262144,
+			// 官方未公布最大输出上限，保守取上下文窗口。
+			maxTokens: 262144,
+			compat: OPENAI_COMPLETIONS_COMPAT,
+		},
+		{
+			id: "kimi-k2.5",
+			name: "Kimi K2.5",
+			api: "openai-completions",
+			baseUrl: v1,
+			reasoning: true,
+			input: ["text", "image"],
+			cost: { input: 0.6, output: 3, cacheRead: 0.1, cacheWrite: 0 },
+			contextWindow: 262144,
+			// 官方未公布最大输出上限，保守取上下文窗口。
+			maxTokens: 262144,
+			compat: OPENAI_COMPLETIONS_COMPAT,
+		},
 	];
 }
 
@@ -65,4 +117,8 @@ function applyKimiK3(writer: PayloadWriter, level: ThinkingLevel): void {
 export const kimiThinking: Record<string, ThinkingApplier> = {
 	"kimi-for-coding": (w, c) => applyEnabledThinking(w, c.thinkingLevel),
 	"kimi-k3": (w, c) => applyKimiK3(w, c.thinkingLevel),
+	"kimi-k2.7-code": (w, c) => applyEnabledThinking(w, c.thinkingLevel),
+	"kimi-k2.7-code-highspeed": (w, c) => applyEnabledThinking(w, c.thinkingLevel),
+	"kimi-k2.6": (w, c) => applyEnabledThinking(w, c.thinkingLevel),
+	"kimi-k2.5": (w, c) => applyEnabledThinking(w, c.thinkingLevel),
 };

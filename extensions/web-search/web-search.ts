@@ -6,7 +6,11 @@
  * 协议）与 Grok 系列（xAI）。
  */
 
-import { isPlainObject, PayloadWriter, type WebSearchMode } from "../models/_tools.ts";
+import {
+	isPlainObject,
+	PayloadWriter,
+	type WebSearchMode,
+} from "../models/_tools.ts";
 
 const OPENAI_RESPONSES = "openai-responses";
 
@@ -39,9 +43,16 @@ export interface WebSearchContext {
  * function tools, `tool_choice`, and `include` are preserved. Pi drops
  * requested sources, so this operation deliberately does not request them.
  */
-export function applyWebSearchTool(payload: unknown, context: WebSearchContext): unknown {
+export function applyWebSearchTool(
+	payload: unknown,
+	context: WebSearchContext,
+): unknown {
 	if (!isPlainObject(payload) || context.mode === "off") return payload;
-	if (context.api !== OPENAI_RESPONSES || !BUILTIN_SEARCH_MODELS.has(context.modelId)) return payload;
+	if (
+		context.api !== OPENAI_RESPONSES ||
+		!BUILTIN_SEARCH_MODELS.has(context.modelId)
+	)
+		return payload;
 	const writer = new PayloadWriter(payload);
 	const tools = writer.get("tools");
 	if (tools !== undefined && !Array.isArray(tools)) return payload;

@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "id": "bbf73e76-6e1a-4634-a37b-4e884f1000e2",
+  "title": "查证 Anthropic Claude 官方定价与模型规格（来源：https://docs.claude.com/en/docs/about-claude/models/ 和官方 pricing...",
+  "goal": "查证 Anthropic Claude 官方定价与模型规格（来源：https://docs.claude.com/en/docs/about-claude/models/ 和官方 pricing 页）。需要以下模型的规格：claude-opus-4、claude-opus-4.1、claude-opus-4.5、claude-opus-4.6、claude-opus-4.7、claude-sonnet-4、claude-sonnet-4.5、claude-sonnet-5。每个模型返回：官方全名、contextWindow、maxTokens、输入模态（text/image）、官方公开定价（USD/百万token：input、output、cacheRead、cacheWrite）。查不到的字段标 null，不得臆造。输出格式：JSON 数组 [{\"id\":\"claude-opus-4\",\"name\":\"...\",\"contextWindow\":N,\"maxTokens\":N,\"input\":[\"text\"],\"cost\":{\"input\":N,\"output\":N,\"cacheRead\":N,\"cacheWrite\":N},\"source\":\"URL\"}]，最后附一段说明哪些字段未能从官方确认。",
+  "status": "completed",
+  "createdAt": "2026-08-06T14:28:42.604Z",
+  "updatedAt": "2026-08-06T14:37:08.971Z",
+  "runs": [
+    {
+      "runId": "33f32f98",
+      "mode": "single",
+      "agent": "researcher",
+      "status": "completed",
+      "startedAt": "2026-08-06T14:37:08.971Z",
+      "completedAt": "2026-08-06T14:37:08.971Z"
+    }
+  ],
+  "decisions": [],
+  "artifacts": [
+    {
+      "kind": "output",
+      "path": "/root/proj/pi-tsgw/.pi-subagents/artifacts/33f32f98_researcher_0_output.md"
+    },
+    {
+      "kind": "output",
+      "path": "/root/proj/pi-tsgw/.pi-subagents/artifacts/outputs/33f32f98/research.md"
+    },
+    {
+      "kind": "other",
+      "path": "/root/proj/pi-tsgw/.pi-subagents/artifacts/33f32f98_researcher_0_transcript.jsonl",
+      "description": "Child transcript"
+    }
+  ],
+  "receipts": [],
+  "cwd": "/root/proj/pi-tsgw",
+  "ownerSessionId": "/root/.pi/agent/sessions/--root-proj-pi-tsgw--/2026-08-06T13-37-00-597Z_019fd74a-a2b5-78d1-85b6-38d2215fb367.jsonl",
+  "summary": "```json\n[\n  {\n    \"id\": \"claude-opus-4\",\n    \"name\": \"Claude Opus 4\",\n    \"contextWindow\": 200000,\n    \"maxTokens\": 32000,\n    \"input\": [\"text\", \"image\"],\n    \"cost\": {\n      \"input\": 15,\n      \"output\": 75,\n      \"cacheRead\": 1.5,\n      \"cacheWrite\": 18.75\n    },\n    \"source\": \"https://platform.claude.com/docs/en/about-claude/models/overview\"\n  },\n  {\n    \"id\": \"claude-opus-4.1\",\n    \"name\": \"Claude Opus 4.1\",\n    \"contextWindow\": 200000,\n    \"maxTokens\": 32000,\n    \"input\": [\"text\", \"image\"],\n    \"cost\": {\n      \"input\": 15,\n      \"output\": 75,\n      \"cacheRead\": 1.5,\n      \"cacheWrite\": 18.75\n    },\n    \"source\": \"https://platform.claude.com/docs/en/about-claude/models/overview\"\n  },\n  {\n    \"id\": \"claude-opus-4.5\",\n    \"name\": \"Claude Opus 4.5\",\n    \"contextWindow\": 200000,\n    \"maxTokens\": 64000,\n    \"input\": [\"text\", \"image\"],\n    \"cost\": {\n      \"input\": 5,\n      \"output\": 25,\n      \"cacheRead\": 0.5,\n      \"cacheWrite\": 6.25\n    },\n    \"source\": \"https://platform.claude.com/docs/en/about-claude/models/overview\"\n  },\n  {\n    \"id\": \"claude-opus-4.6\",\n    \"name\": \"Claude Opus 4.6\",\n    \"contextWindow\": 1000000,\n    \"maxTokens\": 128000,\n    \"input\": [\"text\", \"image\"],\n    \"cost\": {\n      \"input\": 5,\n      \"output\": 25,\n      \"cacheRead\": 0.5,\n      \"cacheWrite\": 6.25\n    },\n    \"source\": \"https://platform.claude.com/docs/en/about-claude/models/overview\"\n  },\n  {\n    \"id\": \"claude-opus-4.7\",\n    \"name\": \"Claude Opus 4.7\",\n    \"contextWindow\": 1000000,\n    \"maxTokens\": 128000,\n    \"input\": [\"text\", \"image\"],\n    \"cost\": {\n      \"input\": 5,\n      \"output\": 25,\n      \"cacheRead\": 0.5,\n      \"cacheWrite\": 6.25\n    },\n    \"source\": \"https://platform.claude.com/docs/en/about-claude/models/overview\"\n  },\n  {\n    \"id\": \"claude-sonnet-4\",\n    \"name\": \"Claude Sonnet 4\",\n    \"contextWindow\": 200000,\n    \"maxTokens\": 64000,\n    \"input\": [\"text\", \"image\"],\n    \"cost\": {\n      \"input\": 3,\n      \"output\": 15,\n      \"cacheRead\": 0.3,\n      \"cacheWrite\": 3.75\n    },\n    \"source...",
+  "acceptance": {
+    "status": "attested",
+    "evidenceStatus": "attested",
+    "explicit": false,
+    "effectiveAcceptance": {
+      "level": "attested",
+      "explicit": false,
+      "inferredReason": [
+        "read-only/reviewer-style agent"
+      ],
+      "criteria": [
+        {
+          "id": "criterion-1",
+          "must": "Return concrete findings with file paths and severity when applicable",
+          "evidence": [
+            "review-findings",
+            "residual-risks"
+          ],
+          "severity": "required"
+        }
+      ],
+      "evidence": [
+        "review-findings",
+        "residual-risks"
+      ],
+      "verify": [],
+      "stopRules": []
+    },
+    "inferredReason": [
+      "read-only/reviewer-style agent"
+    ],
+    "criteria": [
+      {
+        "id": "criterion-1",
+        "must": "Return concrete findings with file paths and severity when applicable",
+        "evidence": [
+          "review-findings",
+          "residual-risks"
+        ],
+        "severity": "required"
+      }
+    ],
+    "runtimeChecks": [],
+    "verifyRuns": [],
+    "childReport": {
+      "criteriaSatisfied": [
+        {
+          "id": "criterion-1",
+          "status": "satisfied",
+          "evidence": "文件包含 8 个指定模型的 JSON 规格、官方来源、核验说明及残余风险。"
+        }
+      ],
+      "changedFiles": [
+        "/root/proj/pi-tsgw/.pi-subagents/artifacts/outputs/33f32f98/research.md"
+      ],
+      "testsAddedOrUpdated": [],
+      "commandsRun": [
+        {
+          "command": "Official Anthropic/Claude web research and source verification",
+          "result": "passed",
+          "summary": "已核验模型规格、定价及缓存费率。"
+        }
+      ],
+      "validationOutput": [
+        "8 个模型均已包含且无重复。",
+        "Sonnet 5 临时定价和 Sonnet 4 长上下文例外已注明。"
+      ],
+      "residualRisks": [
+        "Sonnet 5 introductory pricing 将于 2026-08-31 后变化。",
+        "Sonnet 4 的 1M beta 层级无法由单一标量价格结构表达。"
+      ],
+      "noStagedFiles": true,
+      "diffSummary": "新增 Claude 官方模型规格与定价调研文档。",
+      "reviewFindings": [
+        "no blockers"
+      ]
+    }
+  }
+}

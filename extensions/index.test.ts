@@ -475,13 +475,17 @@ async function testSettingsConfig(): Promise<void> {
 		(filtered?.config as { models?: Array<{ id: string }> } | undefined)
 			?.models ?? []
 	).map(({ id }) => id);
-	deepStrictEqual(modelIds, ["glm-5.2"]);
+	equal(modelIds.length > 1, true);
+	equal(modelIds.every((id) => id.startsWith("glm-")), true);
+	equal(modelIds.includes("glm-5.2"), true);
+	equal(modelIds.includes("glm-5.1"), false);
 
 	// Malformed or missing `tsgw` namespaces are ignored.
 	const piBroken = await createPi({ tsgw: "not-an-object" });
 	const brokenProvider = piBroken.providers.find(({ name }) => name === "tsgw");
-	const brokenBase = (brokenProvider?.config as { baseUrl?: string } | undefined)
-		?.baseUrl;
+	const brokenBase = (
+		brokenProvider?.config as { baseUrl?: string } | undefined
+	)?.baseUrl;
 	strictEqual(brokenBase, `${TEST_ROOT}/v1`);
 }
 

@@ -72,11 +72,12 @@ The extension never reads credential files. Pi resolves the key itself:
 ## Model catalog
 
 The catalog is assembled from per-vendor slices (`extensions/models/vendors/`),
-currently covering 8 vendors: DeepSeek, GLM (Zhipu), MiMo (Xiaomi), MiniMax,
-Kimi (Moonshot), Qwen (Alibaba), GPT (OpenAI), Gemini (Google), Claude
-(Anthropic), and LongCat. Each vendor file carries the official documentation
-URL in its header comment. Pricing entries mirror the vendors' public list
-prices; replace them with your gateway's actual pricing if it differs.
+currently covering 10 vendor families: DeepSeek, GLM (Zhipu), MiMo (Xiaomi),
+MiniMax, Kimi (Moonshot), Qwen (Alibaba), GPT (OpenAI), Gemini (Google),
+Claude (Anthropic), and LongCat — 59 chat models in total. Each vendor file
+carries the official documentation URL in its header comment. Pricing entries
+mirror the vendors' public list prices; replace them with your gateway's
+actual pricing if it differs.
 
 Use `includeModels` / `excludeModels` to register only the models your
 gateway plan actually supports.

@@ -62,10 +62,15 @@ export function filterModels(
 	filter?: ModelFilter,
 ): ProviderModelConfig[] {
 	if (!filter) return [...models];
-	const include = filter.include?.length ? compilePatterns(filter.include) : undefined;
-	const exclude = filter.exclude?.length ? compilePatterns(filter.exclude) : undefined;
+	const include = filter.include?.length
+		? compilePatterns(filter.include)
+		: undefined;
+	const exclude = filter.exclude?.length
+		? compilePatterns(filter.exclude)
+		: undefined;
 	return models.filter(
-		(model) => (!include || include(model.id)) && (!exclude || !exclude(model.id)),
+		(model) =>
+			(!include || include(model.id)) && (!exclude || !exclude(model.id)),
 	);
 }
 

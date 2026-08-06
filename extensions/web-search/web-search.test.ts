@@ -1,6 +1,10 @@
 import { deepStrictEqual, equal, strictEqual } from "node:assert";
 import { applyWebSearchTool } from "./web-search.ts";
-import { isPlainObject, type Payload, type WebSearchMode } from "../models/_tools.ts";
+import {
+	isPlainObject,
+	type Payload,
+	type WebSearchMode,
+} from "../models/_tools.ts";
 
 const OPENAI_RESPONSES = "openai-responses";
 
@@ -68,27 +72,36 @@ function testBuiltinSearchInjection(): void {
 function testNoOpsAndScope(): void {
 	// 非内置查询名单内的模型不注入。
 	const nonSearch = { tools: [functionTool] };
-	strictEqual(applyWebSearchTool(nonSearch, {
-		modelId: "gpt-5.3-codex-spark",
-		api: OPENAI_RESPONSES,
-		mode: "live",
-	}), nonSearch);
+	strictEqual(
+		applyWebSearchTool(nonSearch, {
+			modelId: "gpt-5.3-codex-spark",
+			api: OPENAI_RESPONSES,
+			mode: "live",
+		}),
+		nonSearch,
+	);
 
 	// 非 Responses 协议不注入。
-	strictEqual(applyWebSearchTool(nonSearch, {
-		modelId: "gpt-5.6-sol",
-		api: "openai-completions",
-		mode: "live",
-	}), nonSearch);
+	strictEqual(
+		applyWebSearchTool(nonSearch, {
+			modelId: "gpt-5.6-sol",
+			api: "openai-completions",
+			mode: "live",
+		}),
+		nonSearch,
+	);
 
 	// 非 plain 对象原样返回。
 	const nonPlain = [null, [], new Date()] as const;
 	for (const payload of nonPlain)
-		strictEqual(applyWebSearchTool(payload, {
-			modelId: "gpt-5.6-sol",
-			api: OPENAI_RESPONSES,
-			mode: "live",
-		}), payload);
+		strictEqual(
+			applyWebSearchTool(payload, {
+				modelId: "gpt-5.6-sol",
+				api: OPENAI_RESPONSES,
+				mode: "live",
+			}),
+			payload,
+		);
 }
 
 const functionTool = { type: "function", name: "keep" };

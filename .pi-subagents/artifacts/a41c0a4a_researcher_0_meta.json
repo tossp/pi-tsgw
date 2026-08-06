@@ -1,0 +1,145 @@
+{
+  "runId": "a41c0a4a",
+  "agent": "researcher",
+  "task": "查证 OpenAI GPT 官方定价与模型规格（来源：https://platform.openai.com/docs/models 和官方 pricing 页）。需要以下模型的规格：gpt-5.6、gpt-5.4、gpt-5.4-mini、gpt-5.3、gpt-5.3-flash、gpt-5.2、gpt-5.2-pro、gpt-5.2-flash、gpt-5.1、gpt-5、gpt-codex。每个模型返回：官方全名、contextWindow、maxTokens、输入模态（text/image）、官方公开定价（USD/百万token：input、output、cacheRead、cacheWrite）。查不到的字段标 null，不得臆造。输出格式：JSON 数组 [{\"id\":\"gpt-5.6\",\"name\":\"...\",\"contextWindow\":N,\"maxTokens\":N,\"input\":[\"text\"],\"cost\":{\"input\":N,\"output\":N,\"cacheRead\":N,\"cacheWrite\":N},\"source\":\"URL\"}]，最后附一段说明哪些字段未能从官方确认。\n\n---\n**Output:**\nWrite your findings to exactly this path: /root/proj/pi-tsgw/.pi-subagents/artifacts/outputs/a41c0a4a/research.md\nThis path is authoritative for this run.\nIgnore any other output filename or output path mentioned elsewhere, including output destinations in the base agent prompt, system prompt, or task instructions.",
+  "exitCode": 0,
+  "processSignal": "SIGTERM",
+  "usage": {
+    "input": 67488,
+    "output": 5941,
+    "cacheRead": 390144,
+    "cacheWrite": 0,
+    "cost": 0.710742,
+    "turns": 9
+  },
+  "model": "aih/gpt-5.6-sol:medium",
+  "attemptedModels": [
+    "aih/gpt-5.6-sol:medium"
+  ],
+  "modelAttempts": [
+    {
+      "model": "aih/gpt-5.6-sol:medium",
+      "success": true,
+      "exitCode": 0,
+      "usage": {
+        "input": 67488,
+        "output": 5941,
+        "cacheRead": 390144,
+        "cacheWrite": 0,
+        "cost": 0.710742,
+        "turns": 9
+      }
+    }
+  ],
+  "durationMs": 233548,
+  "toolCount": 26,
+  "launchContractDigest": "b2e547828a921d629f87a1d66e5cd4287e293ebca7f529221aea56afd1c7cbdb",
+  "launchResolvedExtensions": {
+    "version": 1,
+    "source": "launch-resolved",
+    "disableAmbientExtensions": false,
+    "runtime": [
+      "sha256:51a9b93ec8cd5030"
+    ],
+    "configured": [],
+    "effective": [
+      "sha256:51a9b93ec8cd5030"
+    ],
+    "omitted": {
+      "runtime": 0,
+      "configured": 0,
+      "effective": 0
+    }
+  },
+  "acceptance": {
+    "status": "attested",
+    "evidenceStatus": "attested",
+    "explicit": false,
+    "effectiveAcceptance": {
+      "level": "attested",
+      "explicit": false,
+      "inferredReason": [
+        "read-only/reviewer-style agent"
+      ],
+      "criteria": [
+        {
+          "id": "criterion-1",
+          "must": "Return concrete findings with file paths and severity when applicable",
+          "evidence": [
+            "review-findings",
+            "residual-risks"
+          ],
+          "severity": "required"
+        }
+      ],
+      "evidence": [
+        "review-findings",
+        "residual-risks"
+      ],
+      "verify": [],
+      "stopRules": []
+    },
+    "inferredReason": [
+      "read-only/reviewer-style agent"
+    ],
+    "criteria": [
+      {
+        "id": "criterion-1",
+        "must": "Return concrete findings with file paths and severity when applicable",
+        "evidence": [
+          "review-findings",
+          "residual-risks"
+        ],
+        "severity": "required"
+      }
+    ],
+    "runtimeChecks": [],
+    "verifyRuns": [],
+    "childReport": {
+      "criteriaSatisfied": [
+        {
+          "id": "criterion-1",
+          "status": "satisfied",
+          "evidence": "review-findings: /root/proj/pi-tsgw/.pi-subagents/artifacts/outputs/a41c0a4a/research.md contains the requested 11-model JSON array with official URLs and nulls for unconfirmed fields; residual-risks are explicitly listed in the Gaps / residual risks section."
+        }
+      ],
+      "changedFiles": [
+        "/root/proj/pi-tsgw/.pi-subagents/artifacts/outputs/a41c0a4a/research.md"
+      ],
+      "testsAddedOrUpdated": [],
+      "commandsRun": [
+        {
+          "command": "Official OpenAI documentation web searches and page fetches",
+          "result": "passed",
+          "summary": "Verified seven exact model pages; four requested exact IDs were absent/unconfirmed and were left null."
+        }
+      ],
+      "validationOutput": [
+        "Confirmed official pages for gpt-5.6, gpt-5.4, gpt-5.4-mini, gpt-5.2, gpt-5.2-pro, gpt-5.1, and gpt-5.",
+        "Confirmed gpt-5.3-codex exists separately; did not conflate it with gpt-5.3 or gpt-codex.",
+        "JSON contains all 11 requested IDs and all requested fields."
+      ],
+      "residualRisks": [
+        "Four IDs may be gateway-specific aliases whose upstream mappings cannot be established from OpenAI official documentation.",
+        "OpenAI pricing and aliases may change after the verification date."
+      ],
+      "noStagedFiles": true,
+      "diffSummary": "Added a research artifact containing official model specifications/pricing, explicit nulls for unconfirmed IDs/fields, sources, and residual risks.",
+      "reviewFindings": [
+        "no blockers",
+        "info: research.md - gpt-5.3, gpt-5.3-flash, gpt-5.2-flash, and gpt-codex are not confirmed exact OpenAI API model IDs.",
+        "info: research.md - GPT-5.2 Pro has no officially listed cached-input or cache-write price on its model page."
+      ],
+      "manualNotes": "No model-ID substitutions were made; unconfirmed values remain null as required."
+    }
+  },
+  "effects": {
+    "fileMutation": {
+      "status": "not-applicable",
+      "expected": false,
+      "attempted": true
+    }
+  },
+  "transcriptPath": "/root/proj/pi-tsgw/.pi-subagents/artifacts/a41c0a4a_researcher_0_transcript.jsonl",
+  "timestamp": 1786026756072
+}

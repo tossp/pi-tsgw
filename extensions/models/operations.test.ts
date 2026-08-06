@@ -1,7 +1,5 @@
 import { deepStrictEqual, equal, strictEqual } from "node:assert";
-import {
-	applyModelOperations,
-} from "./operations.ts";
+import { applyModelOperations } from "./operations.ts";
 import {
 	isPlainObject,
 	type ModelOperationContext,
@@ -10,7 +8,12 @@ import {
 
 type Payload = Record<string, unknown>;
 
-const levels = ["off", "high", "xhigh", "max"] as const satisfies readonly ThinkingLevel[];
+const levels = [
+	"off",
+	"high",
+	"xhigh",
+	"max",
+] as const satisfies readonly ThinkingLevel[];
 
 function deepFreeze(value: unknown): void {
 	if (Array.isArray(value)) {

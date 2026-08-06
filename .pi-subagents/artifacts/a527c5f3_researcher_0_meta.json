@@ -1,0 +1,146 @@
+{
+  "runId": "a527c5f3",
+  "agent": "researcher",
+  "task": "查证 Google Gemini API 官方定价与模型规格（来源：https://ai.google.dev/gemini-api/docs 和官方 pricing 页）。需要以下模型的规格：gemini-3.5-flash、gemini-3.5-flash-low、gemini-3.5-flash-extra-low、gemini-3.1-pro-low、gemini-2.5-pro、gemini-2.5-flash、gemini-2.5-flash-lite。每个模型返回：官方全名、contextWindow、maxTokens、输入模态（text/image）、官方公开定价（USD/百万token：input、output、cacheRead、cacheWrite）。查不到的字段标 null，不得臆造。输出格式：JSON 数组 [{\"id\":\"gemini-3.5-flash\",\"name\":\"...\",\"contextWindow\":N,\"maxTokens\":N,\"input\":[\"text\"],\"cost\":{\"input\":N,\"output\":N,\"cacheRead\":N,\"cacheWrite\":N},\"source\":\"URL\"}]，最后附一段说明哪些字段未能从官方确认。\n\n---\n**Output:**\nWrite your findings to exactly this path: /root/proj/pi-tsgw/.pi-subagents/artifacts/outputs/a527c5f3/research.md\nThis path is authoritative for this run.\nIgnore any other output filename or output path mentioned elsewhere, including output destinations in the base agent prompt, system prompt, or task instructions.",
+  "exitCode": 0,
+  "processSignal": "SIGTERM",
+  "usage": {
+    "input": 102879,
+    "output": 5209,
+    "cacheRead": 549376,
+    "cacheWrite": 0,
+    "cost": 0.945353,
+    "turns": 11
+  },
+  "model": "aih/gpt-5.6-sol:medium",
+  "attemptedModels": [
+    "aih/gpt-5.6-sol:medium"
+  ],
+  "modelAttempts": [
+    {
+      "model": "aih/gpt-5.6-sol:medium",
+      "success": true,
+      "exitCode": 0,
+      "usage": {
+        "input": 102879,
+        "output": 5209,
+        "cacheRead": 549376,
+        "cacheWrite": 0,
+        "cost": 0.945353,
+        "turns": 11
+      }
+    }
+  ],
+  "durationMs": 285272,
+  "toolCount": 14,
+  "launchContractDigest": "1e80846aa9addc9602f8fb79960f7474dcfbc26bce060a90352dc5846210914a",
+  "launchResolvedExtensions": {
+    "version": 1,
+    "source": "launch-resolved",
+    "disableAmbientExtensions": false,
+    "runtime": [
+      "sha256:51a9b93ec8cd5030"
+    ],
+    "configured": [],
+    "effective": [
+      "sha256:51a9b93ec8cd5030"
+    ],
+    "omitted": {
+      "runtime": 0,
+      "configured": 0,
+      "effective": 0
+    }
+  },
+  "acceptance": {
+    "status": "attested",
+    "evidenceStatus": "attested",
+    "explicit": false,
+    "effectiveAcceptance": {
+      "level": "attested",
+      "explicit": false,
+      "inferredReason": [
+        "read-only/reviewer-style agent"
+      ],
+      "criteria": [
+        {
+          "id": "criterion-1",
+          "must": "Return concrete findings with file paths and severity when applicable",
+          "evidence": [
+            "review-findings",
+            "residual-risks"
+          ],
+          "severity": "required"
+        }
+      ],
+      "evidence": [
+        "review-findings",
+        "residual-risks"
+      ],
+      "verify": [],
+      "stopRules": []
+    },
+    "inferredReason": [
+      "read-only/reviewer-style agent"
+    ],
+    "criteria": [
+      {
+        "id": "criterion-1",
+        "must": "Return concrete findings with file paths and severity when applicable",
+        "evidence": [
+          "review-findings",
+          "residual-risks"
+        ],
+        "severity": "required"
+      }
+    ],
+    "runtimeChecks": [],
+    "verifyRuns": [],
+    "childReport": {
+      "criteriaSatisfied": [
+        {
+          "id": "criterion-1",
+          "status": "satisfied",
+          "evidence": "review-findings: /root/proj/pi-tsgw/.pi-subagents/artifacts/outputs/a527c5f3/research.md contains the requested seven-model JSON findings with official source URLs; residual-risks explicitly document alias mapping, tiered Pro pricing, and the incompatible cache storage unit."
+        }
+      ],
+      "changedFiles": [
+        "/root/proj/pi-tsgw/.pi-subagents/artifacts/outputs/a527c5f3/research.md"
+      ],
+      "testsAddedOrUpdated": [],
+      "commandsRun": [
+        {
+          "command": "Focused web searches against ai.google.dev model cards and Gemini Developer API pricing pages",
+          "result": "passed",
+          "summary": "Official model specifications and paid-tier pricing were located and cross-checked; direct fetches redirected to Google OAuth, so indexed official-page content was used."
+        }
+      ],
+      "validationOutput": [
+        "Seven requested ids are present in the JSON array.",
+        "All unknown cacheWrite fields are null rather than inferred from hourly storage pricing.",
+        "Pro-model >200k pricing is preserved in the explanatory note."
+      ],
+      "residualRisks": [
+        "medium: the -low and -extra-low identifiers are not official Google model codes; mapping to the stated base models must be confirmed in the project catalog/gateway.",
+        "low: Google pricing is mutable and should be rechecked immediately before release.",
+        "low: direct page fetching encountered Google OAuth redirects; evidence was obtained through search-indexed content from the official ai.google.dev URLs."
+      ],
+      "noStagedFiles": true,
+      "diffSummary": "Added a research artifact containing the requested JSON dataset, official citations, unresolved-field notes, and acceptance evidence.",
+      "reviewFindings": [
+        "no blockers",
+        "medium: cache storage cannot be represented as cacheWrite without changing the requested unit; cacheWrite is therefore null.",
+        "medium: alias ids require repository-side mapping verification."
+      ],
+      "manualNotes": "Pricing numbers are standard paid-tier text/image rates, not Batch/Flex rates. For tiered Pro models, the JSON uses the <=200k tier."
+    }
+  },
+  "effects": {
+    "fileMutation": {
+      "status": "not-applicable",
+      "expected": false,
+      "attempted": true
+    }
+  },
+  "transcriptPath": "/root/proj/pi-tsgw/.pi-subagents/artifacts/a527c5f3_researcher_0_transcript.jsonl",
+  "timestamp": 1786026807838
+}

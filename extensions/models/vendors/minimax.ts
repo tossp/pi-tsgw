@@ -26,10 +26,50 @@ export function minimaxModels(root: string): ProviderModelConfig[] {
 			maxTokens: 500000,
 			compat: OPENAI_COMPLETIONS_COMPAT,
 		},
+		{
+			id: "minimax-m2.7",
+			name: "MiniMax-M2.7",
+			api: "openai-completions",
+			baseUrl: v1,
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0.3, output: 1.2, cacheRead: 0.06, cacheWrite: 0.375 },
+			contextWindow: 204800,
+			// 官方未公布最大输出上限，保守取上下文窗口。
+			maxTokens: 204800,
+			compat: OPENAI_COMPLETIONS_COMPAT,
+		},
+		{
+			id: "minimax-m2.5",
+			name: "MiniMax-M2.5",
+			api: "openai-completions",
+			baseUrl: v1,
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0.3, output: 1.2, cacheRead: 0.03, cacheWrite: 0.375 },
+			contextWindow: 204800,
+			// 官方未公布最大输出上限，保守取上下文窗口。
+			maxTokens: 204800,
+			compat: OPENAI_COMPLETIONS_COMPAT,
+		},
+		{
+			id: "minimax-m2.1",
+			name: "MiniMax-M2.1",
+			api: "openai-completions",
+			baseUrl: v1,
+			reasoning: true,
+			input: ["text"],
+			cost: { input: 0.3, output: 1.2, cacheRead: 0.03, cacheWrite: 0.375 },
+			contextWindow: 204800,
+			// 官方未公布最大输出上限，保守取上下文窗口。
+			maxTokens: 204800,
+			compat: OPENAI_COMPLETIONS_COMPAT,
+		},
 	];
 }
 
 // MiniMax 思维链：`reasoning_split=true`，档位映射 disabled/adaptive。
+// M2.x 沿用 M3 策略（同族，未逐一验证）。
 function applyMiniMax(writer: PayloadWriter, level: ThinkingLevel): void {
 	writer.remove("reasoning_effort");
 	writer.set("reasoning_split", true);
@@ -38,4 +78,7 @@ function applyMiniMax(writer: PayloadWriter, level: ThinkingLevel): void {
 
 export const minimaxThinking: Record<string, ThinkingApplier> = {
 	"minimax-m3": (w, c) => applyMiniMax(w, c.thinkingLevel),
+	"minimax-m2.7": (w, c) => applyMiniMax(w, c.thinkingLevel),
+	"minimax-m2.5": (w, c) => applyMiniMax(w, c.thinkingLevel),
+	"minimax-m2.1": (w, c) => applyMiniMax(w, c.thinkingLevel),
 };
