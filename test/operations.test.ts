@@ -1,5 +1,5 @@
 import { deepStrictEqual, equal, strictEqual } from "node:assert";
-import { applyModelOperations, isPlainObject, webSearchModeFromEnv, type ModelOperationContext, type ThinkingLevel } from "../src/operations.ts";
+import { applyModelOperations, isPlainObject, webSearchModeFromEnv, type ModelOperationContext, type ThinkingLevel } from "../operations.ts";
 
 type Payload = Record<string, unknown>;
 
@@ -59,7 +59,7 @@ function testCompletionProfiles(): void {
 		}
 	}
 	const glmNotStreaming = apply({ stream: false, reasoning_effort: "medium", thinking: { type: "legacy" } }, "glm-5.2", "openai-completions", "high");
-	equal(Object.prototype.hasOwnProperty.call(glmNotStreaming, "tool_stream"), false);
+	equal(Object.hasOwn(glmNotStreaming, "tool_stream"), false);
 
 	for (const modelId of ["mimo-v2.5", "mimo-v2.5-pro", "kimi-for-coding", "longcat-2.0"]) {
 		for (const level of levels) {

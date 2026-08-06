@@ -6,7 +6,7 @@ import type {
 	ExtensionAPI,
 	ProviderConfig,
 } from "@earendil-works/pi-coding-agent";
-import registerAih from "../src/index.ts";
+import registerAih from "../index.ts";
 
 type HookName =
 	| "session_start"

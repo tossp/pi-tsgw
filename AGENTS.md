@@ -6,8 +6,8 @@
 
 `pi-tsgw` 是 [Pi](https://pi.dev)（`@earendil-works/pi-coding-agent`）的扩展包（pi package），用于接入 **TOSSP AIH 网关**（兼容网关实例，地址由用户配置）。它向 Pi 注册 `aih` provider，提供：
 
-- **模型目录**（`src/models.ts`）：约 20 个模型，横跨四种 wire 协议——`openai-completions`、`openai-responses`、`anthropic`、`gemini`，通过一个 provider id 统一调度；含 `compat`（如 `supportsDeveloperRole: false`）、`thinkingLevelMap`、定价（各官网公开报价）等配置。
-- **请求体改写**（`src/operations.ts`）：`before_provider_request` 钩子按模型族改写 thinking 档位、reasoning 格式、Google thinkingConfig、web_search 工具追加等，纯函数、copy-on-write。
+- **模型目录**（`models.ts`）：约 20 个模型，横跨四种 wire 协议——`openai-completions`、`openai-responses`、`anthropic`、`gemini`，通过一个 provider id 统一调度；含 `compat`（如 `supportsDeveloperRole: false`）、`thinkingLevelMap`、定价（各官网公开报价）等配置。
+- **请求体改写**（`operations.ts`）：`before_provider_request` 钩子按模型族改写 thinking 档位、reasoning 格式、Google thinkingConfig、web_search 工具追加等，纯函数、copy-on-write。
 - **网关追踪**（可选）：`AH-Thread-Id` / `AH-Trace-Id` 请求头，供网关侧链路追踪。
 
 定位：**公开项目**（MIT），发布为 pi package，供多台设备统一安装（`pi install git:...` 或 `npm:pi-tsgw`）。
@@ -33,10 +33,10 @@
 ## 代码结构
 
 ```
-src/index.ts        # 唯一 Pi 宿主耦合点：registerProvider + 生命周期钩子 + 配置读取
-src/models.ts       # 静态模型目录 + PROVIDER_ID + normalizeRoot + DEFAULT_ROOT
-src/operations.ts   # 纯函数请求改写（applyModelOperations），无 IO、无 Pi 依赖
-src/README.md       # 技术细节：thinking 档位矩阵、web_search、生命周期兼容性说明
+index.ts        # 唯一 Pi 宿主耦合点：registerProvider + 生命周期钩子 + 配置读取
+models.ts       # 静态模型目录 + PROVIDER_ID + normalizeRoot + DEFAULT_ROOT
+operations.ts   # 纯函数请求改写（applyModelOperations），无 IO、无 Pi 依赖
+README.md       # 用户文档 + 技术细节：thinking 档位矩阵、web_search、生命周期兼容性说明
 test/index.test.ts  # 宿主集成测试（FakePi/FakeContext/withAgentDir）
 test/operations.test.ts  # 纯函数测试（deepFreeze 输入）
 ```
