@@ -13,11 +13,11 @@
   "license": "MIT",
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./extensions/index.ts"
     ]
   },
   "scripts": {
-    "test": "tsc && node dist/test/index.test.js && node dist/test/operations.test.js"
+    "test": "tsc && node dist/extensions/index.test.js && node dist/extensions/models/operations.test.js && node dist/extensions/models/catalog.test.js && node dist/extensions/web-search/web-search.test.js"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.83.0",

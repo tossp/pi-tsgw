@@ -3,8 +3,10 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { DEFAULT_ROOT, PROVIDER_ID, modelsForRoot, normalizeRoot } from "./models.ts";
-import { applyModelOperations, webSearchModeFromEnv, type ThinkingLevel, type WebSearchMode } from "./operations.ts";
+import { DEFAULT_ROOT, PROVIDER_ID, modelsForRoot, normalizeRoot, type ModelFilter } from "./models/catalog.ts";
+import { applyModelOperations } from "./models/operations.ts";
+import type { ThinkingLevel, WebSearchMode } from "./models/_tools.ts";
+import { applyWebSearchTool } from "./web-search/web-search.ts";
 
 /**
  * The data needed by provider hooks, copied while the lifecycle context is
@@ -26,26 +28,27 @@ interface RequestModel {
 }
 
 /**
- * Extension configuration from the `aih` namespace of the Pi settings file
- * (settings.json), following the pi-subagents convention of a top-level
- * per-extension key. Values are advisory overrides: environment variables
- * and built-in defaults remain as fallbacks.
+ * Extension configuration from the `tsgw` namespace of the Pi settings file
+ * (settings.json). All plugin configuration lives here; the plugin reads no
+ * environment variables (only Pi's own credential resolution handles keys).
  */
-interface AihSettings {
+interface TsgwSettings {
 	baseUrl?: string;
 	webSearch?: string;
 	traceHeaders?: boolean;
+	includeModels?: string[];
+	excludeModels?: string[];
 }
 
-function readAihSettings(): AihSettings {
+function readTsgwSettings(): TsgwSettings {
 	try {
 		const raw: unknown = JSON.parse(
 			readFileSync(join(getAgentDir(), "settings.json"), "utf8"),
 		);
 		if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return {};
-		const aih = (raw as { aih?: unknown }).aih;
-		if (aih === null || typeof aih !== "object" || Array.isArray(aih)) return {};
-		return aih as AihSettings;
+		const tsgw = (raw as { tsgw?: unknown }).tsgw;
+		if (tsgw === null || typeof tsgw !== "object" || Array.isArray(tsgw)) return {};
+		return tsgw as TsgwSettings;
 	} catch {
 		return {};
 	}
@@ -55,7 +58,7 @@ function rootForRuntime(configured: string | undefined): string {
 	try {
 		return normalizeRoot(configured);
 	} catch {
-		console.error("AIH models: invalid AIH_BASE_URL; using the default root.");
+		console.error("TSGW: invalid baseUrl; using the default root.");
 		return DEFAULT_ROOT;
 	}
 }
@@ -75,7 +78,7 @@ function requestStateFor(model: RequestModel | undefined, thinkingLevel: Thinkin
 	};
 }
 
-function isAIHTraceTarget(state: RequestState, root: string): boolean {
+function isTsgwTraceTarget(state: RequestState, root: string): boolean {
 	if (state.provider !== PROVIDER_ID) return false;
 	try {
 		// Only trace requests that target the configured gateway root, so a
@@ -86,15 +89,18 @@ function isAIHTraceTarget(state: RequestState, root: string): boolean {
 	}
 }
 
-export default async function registerAih(pi: ExtensionAPI): Promise<void> {
-	const settings = readAihSettings();
+export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
+	const settings = readTsgwSettings();
 	const root = rootForRuntime(settings.baseUrl);
 	const webSearchMode: WebSearchMode =
 		settings.webSearch === "cached" || settings.webSearch === "live"
 			? settings.webSearch
-			: webSearchModeFromEnv(process.env.AIH_WEB_SEARCH);
-	const traceEnabled =
-		settings.traceHeaders === true || process.env.AIH_TRACE_HEADERS === "1";
+			: "off";
+	const traceEnabled = settings.traceHeaders === true;
+	const modelFilter: ModelFilter = {
+		include: settings.includeModels,
+		exclude: settings.excludeModels,
+	};
 	let requestState: RequestState | undefined;
 
 	const refreshRequestState = (ctx: { model: RequestModel | undefined; thinkingLevel?: ThinkingLevel }): void => {
@@ -102,11 +108,11 @@ export default async function registerAih(pi: ExtensionAPI): Promise<void> {
 	};
 
 	pi.registerProvider(PROVIDER_ID, {
-		name: "AIH",
+		name: "TSGW",
 		baseUrl: `${root}/v1`,
 		api: "openai-completions",
-		apiKey: "$AIH_API_KEY",
-		models: modelsForRoot(root),
+		apiKey: "$TSGW_API_KEY",
+		models: modelsForRoot(root, modelFilter),
 	});
 
 	pi.on("session_start", (_event, ctx) => {
@@ -125,12 +131,17 @@ export default async function registerAih(pi: ExtensionAPI): Promise<void> {
 	pi.on("before_provider_request", (event) => {
 		const state = requestState;
 		if (!state) return;
-		return applyModelOperations(event.payload, {
+		const context = {
 			provider: state.provider,
 			modelId: state.modelId,
 			api: state.api,
 			thinkingLevel: state.thinkingLevel,
-			webSearchMode,
+		};
+		// 模型模块：厂商思维链改写 → 网络模块：内置查询工具注入（两模块互不感知）。
+		return applyWebSearchTool(applyModelOperations(event.payload, context), {
+			modelId: state.modelId,
+			api: state.api,
+			mode: webSearchMode,
 		});
 	});
 
@@ -142,7 +153,7 @@ export default async function registerAih(pi: ExtensionAPI): Promise<void> {
 	});
 	pi.on("before_provider_headers", (event) => {
 		const state = requestState;
-		if (!state || !isAIHTraceTarget(state, root)) return;
+		if (!state || !isTsgwTraceTarget(state, root)) return;
 		if (!hasHeader(event.headers, "AH-Thread-Id")) event.headers["AH-Thread-Id"] = threadId;
 		if (!hasHeader(event.headers, "AH-Trace-Id")) event.headers["AH-Trace-Id"] = traceId;
 	});
