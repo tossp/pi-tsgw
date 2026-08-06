@@ -3,7 +3,9 @@
  *
  * 与模型模块平行、互不依赖：这里只维护"哪些模型支持内置查询"及注入
  * 格式，不读取模型目录数据。支持的模型：GPT 系列（OpenAI Responses
- * 协议）与 Grok 系列（xAI）。
+ * 协议）与 Grok 系列（xAI，工具名同为 `web_search`，见
+ * https://docs.x.ai/developers/tools/web-search）。Grok 的协议端点与
+ * 注入参数待其模型加入目录后按网关实际行为确认。
  */
 
 import {
@@ -14,7 +16,8 @@ import {
 
 const OPENAI_RESPONSES = "openai-responses";
 
-// 支持内置查询的模型名单。Grok 系列的注入格式待 xAI 文档确认后补充。
+// 支持内置查询的模型名单。Grok 系列工具格式已确认（`web_search`），
+// 待其协议端点确认后加入。
 const BUILTIN_SEARCH_MODELS = new Set([
 	"gpt-5.6-sol",
 	"gpt-5.6-terra",

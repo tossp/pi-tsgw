@@ -87,7 +87,7 @@ For the OpenAI Responses aliases, the installed Pi 0.82.0 implementation and the
 
 ### 内置查询（web-search 模块）
 
-`tsgw.webSearch` accepts only `off` (default), `cached`, and `live`. For models in the `BUILTIN_SEARCH_MODELS` list (GPT Responses aliases today; Grok pending xAI format confirmation) using the AIH/OpenAI Responses API, a missing `tools` field or an existing tools array gets this append-only operation unless any `web_search*` tool is already present:
+`tsgw.webSearch` accepts only `off` (default), `cached`, and `live`. For models in the `BUILTIN_SEARCH_MODELS` list (GPT Responses aliases today; Grok uses the same `web_search` tool name per xAI docs, pending gateway protocol confirmation) using the AIH/OpenAI Responses API, a missing `tools` field or an existing tools array gets this append-only operation unless any `web_search*` tool is already present:
 
 ```json
 {
