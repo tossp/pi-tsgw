@@ -3,7 +3,7 @@ import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 /**
  * Wire 协议公共配置。
  *
- * AIH 网关上的模型虽然很多，底层协议就这四类：openai-completions、
+ * 网关上的模型虽然很多，底层协议就这四类：openai-completions、
  * openai-responses、anthropic-messages、google-generative-ai。
  * 供应商分片从这里引用对应协议的公共 compat，避免各自重复定义。
  *

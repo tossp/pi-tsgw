@@ -24,7 +24,7 @@ export function longcatModels(root: string): ProviderModelConfig[] {
 	];
 }
 
-// OC/AIH 兼容策略：LongCat 的公开 HTTP thinking schema 未验证，用通用开关式。
+// OC/网关兼容策略：LongCat 的公开 HTTP thinking schema 未验证，用通用开关式。
 export const longcatThinking: Record<string, ThinkingApplier> = {
 	"longcat-2.0": (w, c) => applyEnabledThinking(w, c.thinkingLevel),
 };

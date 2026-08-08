@@ -4,7 +4,7 @@ import { isMaximum, type PayloadWriter, type ThinkingApplier, type ThinkingLevel
 
 // DeepSeek 在 openai-completions 协议基础上，要求 DeepSeek 特有 thinking 格式，
 // 且多轮（尤其工具调用）必须保留 reasoning_content。
-const AIH_DEEPSEEK_COMPAT = {
+const DEEPSEEK_COMPAT = {
 	...OPENAI_COMPLETIONS_COMPAT,
 	thinkingFormat: "deepseek" as const,
 	requiresReasoningContentOnAssistantMessages: true,
@@ -27,7 +27,7 @@ export function deepseekModels(root: string): ProviderModelConfig[] {
 			cost: { input: 0.1475, output: 0.295, cacheRead: 0.00295, cacheWrite: 0 },
 			contextWindow: 1000000,
 			maxTokens: 384000,
-			compat: AIH_DEEPSEEK_COMPAT,
+			compat: DEEPSEEK_COMPAT,
 			thinkingLevelMap: {
 				minimal: null,
 				low: null,
@@ -52,7 +52,7 @@ export function deepseekModels(root: string): ProviderModelConfig[] {
 			},
 			contextWindow: 1000000,
 			maxTokens: 384000,
-			compat: AIH_DEEPSEEK_COMPAT,
+			compat: DEEPSEEK_COMPAT,
 			thinkingLevelMap: {
 				minimal: null,
 				low: null,
