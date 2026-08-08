@@ -494,11 +494,11 @@ async function testSettingsConfig(): Promise<void> {
 		text: { verbosity: "medium" },
 	});
 
-	// `tsgw.includeModels` / `tsgw.excludeModels` filter the model catalog.
+	// `includeModels` pulls exact models back from broad `excludeModels` rules.
 	const piFiltered = await createPi({
 		tsgw: {
-			includeModels: ["glm-*"],
-			excludeModels: ["glm-5.1"],
+			includeModels: ["glm-5.1"],
+			excludeModels: ["glm-*"],
 		},
 	});
 	const filtered = piFiltered.providers.find(({ name }) => name === "tsgw");
@@ -507,12 +507,9 @@ async function testSettingsConfig(): Promise<void> {
 			?.models ?? []
 	).map(({ id }) => id);
 	equal(modelIds.length > 1, true);
-	equal(
-		modelIds.every((id) => id.startsWith("glm-")),
-		true,
-	);
-	equal(modelIds.includes("glm-5.2"), true);
-	equal(modelIds.includes("glm-5.1"), false);
+	equal(modelIds.some((id) => !id.startsWith("glm-")), true);
+	equal(modelIds.includes("glm-5.1"), true);
+	equal(modelIds.includes("glm-5.2"), false);
 
 	// Malformed or missing `tsgw` namespaces are ignored.
 	const piBroken = await createPi({ tsgw: "not-an-object" });

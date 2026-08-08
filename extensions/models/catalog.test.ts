@@ -59,17 +59,10 @@ function testFilterModels(): void {
 	equal(untouched.length, all.length);
 	strictEqual(untouched[0], all[0]);
 
-	// 白名单精确匹配。
-	deepStrictEqual(
-		filterModels(all, { include: ["glm-5.2"] }).map(({ id }) => id),
-		["glm-5.2"],
-	);
-
-	// 白名单前缀通配。
-	deepStrictEqual(
-		filterModels(all, { include: ["gpt-5.6-*"] }).map(({ id }) => id),
-		["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
-	);
+	// include 是拉回规则，不是全局白名单；未命中任何规则的模型仍保留。
+	const includeOnly = filterModels(all, { include: ["glm-5.2"] });
+	equal(includeOnly.length, all.length);
+	equal(includeOnly.some(({ id }) => id === "deepseek-v4-flash"), true);
 	// 黑名单精确匹配。
 	const excluded = filterModels(all, { exclude: ["claude-sonnet"] });
 	equal(
@@ -85,26 +78,25 @@ function testFilterModels(): void {
 		false,
 	);
 
-	// 黑白名单并存：黑名单优先于白名单。
+	// 黑白名单并存：include 拉回被系列黑名单排除的精确模型。
 	const both = filterModels(all, {
-		include: ["glm-*", "claude-*"],
-		exclude: ["glm-5.1", "claude-sonnet"],
+		include: ["glm-5.2", "claude-sonnet"],
+		exclude: ["glm-*", "claude-*"],
 	});
-	equal(
-		both.some(({ id }) => id.startsWith("glm-")),
-		true,
-	);
-	equal(
-		both.some(({ id }) => id.startsWith("claude-")),
-		true,
-	);
-	equal(
-		both.some(({ id }) => id === "glm-5.1"),
-		false,
-	);
-	equal(
-		both.some(({ id }) => id === "claude-sonnet"),
-		false,
+	equal(both.some(({ id }) => id === "glm-5.2"), true);
+	equal(both.some(({ id }) => id === "claude-sonnet"), true);
+	equal(both.some(({ id }) => id === "glm-5.1"), false);
+	equal(both.some(({ id }) => id === "claude-fable-5"), false);
+	// 双未命中仍保留。
+	equal(both.some(({ id }) => id === "deepseek-v4-flash"), true);
+
+	// `*` 命中全部，可配合 include 表达“全局只留这些”。
+	deepStrictEqual(
+		filterModels(all, {
+			exclude: ["*"],
+			include: ["glm-5.2", "gpt-5.6-*"],
+		}).map(({ id }) => id),
+		["glm-5.2", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
 	);
 }
 

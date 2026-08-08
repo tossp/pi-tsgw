@@ -6,7 +6,7 @@
 
 `pi-tsgw` 是 [Pi](https://pi.dev)（`@earendil-works/pi-coding-agent`）的扩展包（pi package），用于接入 **TOSSP AIH 网关**（兼容网关实例，地址由用户配置）。它向 Pi 注册 `tsgw` provider，提供：
 
-- **模型目录**（`extensions/models/`）：按供应商分片（`vendors/`），由 `catalog.ts` 拼接展开，横跨四种 wire 协议——`openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative-ai`；支持 `includeModels` / `excludeModels` 黑白名单过滤。
+- **模型目录**（`extensions/models/`）：按供应商分片（`vendors/`），由 `catalog.ts` 拼接展开，横跨四种 wire 协议——`openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative-ai`；支持 `excludeModels` 宽排除 + `includeModels` 精确拉回（拉回优先）。
 - **请求体改写**（厂商思维链策略下沉在各 `vendors/*.ts`，`operations.ts` 只做调度）：按厂商改写 thinking 档位、reasoning 格式、Google thinkingConfig 等，纯函数、copy-on-write。
 - **内置查询**（`extensions/models/web-search.ts`）：为支持内置查询的模型（GPT / Grok）追加原生搜索参数，属模型请求改写的一部分。
 - **独立查询工具**（`extensions/ts-search/`）：注册所有模型可调用的 `ts_search` 工具，通过网关的 GPT / Grok 后端执行联网查询。
@@ -17,7 +17,7 @@
 ## 当前状态（2026-08）
 
 - 从本机 Pi 全局扩展 `~/.pi/agent/extensions/aih` 抽离而来，已**脱敏**：源码/测试/文档中无真实网关地址（网关地址仅作为用户侧配置值，由用户自行填写），`DEFAULT_ROOT` 为中性占位符 `https://aih.example.com`，无任何密钥。
-- 配置机制：**settings.json 顶层 `tsgw` 命名空间**（`baseUrl` / `tsSearch` / `traceHeaders` / `includeModels` / `excludeModels`）→ 内置默认。**插件不读任何环境变量**；API key 由 Pi 凭据机制解析（`/login` 写入 `auth.json`，或 `TSGW_API_KEY` 环境变量兜底——后者是 Pi 宿主行为，插件不触碰）。provider id 为 `tsgw`。
+- 配置机制：**settings.json 顶层 `tsgw` 命名空间**（`baseUrl` / `tsSearch` / `traceHeaders` / `includeModels` / `excludeModels`）→ 内置默认；模型过滤采用 `include` 拉回优先语义，若要全局只留指定模型，使用 `excludeModels: ["*"]` 后由 `includeModels` 拉回。**插件不读任何环境变量**；API key 由 Pi 凭据机制解析（`/login` 写入 `auth.json`，或 `TSGW_API_KEY` 环境变量兜底——后者是 Pi 宿主行为，插件不触碰）。provider id 为 `tsgw`。
 - 结构：`extensions/index.ts`（薄入口）组装 `models/`（模型目录 + 思维链调度 + 内置查询注入）与独立的 `ts_search` 工具模块。
 - 测试：6 个测试文件（index / models/operations / models/catalog / models/web-search / models/gateway-catalog / ts-search），纯 npm 生态（tsc 编译 + node 运行），`FakePi` / `FakeContext` 模拟宿主，`PI_CODING_AGENT_DIR` 隔离配置目录。`npm run test` 全绿。
 - **模型扩充进行中**：从网关实际目录（173 个）筛选 8 家供应商新增约 42 个对话模型，规格/定价需从各官网查证后写入 vendors 分片。
@@ -39,7 +39,7 @@
 extensions/index.ts            # 唯一 Pi 宿主耦合点：配置读取 + registerProvider + 生命周期钩子 + 追踪
 extensions/index.test.ts       # 宿主集成测试（FakePi/FakeContext/withAgentDir）
 extensions/models/             # 模型模块（平行、独立）
-├── catalog.ts                 # 拼接 vendors + include/exclude 黑白名单过滤 + PROVIDER_ID/DEFAULT_ROOT/normalizeRoot
+├── catalog.ts                 # 拼接 vendors + exclude/include 拉回过滤 + PROVIDER_ID/DEFAULT_ROOT/normalizeRoot
 ├── catalog.test.ts            # 拼接/过滤/规范化纯函数测试
 ├── gateway-catalog.ts         # 网关模型列表加载 + TTL 缓存（纯逻辑）
 ├── gateway-catalog.test.ts    # 拉取失败回退、缓存命中/过期测试

@@ -41,7 +41,7 @@ export function normalizeRoot(value = DEFAULT_ROOT): string {
 	return url.toString().replace(/\/$/, "");
 }
 
-/** 模型黑白名单。`include` 只保留匹配的模型；`exclude` 始终生效（黑名单优先）。 */
+/** 模型黑白名单。`exclude` 负责排除；`include` 可拉回匹配项（拉回优先）。 */
 export interface ModelFilter {
 	include?: readonly string[];
 	exclude?: readonly string[];
@@ -57,7 +57,7 @@ function compilePatterns(patterns: readonly string[]): (id: string) => boolean {
 	return (id) => patterns.some((pattern) => matches(pattern, id));
 }
 
-/** 按黑白名单过滤模型目录；无过滤条件时原样返回。 */
+/** 按“拉回优先”语义过滤模型目录；无过滤条件时原样返回。 */
 export function filterModels(
 	models: readonly ProviderModelConfig[],
 	filter?: ModelFilter,
@@ -69,10 +69,11 @@ export function filterModels(
 	const exclude = filter.exclude?.length
 		? compilePatterns(filter.exclude)
 		: undefined;
-	return models.filter(
-		(model) =>
-			(!include || include(model.id)) && (!exclude || !exclude(model.id)),
-	);
+	return models.filter((model) => {
+		const included = include?.(model.id) ?? false;
+		const excluded = exclude?.(model.id) ?? false;
+		return included || !excluded;
+	});
 }
 
 /**

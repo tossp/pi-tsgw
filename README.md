@@ -38,8 +38,8 @@ Example:
     "baseUrl": "https://aih.example.net",
     "tsSearch": "off",
     "traceHeaders": false,
-    "includeModels": ["gpt-5.6-*", "claude-*"],
-    "excludeModels": ["gpt-5.3-*"]
+    "excludeModels": ["gpt-*", "claude-*"],
+    "includeModels": ["gpt-5.6-*"]
   }
 }
 ```
@@ -66,8 +66,8 @@ The extension never reads credential files. Pi resolves the key itself:
 | `baseUrl` | placeholder | Gateway root (the `/v1` suffix is normalized away) |
 | `tsSearch` | `off` | `off`, `cached`, or `live` — appends the built-in `web_search` tool for models with built-in search (GPT / Grok) |
 | `traceHeaders` | `false` | Adds `AH-Thread-Id` / `AH-Trace-Id` headers for gateway-side tracing |
-| `includeModels` | unset | Whitelist: only these model ids are registered (exact id or `prefix-*` glob) |
-| `excludeModels` | unset | Blacklist: these model ids are dropped (exact id or `prefix-*` glob); blacklist wins over whitelist |
+| `includeModels` | unset | Re-include override: matching model ids are kept even when also matched by `excludeModels` (exact id or `prefix-*` glob) |
+| `excludeModels` | unset | Blacklist: matching model ids are dropped unless pulled back by `includeModels` (exact id or `prefix-*` glob) |
 
 ## Model catalog
 
@@ -79,8 +79,11 @@ carries the official documentation URL in its header comment. Pricing entries
 mirror the vendors' public list prices; replace them with your gateway's
 actual pricing if it differs.
 
-Use `includeModels` / `excludeModels` to register only the models your
-gateway plan actually supports.
+Use broad `excludeModels` rules to drop model families and precise
+`includeModels` rules to pull selected models back. `includeModels` is not a
+global whitelist: models matching neither list remain available. To register
+only selected models, use `"excludeModels": ["*"]` and pull them back through
+`includeModels`.
 
 ## Development
 
