@@ -71,6 +71,7 @@ class FakeContext {
 
 class FakePi {
 	readonly providers: Array<{ name: string; config: unknown }> = [];
+	readonly tools: unknown[] = [];
 	private readonly handlers = new Map<HookName, unknown[]>();
 
 	on: ExtensionAPI["on"] = (event, handler) => {
@@ -79,7 +80,9 @@ class FakePi {
 		handlers.push(handler);
 		this.handlers.set(event, handlers);
 	};
-	registerTool: ExtensionAPI["registerTool"] = () => {};
+	registerTool: ExtensionAPI["registerTool"] = (tool) => {
+		this.tools.push(tool);
+	};
 	registerCommand: ExtensionAPI["registerCommand"] = () => {};
 	registerShortcut: ExtensionAPI["registerShortcut"] = () => {};
 	registerFlag: ExtensionAPI["registerFlag"] = () => {};
@@ -240,6 +243,35 @@ async function testChatCompletionsCompatibility(): Promise<void> {
 			`${model.id} must send its instruction prompt as system, not developer`,
 		);
 	}
+}
+
+async function testTsSearchRegistration(): Promise<void> {
+	const pi = await createPi();
+	const tool = pi.tools.find(
+		(candidate) =>
+			(candidate as { name?: string } | undefined)?.name === "ts_search",
+	);
+	if (!tool) throw new Error("expected ts_search tool registration");
+	const modelSchema = (
+		tool as {
+			parameters?: {
+				properties?: { model?: { anyOf?: Array<{ const?: unknown }> } };
+			};
+		}
+	).parameters?.properties?.model;
+	const modelIds = (modelSchema?.anyOf ?? []).map(({ const: value }) => value);
+	equal(modelIds.length > 0, true);
+	equal(
+		modelIds.every(
+			(id) =>
+				typeof id === "string" &&
+				(id.startsWith("gpt-") || id.startsWith("grok-")),
+		),
+		true,
+	);
+	equal(modelIds.includes("gpt-5.4"), true);
+	equal(modelIds.includes("grok-4.20-fast"), true);
+	equal(modelIds.includes("deepseek-v4-flash"), false);
 }
 
 async function testSafeProviderHooksAfterContextStales(): Promise<void> {
@@ -493,6 +525,7 @@ async function testSettingsConfig(): Promise<void> {
 
 async function main(): Promise<void> {
 	await testChatCompletionsCompatibility();
+	await testTsSearchRegistration();
 	await testSafeProviderHooksAfterContextStales();
 	await testLifecycleStateUpdates();
 	await testNoStateAndTraceLimits();

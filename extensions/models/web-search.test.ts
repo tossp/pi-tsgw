@@ -122,7 +122,12 @@ function testGrokSearchInjection(): void {
 	// off 模式不注入（原样返回，无 search_parameters）。
 	const offPayload: Payload = {};
 	strictEqual(
-		applyBuiltinSearchTool(offPayload, "grok-4.20", "openai-completions", "off"),
+		applyBuiltinSearchTool(
+			offPayload,
+			"grok-4.20",
+			"openai-completions",
+			"off",
+		),
 		offPayload,
 	);
 

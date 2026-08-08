@@ -8,7 +8,8 @@
 
 - **模型目录**（`extensions/models/`）：按供应商分片（`vendors/`），由 `catalog.ts` 拼接展开，横跨四种 wire 协议——`openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative-ai`；支持 `includeModels` / `excludeModels` 黑白名单过滤。
 - **请求体改写**（厂商思维链策略下沉在各 `vendors/*.ts`，`operations.ts` 只做调度）：按厂商改写 thinking 档位、reasoning 格式、Google thinkingConfig 等，纯函数、copy-on-write。
-- **内置查询**（`extensions/models/web-search.ts`）：为支持内置查询的模型（GPT / Grok）追加 `web_search` 工具，属模型请求改写的一部分。独立的 `ts_search` 工具（所有模型可用）为规划中的单独模块。
+- **内置查询**（`extensions/models/web-search.ts`）：为支持内置查询的模型（GPT / Grok）追加原生搜索参数，属模型请求改写的一部分。
+- **独立查询工具**（`extensions/ts-search/`）：注册所有模型可调用的 `ts_search` 工具，通过网关的 GPT / Grok 后端执行联网查询。
 - **网关追踪**（可选）：`AH-Thread-Id` / `AH-Trace-Id` 请求头，供网关侧链路追踪。
 
 定位：**公开项目**（MIT），发布为 pi package，供多台设备统一安装（`pi install git:...` 或 `npm:pi-tsgw`）。
@@ -17,8 +18,8 @@
 
 - 从本机 Pi 全局扩展 `~/.pi/agent/extensions/aih` 抽离而来，已**脱敏**：源码/测试/文档中无真实网关地址（网关地址仅作为用户侧配置值，由用户自行填写），`DEFAULT_ROOT` 为中性占位符 `https://aih.example.com`，无任何密钥。
 - 配置机制：**settings.json 顶层 `tsgw` 命名空间**（`baseUrl` / `tsSearch` / `traceHeaders` / `includeModels` / `excludeModels`）→ 内置默认。**插件不读任何环境变量**；API key 由 Pi 凭据机制解析（`/login` 写入 `auth.json`，或 `TSGW_API_KEY` 环境变量兜底——后者是 Pi 宿主行为，插件不触碰）。provider id 为 `tsgw`。
-- 结构：`extensions/index.ts`（薄入口）组装 `models/`（模型目录 + 思维链调度 + 内置查询注入）模块；独立的 `ts_search` 工具为规划中的单独模块。
-- 测试：4 个测试文件（index / models/operations / models/catalog / models/web-search），纯 npm 生态（tsc 编译 + node 运行），`FakePi` / `FakeContext` 模拟宿主，`PI_CODING_AGENT_DIR` 隔离配置目录。`npm run test` 全绿。
+- 结构：`extensions/index.ts`（薄入口）组装 `models/`（模型目录 + 思维链调度 + 内置查询注入）与独立的 `ts_search` 工具模块。
+- 测试：5 个测试文件（index / models/operations / models/catalog / models/web-search / ts-search），纯 npm 生态（tsc 编译 + node 运行），`FakePi` / `FakeContext` 模拟宿主，`PI_CODING_AGENT_DIR` 隔离配置目录。`npm run test` 全绿。
 - **模型扩充进行中**：从网关实际目录（173 个）筛选 8 家供应商新增约 42 个对话模型，规格/定价需从各官网查证后写入 vendors 分片。
 - **尚未 git init / 未发布**……（已发布至 github.com/tossp/pi-tsgw，main 分支；本机旧扩展 `~/.pi/agent/extensions/aih` 仍在被 Pi 加载，待本机切换后删除）。
 
@@ -29,8 +30,8 @@
 | Node | v24（含原生 type-stripping，但本仓库用 tsc 编译） |
 | npm | v11（**内置默认 `omit=dev`**，项目 `.npmrc` 已用 `omit[]=` 覆盖；npm 会对该空值打无害 warn） |
 | 编译器 | `typescript@7`（devDependency），tsconfig 开启 `allowImportingTsExtensions` + `rewriteRelativeImportExtensions`（源码 `.ts` 后缀导入编译时改写为 `.js`） |
-| 测试 | `npm run test` = `tsc && node dist/extensions/index.test.js && node dist/extensions/models/operations.test.js && node dist/extensions/models/catalog.test.js && node dist/extensions/models/web-search.test.js` |
-| 禁止 | 不使用 bun；不引入运行时依赖（当前运行时零依赖，仅 `@earendil-works/pi-coding-agent` 的 `import type` 类型 + `getAgentDir` 运行时导入） |
+| 测试 | `npm run test` = `tsc` + 5 个 node 测试（index / models/operations / models/catalog / models/web-search / ts-search） |
+| 禁止 | 不使用 bun；不引入运行时依赖（Pi 宿主提供 `@earendil-works/pi-coding-agent` 与 `typebox` peer） |
 
 ## 代码结构
 
@@ -47,8 +48,11 @@ extensions/models/             # 模型模块（平行、独立）
     ├── _protocols.ts          # 四种 wire 协议的公共 compat（下划线 = 内部模块）
     ├── deepseek.ts / glm.ts / mimo.ts / minimax.ts / kimi.ts
     ├── longcat.ts / qwen.ts / openai.ts / gemini.ts / anthropic.ts
-├── web-search.ts             # 内置查询注入：BUILTIN_SEARCH_MODELS + applyBuiltinSearchTool
+├── web-search.ts              # 内置查询注入：BUILTIN_SEARCH_MODELS + applyBuiltinSearchTool
 └── web-search.test.ts
+extensions/ts-search/          # 所有模型可调用的独立查询工具
+├── ts-search.ts               # 注册工具 + GPT/Grok 路由 + 结果合并
+└── ts-search.test.ts          # 模型选择、默认路由与请求体纯函数测试
 ```
 
 ## 关键约束（改动前必读）
@@ -97,6 +101,10 @@ For the OpenAI Responses aliases, the installed Pi 0.82.0 implementation and the
 ```
 
 `cached` uses `false`; `live` uses `true`. Existing function tools, `tool_choice`, and `include` are preserved. Pi 0.82.0 drops requested sources, so this operation deliberately does not request them.
+
+### 独立查询工具（ts-search/ts-search.ts）
+
+`ts_search` 对所有模型可见。调用方只提供查询，默认并行请求 `gpt-5.4` 与 `grok-4.20-fast`；可通过枚举参数选择单个已登记的 `gpt-*` / `grok-*` 后端。工具复用 Pi 为 `tsgw` provider 解析的 API key，通过网关 `chat/completions` 路由执行查询并合并答案与来源 URL。
 
 ### Pi 0.82.0 lifecycle compatibility
 

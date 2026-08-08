@@ -12,6 +12,7 @@ import {
 } from "./models/catalog.ts";
 import { applyModelOperations } from "./models/operations.ts";
 import type { ThinkingLevel, WebSearchMode } from "./models/_tools.ts";
+import { registerTsSearch } from "./ts-search/ts-search.ts";
 
 /**
  * The data needed by provider hooks, copied while the lifecycle context is
@@ -125,12 +126,19 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 		requestState = requestStateFor(ctx.model, ctx.thinkingLevel ?? "off");
 	};
 
+	const models = modelsForRoot(root, modelFilter);
 	pi.registerProvider(PROVIDER_ID, {
 		name: "TSGW",
 		baseUrl: `${root}/v1`,
 		api: "openai-completions",
 		apiKey: "$TSGW_API_KEY",
-		models: modelsForRoot(root, modelFilter),
+		models,
+	});
+	registerTsSearch(pi, {
+		baseUrl: root,
+		searchModels: models
+			.map(({ id }) => id)
+			.filter((id) => id.startsWith("gpt-") || id.startsWith("grok-")),
 	});
 
 	pi.on("session_start", (_event, ctx) => {
