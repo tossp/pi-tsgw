@@ -4,8 +4,17 @@ import { isPlainObject, type Payload, type WebSearchMode } from "./_tools.ts";
 
 const OPENAI_RESPONSES = "openai-responses";
 
-function apply(payload: unknown, modelId: string, mode: WebSearchMode): Payload {
-	const result = applyBuiltinSearchTool(payload, modelId, OPENAI_RESPONSES, mode);
+function apply(
+	payload: unknown,
+	modelId: string,
+	mode: WebSearchMode,
+): Payload {
+	const result = applyBuiltinSearchTool(
+		payload,
+		modelId,
+		OPENAI_RESPONSES,
+		mode,
+	);
 	if (!isPlainObject(result)) throw new Error("expected a plain object result");
 	return result;
 }
@@ -61,13 +70,23 @@ function testNoOpsAndScope(): void {
 	// 非内置查询名单内的模型不注入。
 	const nonSearch = { tools: [functionTool] };
 	strictEqual(
-		applyBuiltinSearchTool(nonSearch, "gpt-5.3-codex-spark", OPENAI_RESPONSES, "live"),
+		applyBuiltinSearchTool(
+			nonSearch,
+			"gpt-5.3-codex-spark",
+			OPENAI_RESPONSES,
+			"live",
+		),
 		nonSearch,
 	);
 
 	// 非 Responses 协议不注入。
 	strictEqual(
-		applyBuiltinSearchTool(nonSearch, "gpt-5.6-sol", "openai-completions", "live"),
+		applyBuiltinSearchTool(
+			nonSearch,
+			"gpt-5.6-sol",
+			"openai-completions",
+			"live",
+		),
 		nonSearch,
 	);
 
@@ -80,8 +99,44 @@ function testNoOpsAndScope(): void {
 		);
 }
 
+function testGrokSearchInjection(): void {
+	// Grok（openai-completions）注入 search_parameters: { mode: "on" }。
+	for (const modelId of [
+		"grok-4.20",
+		"grok-4.5",
+		"grok-4.3-low",
+		"grok-4.3-medium",
+		"grok-4.3-high",
+		"grok-4.20-fast",
+	]) {
+		const result = applyBuiltinSearchTool(
+			{ messages: [{ role: "user", content: "hi" }] },
+			modelId,
+			"openai-completions",
+			"cached",
+		);
+		if (!isPlainObject(result)) throw new Error("expected plain object");
+		deepStrictEqual(result.search_parameters, { mode: "on" });
+	}
+
+	// off 模式不注入（原样返回，无 search_parameters）。
+	const offPayload: Payload = {};
+	strictEqual(
+		applyBuiltinSearchTool(offPayload, "grok-4.20", "openai-completions", "off"),
+		offPayload,
+	);
+
+	// 已有 search_parameters 不重复注入。
+	const existing = { search_parameters: { mode: "off" } };
+	strictEqual(
+		applyBuiltinSearchTool(existing, "grok-4.20", "openai-completions", "live"),
+		existing,
+	);
+}
+
 const functionTool = { type: "function", name: "keep" };
 
 testBuiltinSearchInjection();
 testNoOpsAndScope();
+testGrokSearchInjection();
 console.log("web-search.test.ts: all assertions passed");

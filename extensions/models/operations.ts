@@ -15,6 +15,7 @@ import { applyBuiltinSearchTool } from "./web-search.ts";
 import { deepseekThinking } from "./vendors/deepseek.ts";
 import { geminiThinking } from "./vendors/gemini.ts";
 import { glmThinking } from "./vendors/glm.ts";
+import { grokThinking } from "./vendors/grok.ts";
 import { kimiThinking } from "./vendors/kimi.ts";
 import { longcatThinking } from "./vendors/longcat.ts";
 import { mimoThinking } from "./vendors/mimo.ts";
@@ -35,6 +36,7 @@ const THINKING_STRATEGIES: Record<string, ThinkingApplier> = {
 	...qwenThinking,
 	...openaiThinking,
 	...geminiThinking,
+	...grokThinking,
 };
 
 /**

@@ -13,8 +13,8 @@ function testCatalogConcatenation(): void {
 	const models = modelsForRoot(ROOT);
 	const ids = models.map(({ id }) => id);
 
-	// 10 家供应商分片拼接，共 59 个模型（22 原有 + 37 新增）。
-	equal(ids.length, 59);
+	// 11 家供应商分片拼接，共 65 个模型（原 59 + Grok 6）。
+	equal(ids.length, 65);
 	// id 全局唯一。
 	equal(new Set(ids).size, ids.length);
 
@@ -38,9 +38,9 @@ function testCatalogConcatenation(): void {
 		);
 	}
 
-	// 拼接顺序保持目录顺序（deepseek → … → claude）。
+	// 拼接顺序保持目录顺序（deepseek → … → claude → grok）。
 	equal(ids[0], "deepseek-v4-flash");
-	equal(ids[ids.length - 1], "claude-sonnet-5");
+	equal(ids[ids.length - 1], "grok-4.20-fast");
 
 	// 模型 baseUrl 按协议端点派生。
 	const deepseek = models.find(({ id }) => id === "deepseek-v4-flash");

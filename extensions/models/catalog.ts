@@ -3,6 +3,7 @@ import { anthropicModels } from "./vendors/anthropic.ts";
 import { deepseekModels } from "./vendors/deepseek.ts";
 import { geminiModels } from "./vendors/gemini.ts";
 import { glmModels } from "./vendors/glm.ts";
+import { grokModels } from "./vendors/grok.ts";
 import { kimiModels } from "./vendors/kimi.ts";
 import { longcatModels } from "./vendors/longcat.ts";
 import { mimoModels } from "./vendors/mimo.ts";
@@ -95,6 +96,7 @@ export function modelsForRoot(
 		...openaiModels(root),
 		...geminiModels(root),
 		...anthropicModels(root),
+		...grokModels(root),
 	];
 	return filterModels(models, filter);
 }
