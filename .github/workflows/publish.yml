@@ -1,7 +1,7 @@
 name: Publish to npm
 
 # 打 v* tag 时自动构建、测试并发布到 npm registry。
-# 前提：GitHub 仓库 Secrets 中配置 NPM_TOKEN（npmjs.com 的 automation token）。
+# 发布走 trusted publishing (OIDC)：npmjs.com 包设置里已授权本仓库 workflow，无需 token。
 on:
   push:
     tags:
@@ -29,5 +29,3 @@ jobs:
       - run: npm test
 
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
