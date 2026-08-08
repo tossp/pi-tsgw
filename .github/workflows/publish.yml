@@ -29,3 +29,11 @@ jobs:
       - run: npm test
 
       - run: npm publish --provenance --access public
+
+      # 发布后主动触发 npmmirror 同步，缩短国内镜像拉取新版本的时间窗口。
+      # 镜像同步是异步任务，失败也不影响 npm 发布本身，故不阻塞 job。
+      - name: Sync npmmirror mirror
+        continue-on-error: true
+        run: |
+          curl -fsS -X PUT "https://registry.npmmirror.com/-/package/pi-tsgw/syncs" \
+            -o /dev/null -w "npmmirror sync: HTTP %{http_code}\n"
