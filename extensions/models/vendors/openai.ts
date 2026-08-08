@@ -226,10 +226,11 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 	];
 }
 
-// GPT Responses 思维链：保留 Pi 的 `reasoning`，固定 `service_tier=flex`，按别名调文本 verbosity。
+// GPT Responses 思维链：保留 Pi 的 `reasoning`，按别名调文本 verbosity。
+// 不写 service_tier：flex 为 beta 有限支持（受模型/账号限制），会被 OpenAI upstream 以
+// 400 "Unsupported service_tier: flex" 拒绝，让请求走项目默认 tier。
 function applyOpenAIResponses(writer: PayloadWriter, modelId: string): void {
 	const verbosity = modelId === "gpt-5.6-terra" ? "medium" : "low";
-	writer.set("service_tier", "flex");
 	writer.setTextVerbosity(verbosity);
 }
 

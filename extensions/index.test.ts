@@ -267,7 +267,6 @@ async function testSafeProviderHooksAfterContextStales(): Promise<void> {
 				external_web_access: false,
 			},
 		],
-		service_tier: "flex",
 		text: { verbosity: "medium" },
 	});
 	const headers: Record<string, string | null> = {};
@@ -422,7 +421,6 @@ async function testOldInstanceCallbacksKeepOwnSnapshot(): Promise<void> {
 						external_web_access: false,
 					},
 				],
-				service_tier: "flex",
 				text: { verbosity: "medium" },
 			},
 			`${replacement.label}: late old callback must retain its own state`,
@@ -461,7 +459,6 @@ async function testSettingsConfig(): Promise<void> {
 				external_web_access: true,
 			},
 		],
-		service_tier: "flex",
 		text: { verbosity: "medium" },
 	});
 

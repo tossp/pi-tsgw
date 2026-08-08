@@ -1,6 +1,6 @@
 {
   "name": "pi-tsgw",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Pi extension for the TOSSP AIH gateway: per-vendor model catalog and thinking operations for openai-completions, openai-responses, anthropic-messages, and google-generative-ai wire protocols.",
   "type": "module",
   "keywords": [

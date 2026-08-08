@@ -77,7 +77,7 @@ extensions/models/             # 模型模块（平行、独立）
 | Qwen 3.7 | thinking/preserve false; remove budget options | thinking/preserve true + 6000/agent-max/code-interpreter | same as high |
 | Gemini Flash | thoughts false, budget 0 | thoughts true, budget 16000 | `xhigh=16000`, `max=24576` |
 | Gemini Pro | thoughts false + `thinkingLevel=LOW` | thoughts true + `HIGH` | `HIGH` |
-| GPT Responses | retain Pi's `reasoning`; set `service_tier=flex`, text verbosity by alias | same | same |
+| GPT Responses | retain Pi's `reasoning`; text verbosity by alias; no `service_tier` (flex is beta, model/account-limited — upstream rejects with 400) | same | same |
 | Claude | Pi native adaptive thinking; no operation | no operation | no operation |
 
 For GLM, `tool_stream=true` is added only when the already-built payload has `stream === true`. Lower GLM levels retain Pi's existing native mapping rather than inventing an unverified provider strength. LongCat is explicitly an OC/AIH compatibility policy because its public HTTP thinking schema was not verified. The extension does not tighten `catalog.ts` thinking maps, so no model's current default `medium` level is newly clamped.

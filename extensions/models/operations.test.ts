@@ -350,7 +350,6 @@ function testOpenAIResponsesProfiles(): void {
 				include: ["reasoning.encrypted_content"],
 				store: false,
 				parallel_tool_calls: false,
-				service_tier: "flex",
 			});
 			strictEqual(result.reasoning, reasoning);
 		}
