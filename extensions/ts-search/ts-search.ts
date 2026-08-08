@@ -1,11 +1,6 @@
 /**
- * 独立搜索工具（ts_search）：供所有模型直接调用的统一搜索入口。
- *
- * 与模型模块的内置查询注入（models/web-search.ts）分离：
- * - 内置查询注入：GPT/Grok 模型请求时自动附加搜索能力
- * - 本工具：任何模型主动调用，内部通过固定的 GPT / Grok 后端联网搜索
- *
- * 工具只接收查询；搜索后端由扩展维护，避免调用方猜测或误选模型。
+ * 独立搜索工具（ts_search）：任何模型均可通过配置或内置的 GPT / Grok
+ * 后端执行联网搜索。模型模块自身的内置查询注入在 models/web-search.ts。
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -13,22 +8,21 @@ import { Type } from "typebox";
 
 export interface TsSearchOptions {
 	baseUrl: string;
-	/** 凭据 provider（默认 tsgw，走 Pi 凭据机制）。 */
 	apiKeyProvider?: string;
-	/** @deprecated 固定白名单已内置；仅兼容旧 index.ts，值会被忽略。 */
 	searchModels?: readonly string[];
 }
 
 export const DEFAULT_SEARCH_MODELS = ["gpt-5.6-luna", "grok-chat-fast"] as const;
 const CHAT_COMPLETIONS_PATH = "v1/chat/completions";
-
+const MAX_ATTEMPTS = 3;
+const REQUEST_TIMEOUT_MS = 45_000;
+const RETRY_DELAY_MS = 1_000;
 const SEARCH_PROMPT = [
 	"Answer the user's question using the latest available information from the web.",
 	"Be concise.",
 	"If sources are available, include only the most relevant source URLs needed to support the answer; avoid link dumping.",
 	"If no live web information is available, reply exactly: NO_LIVE_WEB.",
 ].join(" ");
-
 type SearchFamily = "gpt" | "grok";
 
 export function detectSearchFamily(
@@ -40,8 +34,28 @@ export function detectSearchFamily(
 	return "unsupported";
 }
 
-export function resolveSearchModels(): string[] {
-	return [...DEFAULT_SEARCH_MODELS];
+export function resolveSearchModels(
+	options: Pick<TsSearchOptions, "searchModels"> = {},
+): string[] {
+	if (!options.searchModels) return [...DEFAULT_SEARCH_MODELS];
+
+	const models: string[] = [];
+	const seen = new Set<string>();
+	for (const value of options.searchModels as readonly unknown[]) {
+		const model = typeof value === "string" ? value.trim() : "";
+		if (!model || detectSearchFamily(model) === "unsupported") {
+			console.warn(
+				`TSGW: ignoring invalid ts_search model ${JSON.stringify(value)}; expected gpt-* or grok-*`,
+			);
+			continue;
+		}
+		if (!seen.has(model)) {
+			seen.add(model);
+			models.push(model);
+		}
+	}
+
+	return models.length > 0 ? models : [...DEFAULT_SEARCH_MODELS];
 }
 
 export function buildSearchUrl(baseUrl: string): string {
@@ -146,7 +160,7 @@ export function buildSearchPayload(
 	return { model, messages, search_parameters: { mode: "on" } };
 }
 
-interface RouteResult {
+export interface RouteResult {
 	ok: boolean;
 	model: string;
 	family: SearchFamily;
@@ -156,76 +170,197 @@ interface RouteResult {
 	error: string;
 }
 
-async function executeSearchRoute(
+export interface SearchRetryOptions {
+	delayMs?: number;
+	requestTimeoutMs?: number;
+	fetch?: typeof fetch;
+}
+
+interface SearchAttemptResult {
+	result: RouteResult;
+	retryable: boolean;
+}
+
+function failedAttempt(
+	model: string,
+	family: SearchFamily,
+	error: string,
+	retryable: boolean,
+	requestId = "",
+): SearchAttemptResult {
+	return {
+		result: { ...buildFailure(model, family, error), requestId },
+		retryable,
+	};
+}
+
+function requestSignal(
+	signal: AbortSignal | undefined,
+	timeoutMs: number,
+): AbortSignal {
+	const timeout = AbortSignal.timeout(timeoutMs);
+	return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+function waitForRetry(
+	delayMs: number,
+	signal: AbortSignal | undefined,
+): Promise<void> {
+	if (delayMs <= 0) return Promise.resolve();
+	if (signal?.aborted) return Promise.reject(signal.reason);
+
+	return new Promise((resolve, reject) => {
+		const onAbort = (): void => {
+			clearTimeout(timer);
+			reject(signal?.reason);
+		};
+		const timer = setTimeout(() => {
+			signal?.removeEventListener("abort", onAbort);
+			resolve();
+		}, delayMs);
+		signal?.addEventListener("abort", onAbort, { once: true });
+	});
+}
+
+async function executeSearchAttempt(
 	model: string,
 	query: string,
 	apiKey: string,
 	baseUrl: string,
 	signal: AbortSignal | undefined,
-): Promise<RouteResult> {
+	fetchImpl: typeof fetch,
+	requestTimeoutMs: number,
+): Promise<SearchAttemptResult> {
 	const family = detectSearchFamily(model);
-	if (family === "unsupported") {
-		return buildFailure(model, "gpt", `不支持的模型系列：${model}`);
-	}
+	if (family === "unsupported")
+		return failedAttempt(model, "gpt", `不支持的模型系列：${model}`, false);
+	if (signal?.aborted)
+		return failedAttempt(model, family, "请求已取消。", false);
 
 	let response: Response;
 	try {
-		response = await fetch(buildSearchUrl(baseUrl), {
+		response = await fetchImpl(buildSearchUrl(baseUrl), {
 			method: "POST",
 			headers: {
 				authorization: `Bearer ${apiKey}`,
 				"content-type": "application/json",
 			},
 			body: JSON.stringify(buildSearchPayload(model, family, query)),
-			signal,
+			signal: requestSignal(signal, requestTimeoutMs),
 		});
 	} catch (error) {
-		return buildFailure(
+		return failedAttempt(
 			model,
 			family,
-			`请求失败：${error instanceof Error ? error.message : String(error)}`,
+			signal?.aborted
+				? "请求已取消。"
+				: `请求失败：${error instanceof Error ? error.message : String(error)}`,
+			!signal?.aborted,
 		);
 	}
 
 	const requestId = response.headers.get("ah-request-id") ?? "";
-	const bodyText = await response.text();
-	if (!response.ok) {
-		return {
-			...buildFailure(
-				model,
-				family,
-				`网关请求失败：HTTP ${response.status} ${response.statusText}\n${bodyText}`,
-			),
+	let bodyText: string;
+	try {
+		bodyText = await response.text();
+	} catch (error) {
+		return failedAttempt(
+			model,
+			family,
+			signal?.aborted
+				? "请求已取消。"
+				: `读取网关响应失败：${error instanceof Error ? error.message : String(error)}`,
+			!signal?.aborted,
 			requestId,
-		};
+		);
 	}
+	if (!response.ok)
+		return failedAttempt(
+			model,
+			family,
+			`网关请求失败：HTTP ${response.status} ${response.statusText}\n${bodyText}`,
+			response.status === 429 || response.status >= 500,
+			requestId,
+		);
 
 	try {
 		const parsed: unknown = JSON.parse(bodyText);
 		if (parsed && typeof parsed === "object") {
 			const record = parsed as Record<string, unknown>;
 			return {
-				ok: true,
-				model,
-				family,
-				answer: extractAnswer(record) || JSON.stringify(record),
-				urls: Array.from(collectUrls(record)),
-				requestId,
-				error: "",
+				result: {
+					ok: true,
+					model,
+					family,
+					answer: extractAnswer(record) || JSON.stringify(record),
+					urls: Array.from(collectUrls(record)),
+					requestId,
+					error: "",
+				},
+				retryable: false,
 			};
 		}
 	} catch {
 		// 非 JSON 响应按纯文本处理。
 	}
 	return {
-		ok: true,
-		model,
-		family,
-		answer: bodyText || "网关返回空响应。",
-		urls: Array.from(collectUrls(bodyText)),
-		requestId,
-		error: "",
+		result: {
+			ok: true,
+			model,
+			family,
+			answer: bodyText || "网关返回空响应。",
+			urls: Array.from(collectUrls(bodyText)),
+			requestId,
+			error: "",
+		},
+		retryable: false,
 	};
+}
+
+export async function retrySearchRoute(
+	model: string,
+	query: string,
+	apiKey: string,
+	baseUrl: string,
+	signal: AbortSignal | undefined,
+	options: SearchRetryOptions = {},
+): Promise<RouteResult> {
+	const delayMs = options.delayMs ?? RETRY_DELAY_MS;
+	const requestTimeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
+	const fetchImpl = options.fetch ?? globalThis.fetch;
+	let lastResult = buildFailure(model, "gpt", "搜索请求未执行。");
+
+	for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
+		const current = await executeSearchAttempt(
+			model,
+			query,
+			apiKey,
+			baseUrl,
+			signal,
+			fetchImpl,
+			requestTimeoutMs,
+		);
+		lastResult = current.result;
+		if (
+			current.result.ok ||
+			!current.retryable ||
+			attempt === MAX_ATTEMPTS - 1
+		)
+			return current.result;
+
+		try {
+			await waitForRetry(delayMs * 2 ** attempt, signal);
+		} catch {
+			const family = detectSearchFamily(model);
+			return buildFailure(
+				model,
+				family === "grok" ? "grok" : "gpt",
+				"请求已取消。",
+			);
+		}
+	}
+
+	return lastResult;
 }
 
 function buildFailure(
@@ -288,11 +423,11 @@ function renderMergedResult(results: RouteResult[]): string {
 	return lines.join("\n");
 }
 
-/** 注册 ts_search 工具，固定并行请求白名单内的 GPT + Grok 后端。 */
 export function registerTsSearch(
 	pi: ExtensionAPI,
 	options: TsSearchOptions,
 ): void {
+	const models = resolveSearchModels(options);
 	const argsSchema = Type.Object({
 		query: Type.String({ minLength: 1, description: "搜索查询" }),
 	});
@@ -340,10 +475,9 @@ export function registerTsSearch(
 				};
 			}
 
-			const models = resolveSearchModels();
 			const settled = await Promise.allSettled(
 				models.map((model) =>
-					executeSearchRoute(model, query, apiKey, options.baseUrl, signal),
+					retrySearchRoute(model, query, apiKey, options.baseUrl, signal),
 				),
 			);
 			const results = settled.map((item, index) => {
