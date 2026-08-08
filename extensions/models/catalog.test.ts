@@ -62,7 +62,10 @@ function testFilterModels(): void {
 	// include 是拉回规则，不是全局白名单；未命中任何规则的模型仍保留。
 	const includeOnly = filterModels(all, { include: ["glm-5.2"] });
 	equal(includeOnly.length, all.length);
-	equal(includeOnly.some(({ id }) => id === "deepseek-v4-flash"), true);
+	equal(
+		includeOnly.some(({ id }) => id === "deepseek-v4-flash"),
+		true,
+	);
 	// 黑名单精确匹配。
 	const excluded = filterModels(all, { exclude: ["claude-sonnet"] });
 	equal(
@@ -83,12 +86,27 @@ function testFilterModels(): void {
 		include: ["glm-5.2", "claude-sonnet"],
 		exclude: ["glm-*", "claude-*"],
 	});
-	equal(both.some(({ id }) => id === "glm-5.2"), true);
-	equal(both.some(({ id }) => id === "claude-sonnet"), true);
-	equal(both.some(({ id }) => id === "glm-5.1"), false);
-	equal(both.some(({ id }) => id === "claude-fable-5"), false);
+	equal(
+		both.some(({ id }) => id === "glm-5.2"),
+		true,
+	);
+	equal(
+		both.some(({ id }) => id === "claude-sonnet"),
+		true,
+	);
+	equal(
+		both.some(({ id }) => id === "glm-5.1"),
+		false,
+	);
+	equal(
+		both.some(({ id }) => id === "claude-fable-5"),
+		false,
+	);
 	// 双未命中仍保留。
-	equal(both.some(({ id }) => id === "deepseek-v4-flash"), true);
+	equal(
+		both.some(({ id }) => id === "deepseek-v4-flash"),
+		true,
+	);
 
 	// `*` 命中全部，可配合 include 表达“全局只留这些”。
 	deepStrictEqual(

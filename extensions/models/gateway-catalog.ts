@@ -29,8 +29,7 @@ export interface FetchGatewayModelIdsOptions {
 	fetcher?: GatewayFetch;
 }
 
-export interface GetGatewayModelIdsOptions
-	extends FetchGatewayModelIdsOptions {
+export interface GetGatewayModelIdsOptions extends FetchGatewayModelIdsOptions {
 	cacheFilePath?: string;
 }
 

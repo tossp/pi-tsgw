@@ -2,12 +2,10 @@
  * 独立搜索工具（ts_search）：供所有模型直接调用的统一搜索入口。
  *
  * 与模型模块的内置查询注入（models/web-search.ts）分离：
- * - 内置查询注入：GPT/Grok 模型请求时自动附加搜索能力（原生 web_search / search_parameters）
- * - 本工具：任何模型（DeepSeek、GLM、Qwen…）主动调用，内部通过网关的
- *   GPT / Grok 模型执行联网搜索并返回结果
+ * - 内置查询注入：GPT/Grok 模型请求时自动附加搜索能力
+ * - 本工具：任何模型主动调用，内部通过固定的 GPT / Grok 后端联网搜索
  *
- * 默认并行请求 GPT + Grok 两个后端；`model` 参数为枚举可选项（由目录中
- * 所有 gpt-* / grok-* 模型生成），模型从列表中选择，避免猜测模型名。
+ * 工具只接收查询；搜索后端由扩展维护，避免调用方猜测或误选模型。
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -15,14 +13,13 @@ import { Type } from "typebox";
 
 export interface TsSearchOptions {
 	baseUrl: string;
-	/** 可选的搜索后端模型（gpt-* / grok-*），供工具参数枚举。 */
-	searchModels: readonly string[];
 	/** 凭据 provider（默认 tsgw，走 Pi 凭据机制）。 */
 	apiKeyProvider?: string;
+	/** @deprecated 固定白名单已内置；仅兼容旧 index.ts，值会被忽略。 */
+	searchModels?: readonly string[];
 }
 
-const DEFAULT_GPT_MODEL = "gpt-5.4";
-const DEFAULT_GROK_MODEL = "grok-4.20-fast";
+export const DEFAULT_SEARCH_MODELS = ["gpt-5.6-luna", "grok-4.20"] as const;
 const CHAT_COMPLETIONS_PATH = "v1/chat/completions";
 
 const SEARCH_PROMPT = [
@@ -32,29 +29,19 @@ const SEARCH_PROMPT = [
 	"If no live web information is available, reply exactly: NO_LIVE_WEB.",
 ].join(" ");
 
+type SearchFamily = "gpt" | "grok";
+
 export function detectSearchFamily(
 	model: string,
-): "gpt" | "grok" | "unsupported" {
+): SearchFamily | "unsupported" {
 	const lower = model.toLowerCase();
 	if (lower.startsWith("gpt-")) return "gpt";
 	if (lower.startsWith("grok-")) return "grok";
 	return "unsupported";
 }
 
-export function filterSearchModels(models: readonly string[]): string[] {
-	return Array.from(
-		new Set(
-			models.filter(
-				(model) => detectSearchFamily(model) !== "unsupported",
-			),
-		),
-	);
-}
-
-function buildModelEnum(
-	models: readonly string[],
-): ReturnType<typeof Type.Literal>[] {
-	return filterSearchModels(models).map((model) => Type.Literal(model));
+export function resolveSearchModels(): string[] {
+	return [...DEFAULT_SEARCH_MODELS];
 }
 
 export function buildSearchUrl(baseUrl: string): string {
@@ -113,8 +100,7 @@ function collectUrls(input: unknown, output = new Set<string>()): Set<string> {
 		return output;
 	}
 	if (!input || typeof input !== "object") return output;
-	const record = input as Record<string, unknown>;
-	for (const [key, value] of Object.entries(record)) {
+	for (const [key, value] of Object.entries(input)) {
 		if (typeof value === "string" && key.toLowerCase().includes("url")) {
 			collectUrls(value, output);
 			continue;
@@ -137,7 +123,7 @@ function collectUrls(input: unknown, output = new Set<string>()): Set<string> {
 
 export function buildSearchPayload(
 	model: string,
-	family: "gpt" | "grok",
+	family: SearchFamily,
 	query: string,
 ): Record<string, unknown> {
 	const messages = [
@@ -145,25 +131,25 @@ export function buildSearchPayload(
 		{ role: "user", content: query },
 	];
 	if (family === "gpt") {
-		return { model, messages, tools: [{ type: "web_search" }] };
+		return {
+			model,
+			messages,
+			tools: [
+				{
+					type: "web_search",
+					search_context_size: "medium",
+					external_web_access: true,
+				},
+			],
+		};
 	}
 	return { model, messages, search_parameters: { mode: "on" } };
-}
-
-export function resolveSearchModels(model?: string): string[] {
-	if (!model) return [DEFAULT_GPT_MODEL, DEFAULT_GROK_MODEL];
-	if (detectSearchFamily(model) === "unsupported") {
-		throw new Error(
-			`unsupported model "${model}"; only gpt-* or grok-* models are allowed`,
-		);
-	}
-	return [model];
 }
 
 interface RouteResult {
 	ok: boolean;
 	model: string;
-	family: "gpt" | "grok";
+	family: SearchFamily;
 	answer: string;
 	urls: string[];
 	requestId: string;
@@ -179,54 +165,38 @@ async function executeSearchRoute(
 ): Promise<RouteResult> {
 	const family = detectSearchFamily(model);
 	if (family === "unsupported") {
-		return {
-			ok: false,
-			model,
-			family: "gpt",
-			answer: "",
-			urls: [],
-			requestId: "",
-			error: `unsupported model family: ${model}`,
-		};
+		return buildFailure(model, "gpt", `不支持的模型系列：${model}`);
 	}
-
-	const endpoint = buildSearchUrl(baseUrl);
-	const payload = buildSearchPayload(model, family, query);
 
 	let response: Response;
 	try {
-		response = await fetch(endpoint, {
+		response = await fetch(buildSearchUrl(baseUrl), {
 			method: "POST",
 			headers: {
 				authorization: `Bearer ${apiKey}`,
 				"content-type": "application/json",
 			},
-			body: JSON.stringify(payload),
+			body: JSON.stringify(buildSearchPayload(model, family, query)),
 			signal,
 		});
 	} catch (error) {
-		return {
-			ok: false,
+		return buildFailure(
 			model,
 			family,
-			answer: "",
-			urls: [],
-			requestId: "",
-			error: `request failed: ${error instanceof Error ? error.message : String(error)}`,
-		};
+			`请求失败：${error instanceof Error ? error.message : String(error)}`,
+		);
 	}
 
 	const requestId = response.headers.get("ah-request-id") ?? "";
 	const bodyText = await response.text();
 	if (!response.ok) {
 		return {
-			ok: false,
-			model,
-			family,
-			answer: "",
-			urls: [],
+			...buildFailure(
+				model,
+				family,
+				`网关请求失败：HTTP ${response.status} ${response.statusText}\n${bodyText}`,
+			),
 			requestId,
-			error: `HTTP ${response.status} ${response.statusText}\n${bodyText}`,
 		};
 	}
 
@@ -251,50 +221,22 @@ async function executeSearchRoute(
 		ok: true,
 		model,
 		family,
-		answer: bodyText || "empty response body",
+		answer: bodyText || "网关返回空响应。",
 		urls: Array.from(collectUrls(bodyText)),
 		requestId,
 		error: "",
 	};
 }
 
-function renderMergedResult(results: RouteResult[]): string {
-	const gpt = results.find((item) => item.family === "gpt");
-	const grok = results.find((item) => item.family === "grok");
-	const mergedUrls = Array.from(new Set(results.flatMap((item) => item.urls)));
-	const succeeded = results.filter((item) => item.ok).length;
-	const allFailed = succeeded === 0;
-	const lines = [
-		"backend: tsgw",
-		`result: ${allFailed ? "failed" : succeeded === results.length ? "success" : "partial-success"}`,
-		"searched models:",
-		`- gpt: ${gpt?.model ?? "n/a"}`,
-		`- grok: ${grok?.model ?? "n/a"}`,
-		"gpt answer:",
-		gpt?.ok
-			? gpt.answer || "No answer returned."
-			: `[failed] ${gpt?.error ?? "unknown"}`,
-		"grok answer:",
-		grok?.ok
-			? grok.answer || "No answer returned."
-			: `[failed] ${grok?.error ?? "unknown"}`,
-		"merged source URLs:",
-	];
-	if (mergedUrls.length) {
-		for (const url of mergedUrls) lines.push(`- ${url}`);
-	} else {
-		lines.push("- none");
-	}
-	if (allFailed) lines.push("failure summary: all search routes failed.");
-	return lines.join("\n");
-}
-
-function buildFailure(model: string, error: string): RouteResult {
-	const family = detectSearchFamily(model);
+function buildFailure(
+	model: string,
+	family: SearchFamily,
+	error: string,
+): RouteResult {
 	return {
 		ok: false,
 		model,
-		family: family === "grok" ? "grok" : "gpt",
+		family,
 		answer: "",
 		urls: [],
 		requestId: "",
@@ -302,23 +244,57 @@ function buildFailure(model: string, error: string): RouteResult {
 	};
 }
 
-/**
- * 注册 ts_search 工具。默认并行请求 GPT + Grok；`model` 参数（枚举）可指定
- * 单后端。枚举由 searchModels（目录中 gpt-* / grok-* 模型）生成，模型从
- * 列表中选，避免猜测模型名。
- */
+function renderMergedResult(results: RouteResult[]): string {
+	const succeeded = results.filter((item) => item.ok);
+	const failed = results.filter((item) => !item.ok);
+	const status =
+		succeeded.length === results.length
+			? "成功"
+			: succeeded.length > 0
+				? "部分成功"
+				: "失败";
+	const lines = ["后端：tsgw", `状态：${status}`];
+
+	if (succeeded.length === 0) {
+		const summary = failed
+			.map(
+				(item) =>
+					`${item.family}（${item.model}）：${item.error || "未知错误"}`,
+			)
+			.join("；");
+		lines.push(`全部搜索后端失败：${summary}`);
+		return lines.join("\n");
+	}
+
+	for (const item of succeeded) {
+		lines.push(
+			`${item.family}（${item.model}）结果：`,
+			item.answer || "未返回答案。",
+		);
+	}
+
+	const mergedUrls = Array.from(
+		new Set(succeeded.flatMap((item) => item.urls)),
+	);
+	lines.push("来源链接：");
+	if (mergedUrls.length) {
+		for (const url of mergedUrls) lines.push(`- ${url}`);
+	} else {
+		lines.push("- 无");
+	}
+	for (const item of failed) {
+		lines.push(`注：${item.family} 后端不可用，已跳过。`);
+	}
+	return lines.join("\n");
+}
+
+/** 注册 ts_search 工具，固定并行请求白名单内的 GPT + Grok 后端。 */
 export function registerTsSearch(
 	pi: ExtensionAPI,
 	options: TsSearchOptions,
 ): void {
-	const modelEnum = buildModelEnum(options.searchModels);
 	const argsSchema = Type.Object({
 		query: Type.String({ minLength: 1, description: "搜索查询" }),
-		model: Type.Optional(
-			Type.Union(
-				modelEnum.length ? modelEnum : [Type.Literal(DEFAULT_GPT_MODEL)],
-			),
-		),
 	});
 
 	pi.registerTool({
@@ -329,42 +305,24 @@ export function registerTsSearch(
 		parameters: argsSchema,
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const query = params.query.trim();
-			const requested = params.model ?? "";
-
 			if (!query) {
 				return {
-					content: [{ type: "text", text: "ts_search: query is empty." }],
-					details: {},
-				};
-			}
-			let models: string[];
-			try {
-				models = resolveSearchModels(requested || undefined);
-			} catch (error) {
-				return {
-					content: [
-						{
-							type: "text",
-							text: `ts_search: ${error instanceof Error ? error.message : String(error)}`,
-						},
-					],
+					content: [{ type: "text", text: "ts_search：查询内容不能为空。" }],
 					details: {},
 				};
 			}
 
-			// 解析凭据：优先指定的 provider，默认 tsgw。
+			const apiKeyProvider = options.apiKeyProvider ?? "tsgw";
 			let apiKey = "";
 			try {
 				apiKey =
-					(await ctx.modelRegistry.getApiKeyForProvider(
-						options.apiKeyProvider ?? "tsgw",
-					)) ?? "";
+					(await ctx.modelRegistry.getApiKeyForProvider(apiKeyProvider)) ?? "";
 			} catch (error) {
 				return {
 					content: [
 						{
 							type: "text",
-							text: `ts_search: failed to resolve API key: ${error instanceof Error ? error.message : String(error)}`,
+							text: `ts_search：解析 API key 失败：${error instanceof Error ? error.message : String(error)}`,
 						},
 					],
 					details: {},
@@ -375,14 +333,14 @@ export function registerTsSearch(
 					content: [
 						{
 							type: "text",
-							text: "ts_search: no API key resolved for provider tsgw. Run /login to configure it.",
+							text: `ts_search：未找到 ${apiKeyProvider} provider 的 API key，请运行 /login 完成配置。`,
 						},
 					],
 					details: {},
 				};
 			}
 
-			// 路由：默认 GPT + Grok 并行；指定 model 时只走对应 family。
+			const models = resolveSearchModels();
 			const settled = await Promise.allSettled(
 				models.map((model) =>
 					executeSearchRoute(model, query, apiKey, options.baseUrl, signal),
@@ -390,7 +348,13 @@ export function registerTsSearch(
 			);
 			const results = settled.map((item, index) => {
 				if (item.status === "fulfilled") return item.value;
-				return buildFailure(models[index], String(item.reason));
+				const model = models[index];
+				const family = detectSearchFamily(model);
+				return buildFailure(
+					model,
+					family === "grok" ? "grok" : "gpt",
+					`搜索路由异常：${String(item.reason)}`,
+				);
 			});
 
 			return {

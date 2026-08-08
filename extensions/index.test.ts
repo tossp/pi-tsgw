@@ -252,26 +252,16 @@ async function testTsSearchRegistration(): Promise<void> {
 			(candidate as { name?: string } | undefined)?.name === "ts_search",
 	);
 	if (!tool) throw new Error("expected ts_search tool registration");
-	const modelSchema = (
+	// 新设计：工具只接受 query，无可选 model 参数（后端白名单由扩展内置维护）。
+	const properties = (
 		tool as {
 			parameters?: {
-				properties?: { model?: { anyOf?: Array<{ const?: unknown }> } };
+				properties?: Record<string, unknown>;
 			};
 		}
-	).parameters?.properties?.model;
-	const modelIds = (modelSchema?.anyOf ?? []).map(({ const: value }) => value);
-	equal(modelIds.length > 0, true);
-	equal(
-		modelIds.every(
-			(id) =>
-				typeof id === "string" &&
-				(id.startsWith("gpt-") || id.startsWith("grok-")),
-		),
-		true,
-	);
-	equal(modelIds.includes("gpt-5.4"), true);
-	equal(modelIds.includes("grok-4.20-fast"), true);
-	equal(modelIds.includes("deepseek-v4-flash"), false);
+	).parameters?.properties;
+	equal(typeof properties?.query, "object");
+	equal(properties?.model, undefined);
 }
 
 async function testSafeProviderHooksAfterContextStales(): Promise<void> {
@@ -507,7 +497,10 @@ async function testSettingsConfig(): Promise<void> {
 			?.models ?? []
 	).map(({ id }) => id);
 	equal(modelIds.length > 1, true);
-	equal(modelIds.some((id) => !id.startsWith("glm-")), true);
+	equal(
+		modelIds.some((id) => !id.startsWith("glm-")),
+		true,
+	);
 	equal(modelIds.includes("glm-5.1"), true);
 	equal(modelIds.includes("glm-5.2"), false);
 
