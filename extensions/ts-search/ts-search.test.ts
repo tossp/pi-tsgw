@@ -78,12 +78,12 @@ function textOf(result: ToolTextResult): string {
 }
 
 function testFixedRoutesAndPayloads(): void {
-	deepStrictEqual(DEFAULT_SEARCH_MODELS, ["gpt-5.6-luna", "grok-4.20"]);
-	deepStrictEqual(resolveSearchModels(), ["gpt-5.6-luna", "grok-4.20"]);
+	deepStrictEqual(DEFAULT_SEARCH_MODELS, ["gpt-5.6-luna", "grok-chat-fast"]);
+	deepStrictEqual(resolveSearchModels(), ["gpt-5.6-luna", "grok-chat-fast"]);
 
 	const routes = resolveSearchModels();
 	routes[0] = "mutated";
-	deepStrictEqual(resolveSearchModels(), ["gpt-5.6-luna", "grok-4.20"]);
+	deepStrictEqual(resolveSearchModels(), ["gpt-5.6-luna", "grok-chat-fast"]);
 
 	strictEqual(
 		buildSearchUrl("https://gateway.example.com"),
@@ -109,7 +109,7 @@ function testFixedRoutesAndPayloads(): void {
 	strictEqual(gpt.search_parameters, undefined);
 
 	const grok = buildSearchPayload(
-		"grok-4.20",
+		"grok-chat-fast",
 		"grok",
 		"latest TypeScript news",
 	);
@@ -168,7 +168,7 @@ async function testPartialSuccessAndRegisteredSchema(): Promise<void> {
 
 	deepStrictEqual(
 		requests.map((request) => request.model),
-		["gpt-5.6-luna", "grok-4.20"],
+		["gpt-5.6-luna", "grok-chat-fast"],
 	);
 	for (const request of requests) {
 		strictEqual(

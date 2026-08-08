@@ -19,7 +19,7 @@ export interface TsSearchOptions {
 	searchModels?: readonly string[];
 }
 
-export const DEFAULT_SEARCH_MODELS = ["gpt-5.6-luna", "grok-4.20"] as const;
+export const DEFAULT_SEARCH_MODELS = ["gpt-5.6-luna", "grok-chat-fast"] as const;
 const CHAT_COMPLETIONS_PATH = "v1/chat/completions";
 
 const SEARCH_PROMPT = [
