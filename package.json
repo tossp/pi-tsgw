@@ -15,16 +15,13 @@
     "type": "git",
     "url": "git+https://github.com/tossp/pi-tsgw.git"
   },
-  "files": [
-    "extensions"
-  ],
   "pi": {
     "extensions": [
       "./extensions/index.ts"
     ]
   },
   "scripts": {
-    "test": "tsc && node dist/extensions/index.test.js && node dist/extensions/models/operations.test.js && node dist/extensions/models/catalog.test.js && node dist/extensions/web-search/web-search.test.js"
+    "test": "tsc -p tsconfig.test.json && node dist/extensions/index.test.js && node dist/extensions/models/operations.test.js && node dist/extensions/models/catalog.test.js && node dist/extensions/web-search/web-search.test.js"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.82.0"

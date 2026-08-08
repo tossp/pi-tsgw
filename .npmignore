@@ -1,0 +1,14 @@
+# 测试文件不发布
+*.test.ts
+# 构建产物与开发配置
+dist/
+.github/
+.pi-subagents/
+.pi-lens/
+AGENTS.md
+tsconfig.json
+tsconfig.test.json
+.npmrc
+.gitignore
+.npmignore
+package-lock.json
