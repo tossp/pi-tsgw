@@ -86,6 +86,7 @@ class FakePi {
 	getFlag: ExtensionAPI["getFlag"] = () => undefined;
 	registerMessageRenderer: ExtensionAPI["registerMessageRenderer"] = () => {};
 	registerEntryRenderer: ExtensionAPI["registerEntryRenderer"] = () => {};
+	registerMarkdownTransformer: ExtensionAPI["registerMarkdownTransformer"] = () => {};
 	sendMessage: ExtensionAPI["sendMessage"] = () => {};
 	sendUserMessage: ExtensionAPI["sendUserMessage"] = () => {};
 	appendEntry: ExtensionAPI["appendEntry"] = () => {};
