@@ -19,7 +19,7 @@
 - 从本机 Pi 全局扩展 `~/.pi/agent/extensions/aih` 抽离而来，已**脱敏**：源码/测试/文档中无真实网关地址（网关地址仅作为用户侧配置值，由用户自行填写），`DEFAULT_ROOT` 为中性占位符 `https://aih.example.com`，无任何密钥。
 - 配置机制：**settings.json 顶层 `tsgw` 命名空间**（`baseUrl` / `tsSearch` / `traceHeaders` / `includeModels` / `excludeModels`）→ 内置默认。**插件不读任何环境变量**；API key 由 Pi 凭据机制解析（`/login` 写入 `auth.json`，或 `TSGW_API_KEY` 环境变量兜底——后者是 Pi 宿主行为，插件不触碰）。provider id 为 `tsgw`。
 - 结构：`extensions/index.ts`（薄入口）组装 `models/`（模型目录 + 思维链调度 + 内置查询注入）与独立的 `ts_search` 工具模块。
-- 测试：5 个测试文件（index / models/operations / models/catalog / models/web-search / ts-search），纯 npm 生态（tsc 编译 + node 运行），`FakePi` / `FakeContext` 模拟宿主，`PI_CODING_AGENT_DIR` 隔离配置目录。`npm run test` 全绿。
+- 测试：6 个测试文件（index / models/operations / models/catalog / models/web-search / models/gateway-catalog / ts-search），纯 npm 生态（tsc 编译 + node 运行），`FakePi` / `FakeContext` 模拟宿主，`PI_CODING_AGENT_DIR` 隔离配置目录。`npm run test` 全绿。
 - **模型扩充进行中**：从网关实际目录（173 个）筛选 8 家供应商新增约 42 个对话模型，规格/定价需从各官网查证后写入 vendors 分片。
 - **尚未 git init / 未发布**……（已发布至 github.com/tossp/pi-tsgw，main 分支；本机旧扩展 `~/.pi/agent/extensions/aih` 仍在被 Pi 加载，待本机切换后删除）。
 
@@ -30,7 +30,7 @@
 | Node | v24（含原生 type-stripping，但本仓库用 tsc 编译） |
 | npm | v11（**内置默认 `omit=dev`**，项目 `.npmrc` 已用 `omit[]=` 覆盖；npm 会对该空值打无害 warn） |
 | 编译器 | `typescript@7`（devDependency），tsconfig 开启 `allowImportingTsExtensions` + `rewriteRelativeImportExtensions`（源码 `.ts` 后缀导入编译时改写为 `.js`） |
-| 测试 | `npm run test` = `tsc` + 5 个 node 测试（index / models/operations / models/catalog / models/web-search / ts-search） |
+| 测试 | `npm run test` = `tsc` + 6 个 node 测试（index / models/operations / models/catalog / models/web-search / models/gateway-catalog / ts-search） |
 | 禁止 | 不使用 bun；不引入运行时依赖（Pi 宿主提供 `@earendil-works/pi-coding-agent` 与 `typebox` peer） |
 
 ## 代码结构
@@ -41,6 +41,8 @@ extensions/index.test.ts       # 宿主集成测试（FakePi/FakeContext/withAge
 extensions/models/             # 模型模块（平行、独立）
 ├── catalog.ts                 # 拼接 vendors + include/exclude 黑白名单过滤 + PROVIDER_ID/DEFAULT_ROOT/normalizeRoot
 ├── catalog.test.ts            # 拼接/过滤/规范化纯函数测试
+├── gateway-catalog.ts         # 网关模型列表加载 + TTL 缓存（纯逻辑）
+├── gateway-catalog.test.ts    # 拉取失败回退、缓存命中/过期测试
 ├── operations.ts              # 思维链调度：汇总 vendors 策略 → 按 modelId 查表应用（薄）
 ├── operations.test.ts         # 思维链改写测试（deepFreeze 输入）
 ├── _tools.ts                  # 内部工具层：PayloadWriter / 类型 / 通用 thinking 辅助（下划线 = 内部模块）
