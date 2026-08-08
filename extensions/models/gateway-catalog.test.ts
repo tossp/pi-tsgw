@@ -1,9 +1,19 @@
 import { deepStrictEqual, equal, strictEqual } from "node:assert";
 import {
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
 	createModelCache,
 	DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
 	fetchGatewayModelIds,
 	getGatewayModelIds,
+	loadGatewayModelCache,
+	saveGatewayModelCache,
 	type GatewayFetch,
 	type GatewayModelFailureReason,
 } from "./gateway-catalog.ts";
@@ -218,15 +228,148 @@ async function testConcurrentRequestDeduplication(): Promise<void> {
 	equal(calls, 1);
 	resolveResponse?.(jsonResponse({ data: [{ id: "gpt-5.4" }] }));
 	const results = await Promise.all([first, second]);
-	strictEqual(results.every((result) => result.ok), true);
+	strictEqual(
+		results.every((result) => result.ok),
+		true,
+	);
 }
 
-await testSuccessfulFetch();
-await testFetchFailures();
-testModelCache();
-await testFreshCacheHit();
-await testExpiredCacheRefresh();
-await testStaleFallback();
-await testFailureWithoutCache();
-await testConcurrentRequestDeduplication();
+function testPersistedCacheRoundTrip(directory: string): void {
+	const cacheFilePath = join(directory, "round-trip.json");
+	const source = ["gpt-5.6-luna", "grok-4.20"];
+	saveGatewayModelCache(cacheFilePath, source, 100);
+	source.push("mutated");
+
+	deepStrictEqual(JSON.parse(readFileSync(cacheFilePath, "utf8")), {
+		storedAt: 100,
+		ids: ["gpt-5.6-luna", "grok-4.20"],
+	});
+	const loaded = loadGatewayModelCache(cacheFilePath, 101);
+	deepStrictEqual(loaded, {
+		ids: ["gpt-5.6-luna", "grok-4.20"],
+		fresh: true,
+	});
+	loaded?.ids.push("also-mutated");
+	deepStrictEqual(loadGatewayModelCache(cacheFilePath, 101)?.ids, [
+		"gpt-5.6-luna",
+		"grok-4.20",
+	]);
+}
+
+function testInvalidPersistedCache(directory: string): void {
+	const cacheFilePath = join(directory, "invalid.json");
+	writeFileSync(cacheFilePath, "not-json", "utf8");
+	strictEqual(loadGatewayModelCache(cacheFilePath), undefined);
+	strictEqual(
+		loadGatewayModelCache(join(directory, "missing.json")),
+		undefined,
+	);
+}
+
+function testPersistFailureIsIgnored(directory: string): void {
+	const nonDirectory = join(directory, "not-a-directory");
+	writeFileSync(nonDirectory, "block nested writes", "utf8");
+	const cacheFilePath = join(nonDirectory, "cache.json");
+	saveGatewayModelCache(cacheFilePath, ["gpt-5.6-luna"], 100);
+	strictEqual(loadGatewayModelCache(cacheFilePath), undefined);
+}
+
+function testExpiredPersistedCache(directory: string): void {
+	const cacheFilePath = join(directory, "expired.json");
+	saveGatewayModelCache(cacheFilePath, ["gpt-5.6-luna"], 100);
+	deepStrictEqual(
+		loadGatewayModelCache(
+			cacheFilePath,
+			100 + DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
+		),
+		{ ids: ["gpt-5.6-luna"], fresh: false },
+	);
+}
+
+async function testFreshDiskCacheHit(directory: string): Promise<void> {
+	const cacheFilePath = join(directory, "fresh-hit.json");
+	saveGatewayModelCache(cacheFilePath, ["gpt-5.6-luna"], 100);
+	let calls = 0;
+	const result = await getGatewayModelIds(
+		"https://fresh-disk-cache.example.com",
+		"key",
+		{
+			cacheFilePath,
+			fetcher: async () => {
+				calls += 1;
+				return jsonResponse({ data: [{ id: "unexpected" }] });
+			},
+		},
+		101,
+	);
+
+	if (!result.ok) throw new Error("expected persisted cache hit");
+	equal(calls, 0);
+	equal(result.cached, true);
+	equal(result.stale, false);
+	deepStrictEqual(result.ids, ["gpt-5.6-luna"]);
+}
+
+async function testSuccessfulFetchPersistsDiskCache(
+	directory: string,
+): Promise<void> {
+	const cacheFilePath = join(directory, "fetch-write.json");
+	const result = await getGatewayModelIds(
+		"https://persist-after-fetch.example.com",
+		"key",
+		{
+			cacheFilePath,
+			fetcher: async () =>
+				jsonResponse({ data: [{ id: "gpt-5.6-luna" }, { id: "grok-4.20" }] }),
+		},
+		200,
+	);
+
+	if (!result.ok) throw new Error("expected successful refresh");
+	deepStrictEqual(loadGatewayModelCache(cacheFilePath, 200), {
+		ids: ["gpt-5.6-luna", "grok-4.20"],
+		fresh: true,
+	});
+}
+
+async function testStaleDiskFallback(directory: string): Promise<void> {
+	const cacheFilePath = join(directory, "stale-fallback.json");
+	saveGatewayModelCache(cacheFilePath, ["grok-4.20"], 0);
+	const result = await getGatewayModelIds(
+		"https://stale-disk-cache.example.com",
+		"key",
+		{
+			cacheFilePath,
+			fetcher: async () => new Response("unavailable", { status: 503 }),
+		},
+		DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
+	);
+
+	if (!result.ok) throw new Error("expected stale persisted fallback");
+	equal(result.cached, true);
+	equal(result.stale, true);
+	equal(result.fallbackReason, "http");
+	deepStrictEqual(result.ids, ["grok-4.20"]);
+}
+
+const cacheDirectory = mkdtempSync(join(tmpdir(), "pi-tsgw-model-cache-"));
+try {
+	await testSuccessfulFetch();
+	await testFetchFailures();
+	testModelCache();
+	await testFreshCacheHit();
+	await testExpiredCacheRefresh();
+	await testStaleFallback();
+	await testFailureWithoutCache();
+	await testConcurrentRequestDeduplication();
+	testPersistedCacheRoundTrip(cacheDirectory);
+	testInvalidPersistedCache(cacheDirectory);
+	testPersistFailureIsIgnored(cacheDirectory);
+	testExpiredPersistedCache(cacheDirectory);
+	await testFreshDiskCacheHit(cacheDirectory);
+	await testSuccessfulFetchPersistsDiskCache(cacheDirectory);
+	await testStaleDiskFallback(cacheDirectory);
+} finally {
+	rmSync(cacheDirectory, { recursive: true, force: true });
+}
 console.log("gateway-catalog.test.ts: all assertions passed");
