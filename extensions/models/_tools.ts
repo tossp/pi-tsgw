@@ -20,6 +20,7 @@ export interface ModelOperationContext {
 	modelId: string;
 	api: string;
 	thinkingLevel: ThinkingLevel;
+	tsSearchMode: WebSearchMode;
 }
 
 export type Payload = Record<string, unknown>;

@@ -1,23 +1,11 @@
 import { deepStrictEqual, equal, strictEqual } from "node:assert";
-import { applyWebSearchTool } from "./ts-search.ts";
-import {
-	isPlainObject,
-	type Payload,
-	type WebSearchMode,
-} from "../models/_tools.ts";
+import { applyBuiltinSearchTool } from "./web-search.ts";
+import { isPlainObject, type Payload, type WebSearchMode } from "./_tools.ts";
 
 const OPENAI_RESPONSES = "openai-responses";
 
-function apply(
-	payload: unknown,
-	modelId: string,
-	mode: WebSearchMode,
-): Payload {
-	const result = applyWebSearchTool(payload, {
-		modelId,
-		api: OPENAI_RESPONSES,
-		mode,
-	});
+function apply(payload: unknown, modelId: string, mode: WebSearchMode): Payload {
+	const result = applyBuiltinSearchTool(payload, modelId, OPENAI_RESPONSES, mode);
 	if (!isPlainObject(result)) throw new Error("expected a plain object result");
 	return result;
 }
@@ -73,21 +61,13 @@ function testNoOpsAndScope(): void {
 	// 非内置查询名单内的模型不注入。
 	const nonSearch = { tools: [functionTool] };
 	strictEqual(
-		applyWebSearchTool(nonSearch, {
-			modelId: "gpt-5.3-codex-spark",
-			api: OPENAI_RESPONSES,
-			mode: "live",
-		}),
+		applyBuiltinSearchTool(nonSearch, "gpt-5.3-codex-spark", OPENAI_RESPONSES, "live"),
 		nonSearch,
 	);
 
 	// 非 Responses 协议不注入。
 	strictEqual(
-		applyWebSearchTool(nonSearch, {
-			modelId: "gpt-5.6-sol",
-			api: "openai-completions",
-			mode: "live",
-		}),
+		applyBuiltinSearchTool(nonSearch, "gpt-5.6-sol", "openai-completions", "live"),
 		nonSearch,
 	);
 
@@ -95,11 +75,7 @@ function testNoOpsAndScope(): void {
 	const nonPlain = [null, [], new Date()] as const;
 	for (const payload of nonPlain)
 		strictEqual(
-			applyWebSearchTool(payload, {
-				modelId: "gpt-5.6-sol",
-				api: OPENAI_RESPONSES,
-				mode: "live",
-			}),
+			applyBuiltinSearchTool(payload, "gpt-5.6-sol", OPENAI_RESPONSES, "live"),
 			payload,
 		);
 }
@@ -108,4 +84,4 @@ const functionTool = { type: "function", name: "keep" };
 
 testBuiltinSearchInjection();
 testNoOpsAndScope();
-console.log("ts-search.test.ts: all assertions passed");
+console.log("web-search.test.ts: all assertions passed");

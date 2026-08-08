@@ -32,7 +32,7 @@ function context(
 	api = "openai-completions",
 	thinkingLevel: ThinkingLevel = "high",
 ): ModelOperationContext {
-	return { provider: "tsgw", modelId, api, thinkingLevel };
+	return { provider: "tsgw", modelId, api, thinkingLevel, tsSearchMode: "off" };
 }
 
 function apply(

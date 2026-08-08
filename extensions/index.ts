@@ -12,7 +12,6 @@ import {
 } from "./models/catalog.ts";
 import { applyModelOperations } from "./models/operations.ts";
 import type { ThinkingLevel, WebSearchMode } from "./models/_tools.ts";
-import { applyWebSearchTool } from "./ts-search/ts-search.ts";
 
 /**
  * The data needed by provider hooks, copied while the lifecycle context is
@@ -159,13 +158,10 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 			modelId: state.modelId,
 			api: state.api,
 			thinkingLevel: state.thinkingLevel,
+			tsSearchMode: tsSearchMode,
 		};
-		// 模型模块：厂商思维链改写 → 网络模块：内置查询工具注入（两模块互不感知）。
-		return applyWebSearchTool(applyModelOperations(event.payload, context), {
-			modelId: state.modelId,
-			api: state.api,
-			mode: tsSearchMode,
-		});
+		// 模型模块统一完成请求改写：厂商思维链策略 + 内置查询工具注入。
+		return applyModelOperations(event.payload, context);
 	});
 
 	if (!traceEnabled) return;

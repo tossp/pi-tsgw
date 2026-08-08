@@ -11,6 +11,7 @@ import {
 	type ModelOperationContext,
 	type ThinkingApplier,
 } from "./_tools.ts";
+import { applyBuiltinSearchTool } from "./web-search.ts";
 import { deepseekThinking } from "./vendors/deepseek.ts";
 import { geminiThinking } from "./vendors/gemini.ts";
 import { glmThinking } from "./vendors/glm.ts";
@@ -50,5 +51,11 @@ export function applyModelOperations(
 	const writer = new PayloadWriter(payload);
 	const applier = THINKING_STRATEGIES[context.modelId];
 	if (applier) applier(writer, context);
-	return writer.result();
+	// 思维链改写后，再为支持内置查询的模型注入 web_search 工具。
+	return applyBuiltinSearchTool(
+		writer.result(),
+		context.modelId,
+		context.api,
+		context.tsSearchMode,
+	);
 }

@@ -1,18 +1,18 @@
 /**
- * 网络模块：内置查询（built-in web search）工具注入。
+ * 内置查询注入（Built-in web search tool injection）。
  *
- * 与模型模块平行、互不依赖：这里只维护"哪些模型支持内置查询"及注入
- * 格式，不读取模型目录数据。支持的模型：GPT 系列（OpenAI Responses
- * 协议）与 Grok 系列（xAI，工具名同为 `web_search`，见
- * https://docs.x.ai/developers/tools/web-search）。Grok 的协议端点与
- * 注入参数待其模型加入目录后按网关实际行为确认。
+ * 对原生支持内置查询的模型（GPT Responses / Grok，工具名 `web_search`），
+ * 在请求改写阶段把该工具追加进工具集。属于模型请求改写的一部分，
+ * 与思维链策略一起在 `before_provider_request` 中应用。
+ *
+ * 独立的 ts_search 工具（所有模型可用）单独实现，与内置查询注入分离。
  */
 
 import {
 	isPlainObject,
 	PayloadWriter,
 	type WebSearchMode,
-} from "../models/_tools.ts";
+} from "./_tools.ts";
 
 const OPENAI_RESPONSES = "openai-responses";
 
@@ -32,12 +32,6 @@ function isExistingWebSearchTool(tools: readonly unknown[]): boolean {
 	});
 }
 
-export interface WebSearchContext {
-	modelId: string;
-	api: string;
-	mode: WebSearchMode;
-}
-
 /**
  * Append-only web_search tool injection for models with built-in search.
  * Non-plain payloads and unsupported models are returned unchanged.
@@ -46,15 +40,14 @@ export interface WebSearchContext {
  * function tools, `tool_choice`, and `include` are preserved. Pi drops
  * requested sources, so this operation deliberately does not request them.
  */
-export function applyWebSearchTool(
+export function applyBuiltinSearchTool(
 	payload: unknown,
-	context: WebSearchContext,
+	modelId: string,
+	api: string,
+	mode: WebSearchMode,
 ): unknown {
-	if (!isPlainObject(payload) || context.mode === "off") return payload;
-	if (
-		context.api !== OPENAI_RESPONSES ||
-		!BUILTIN_SEARCH_MODELS.has(context.modelId)
-	)
+	if (!isPlainObject(payload) || mode === "off") return payload;
+	if (api !== OPENAI_RESPONSES || !BUILTIN_SEARCH_MODELS.has(modelId))
 		return payload;
 	const writer = new PayloadWriter(payload);
 	const tools = writer.get("tools");
@@ -66,7 +59,7 @@ export function applyWebSearchTool(
 		{
 			type: "web_search",
 			search_context_size: "medium",
-			external_web_access: context.mode === "live",
+			external_web_access: mode === "live",
 		},
 	]);
 	return writer.result();
