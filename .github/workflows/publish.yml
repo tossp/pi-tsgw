@@ -1,0 +1,32 @@
+name: Publish to npm
+
+# 打 v* tag 时自动构建、测试并发布到 npm registry。
+# 前提：GitHub 仓库 Secrets 中配置 NPM_TOKEN（npmjs.com 的 automation token）。
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # 用于 npm publish --provenance 的 OIDC 签名
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # 项目 .npmrc 已用 omit[]= 覆盖 npm 11 的默认 omit=dev，CI 会安装 dev 依赖
+      - run: npm ci
+
+      # 发布前完整验证
+      - run: npm test
+
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -11,6 +11,9 @@
     "models"
   ],
   "license": "MIT",
+  "files": [
+    "extensions"
+  ],
   "pi": {
     "extensions": [
       "./extensions/index.ts"
