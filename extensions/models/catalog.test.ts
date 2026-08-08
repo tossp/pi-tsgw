@@ -90,10 +90,22 @@ function testFilterModels(): void {
 		include: ["glm-*", "claude-*"],
 		exclude: ["glm-5.1", "claude-sonnet"],
 	});
-	equal(both.some(({ id }) => id.startsWith("glm-")), true);
-	equal(both.some(({ id }) => id.startsWith("claude-")), true);
-	equal(both.some(({ id }) => id === "glm-5.1"), false);
-	equal(both.some(({ id }) => id === "claude-sonnet"), false);
+	equal(
+		both.some(({ id }) => id.startsWith("glm-")),
+		true,
+	);
+	equal(
+		both.some(({ id }) => id.startsWith("claude-")),
+		true,
+	);
+	equal(
+		both.some(({ id }) => id === "glm-5.1"),
+		false,
+	);
+	equal(
+		both.some(({ id }) => id === "claude-sonnet"),
+		false,
+	);
 }
 
 function testNormalizeRoot(): void {

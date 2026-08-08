@@ -476,7 +476,10 @@ async function testSettingsConfig(): Promise<void> {
 			?.models ?? []
 	).map(({ id }) => id);
 	equal(modelIds.length > 1, true);
-	equal(modelIds.every((id) => id.startsWith("glm-")), true);
+	equal(
+		modelIds.every((id) => id.startsWith("glm-")),
+		true,
+	);
 	equal(modelIds.includes("glm-5.2"), true);
 	equal(modelIds.includes("glm-5.1"), false);
 
