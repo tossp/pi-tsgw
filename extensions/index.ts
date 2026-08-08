@@ -176,43 +176,46 @@ async function resolveEffectiveModels(
 }
 
 export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
-const settings = readTsgwSettings();
-const root = rootForRuntime(settings.baseUrl);
-const tsSearchMode: WebSearchMode =
-settings.tsSearch === "cached" || settings.tsSearch === "live"
-? settings.tsSearch
-: "off";
-const traceEnabled = settings.traceHeaders === true;
-const modelFilter: ModelFilter = {
-include: settings.includeModels,
-exclude: settings.excludeModels,
-};
-let requestState: RequestState | undefined;
+	const settings = readTsgwSettings();
+	const root = rootForRuntime(settings.baseUrl);
+	const tsSearchMode: WebSearchMode =
+		settings.tsSearch === "cached" || settings.tsSearch === "live"
+			? settings.tsSearch
+			: "off";
+	const traceEnabled = settings.traceHeaders === true;
+	const modelFilter: ModelFilter = {
+		include: settings.includeModels,
+		exclude: settings.excludeModels,
+	};
+	let requestState: RequestState | undefined;
 
-const refreshRequestState = (ctx: {
-model: RequestModel | undefined;
-thinkingLevel?: ThinkingLevel;
-}): void => {
-requestState = requestStateFor(ctx.model, ctx.thinkingLevel ?? "off");
-};
+	const refreshRequestState = (ctx: {
+		model: RequestModel | undefined;
+		thinkingLevel?: ThinkingLevel;
+	}): void => {
+		requestState = requestStateFor(ctx.model, ctx.thinkingLevel ?? "off");
+	};
 
-// 三层模型过滤：静态目录 ∩ 网关实际列表 ∩ 用户黑白名单。
-const { models, gatewayIds } = await resolveEffectiveModels(root, modelFilter);
-pi.registerProvider(PROVIDER_ID, {
-name: "TSGW",
-baseUrl: `${root}/v1`,
-api: "openai-completions",
-apiKey: "$TSGW_API_KEY",
-models,
-});
+	// 三层模型过滤：静态目录 ∩ 网关实际列表 ∩ 用户黑白名单。
+	const { models, gatewayIds } = await resolveEffectiveModels(
+		root,
+		modelFilter,
+	);
+	pi.registerProvider(PROVIDER_ID, {
+		name: "TSGW",
+		baseUrl: `${root}/v1`,
+		api: "openai-completions",
+		apiKey: "$TSGW_API_KEY",
+		models,
+	});
 
-// ts_search 条件注册：固定白名单后端与可用模型列表有交集才注册，
-// 否则失活（避免注册一个无后端可用的死工具）。
-const availableIds =
-gatewayIds ?? new Set(modelsForRoot(root).map(({ id }) => id));
-if (DEFAULT_SEARCH_MODELS.some((id) => gatewayHasModel(availableIds, id))) {
-registerTsSearch(pi, { baseUrl: root });
-}
+	// ts_search 条件注册：固定白名单后端与可用模型列表有交集才注册，
+	// 否则失活（避免注册一个无后端可用的死工具）。
+	const availableIds =
+		gatewayIds ?? new Set(modelsForRoot(root).map(({ id }) => id));
+	if (DEFAULT_SEARCH_MODELS.some((id) => gatewayHasModel(availableIds, id))) {
+		registerTsSearch(pi, { baseUrl: root });
+	}
 
 	pi.on("session_start", (_event, ctx) => {
 		refreshRequestState(ctx);
