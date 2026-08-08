@@ -36,7 +36,7 @@ Example:
 {
   "tsgw": {
     "baseUrl": "https://aih.example.net",
-    "webSearch": "off",
+    "tsSearch": "off",
     "traceHeaders": false,
     "includeModels": ["gpt-5.6-*", "claude-*"],
     "excludeModels": ["gpt-5.3-*"]
@@ -64,7 +64,7 @@ The extension never reads credential files. Pi resolves the key itself:
 | Setting (`settings.json` `tsgw.*`) | Default | Meaning |
 | --- | --- | --- |
 | `baseUrl` | placeholder | Gateway root (the `/v1` suffix is normalized away) |
-| `webSearch` | `off` | `off`, `cached`, or `live` — appends the built-in `web_search` tool for models with built-in search (GPT / Grok) |
+| `tsSearch` | `off` | `off`, `cached`, or `live` — appends the built-in `web_search` tool for models with built-in search (GPT / Grok) |
 | `traceHeaders` | `false` | Adds `AH-Thread-Id` / `AH-Trace-Id` headers for gateway-side tracing |
 | `includeModels` | unset | Whitelist: only these model ids are registered (exact id or `prefix-*` glob) |
 | `excludeModels` | unset | Blacklist: these model ids are dropped (exact id or `prefix-*` glob); blacklist wins over whitelist |

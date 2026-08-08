@@ -86,7 +86,8 @@ class FakePi {
 	getFlag: ExtensionAPI["getFlag"] = () => undefined;
 	registerMessageRenderer: ExtensionAPI["registerMessageRenderer"] = () => {};
 	registerEntryRenderer: ExtensionAPI["registerEntryRenderer"] = () => {};
-	registerMarkdownTransformer: ExtensionAPI["registerMarkdownTransformer"] = () => {};
+	registerMarkdownTransformer: ExtensionAPI["registerMarkdownTransformer"] =
+		() => {};
 	sendMessage: ExtensionAPI["sendMessage"] = () => {};
 	sendUserMessage: ExtensionAPI["sendUserMessage"] = () => {};
 	appendEntry: ExtensionAPI["appendEntry"] = () => {};
@@ -243,7 +244,7 @@ async function testChatCompletionsCompatibility(): Promise<void> {
 
 async function testSafeProviderHooksAfterContextStales(): Promise<void> {
 	const pi = await createPi({
-		tsgw: { traceHeaders: true, webSearch: "cached" },
+		tsgw: { traceHeaders: true, tsSearch: "cached" },
 	});
 	const sessionContext = new FakeContext(TSGW_TERRA, "high");
 	sessionStart(pi, sessionContext);
@@ -394,7 +395,7 @@ async function testOldInstanceCallbacksKeepOwnSnapshot(): Promise<void> {
 
 	for (const replacement of replacements) {
 		const oldPi = await createPi({
-			tsgw: { traceHeaders: true, webSearch: "cached" },
+			tsgw: { traceHeaders: true, tsSearch: "cached" },
 		});
 		const oldContext = new FakeContext(TSGW_TERRA, "high");
 		sessionStart(oldPi, oldContext);
@@ -449,8 +450,8 @@ async function testSettingsConfig(): Promise<void> {
 		?.baseUrl;
 	strictEqual(baseUrl, "https://gateway.example.net/v1");
 
-	// `tsgw.webSearch: "live"` enables the built-in search injection.
-	const piSearch = await createPi({ tsgw: { webSearch: "live" } });
+	// `tsgw.tsSearch: "live"` enables the built-in search injection.
+	const piSearch = await createPi({ tsgw: { tsSearch: "live" } });
 	sessionStart(piSearch, new FakeContext(TSGW_TERRA, "high"));
 	deepStrictEqual(providerRequest(piSearch, { tools: [] }), {
 		tools: [

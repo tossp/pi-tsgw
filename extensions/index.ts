@@ -12,7 +12,7 @@ import {
 } from "./models/catalog.ts";
 import { applyModelOperations } from "./models/operations.ts";
 import type { ThinkingLevel, WebSearchMode } from "./models/_tools.ts";
-import { applyWebSearchTool } from "./web-search/web-search.ts";
+import { applyWebSearchTool } from "./ts-search/ts-search.ts";
 
 /**
  * The data needed by provider hooks, copied while the lifecycle context is
@@ -40,7 +40,7 @@ interface RequestModel {
  */
 interface TsgwSettings {
 	baseUrl?: string;
-	webSearch?: string;
+	tsSearch?: string;
 	traceHeaders?: boolean;
 	includeModels?: string[];
 	excludeModels?: string[];
@@ -108,9 +108,9 @@ function isTsgwTraceTarget(state: RequestState, root: string): boolean {
 export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 	const settings = readTsgwSettings();
 	const root = rootForRuntime(settings.baseUrl);
-	const webSearchMode: WebSearchMode =
-		settings.webSearch === "cached" || settings.webSearch === "live"
-			? settings.webSearch
+	const tsSearchMode: WebSearchMode =
+		settings.tsSearch === "cached" || settings.tsSearch === "live"
+			? settings.tsSearch
 			: "off";
 	const traceEnabled = settings.traceHeaders === true;
 	const modelFilter: ModelFilter = {
@@ -164,7 +164,7 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 		return applyWebSearchTool(applyModelOperations(event.payload, context), {
 			modelId: state.modelId,
 			api: state.api,
-			mode: webSearchMode,
+			mode: tsSearchMode,
 		});
 	});
 

@@ -1,5 +1,5 @@
 import { deepStrictEqual, equal, strictEqual } from "node:assert";
-import { applyWebSearchTool } from "./web-search.ts";
+import { applyWebSearchTool } from "./ts-search.ts";
 import {
 	isPlainObject,
 	type Payload,
@@ -108,4 +108,4 @@ const functionTool = { type: "function", name: "keep" };
 
 testBuiltinSearchInjection();
 testNoOpsAndScope();
-console.log("web-search.test.ts: all assertions passed");
+console.log("ts-search.test.ts: all assertions passed");
