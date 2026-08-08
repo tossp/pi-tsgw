@@ -1,18 +1,28 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import {
+	CONFIG_DIR_NAME,
+	getAgentDir,
+	readStoredCredential,
+} from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
 	DEFAULT_ROOT,
 	PROVIDER_ID,
+	filterModels,
 	modelsForRoot,
 	normalizeRoot,
 	type ModelFilter,
 } from "./models/catalog.ts";
+import { getGatewayModelIds } from "./models/gateway-catalog.ts";
 import { applyModelOperations } from "./models/operations.ts";
 import type { ThinkingLevel, WebSearchMode } from "./models/_tools.ts";
-import { registerTsSearch } from "./ts-search/ts-search.ts";
+import {
+	DEFAULT_SEARCH_MODELS,
+	registerTsSearch,
+} from "./ts-search/ts-search.ts";
 
 /**
  * The data needed by provider hooks, copied while the lifecycle context is
@@ -105,41 +115,104 @@ function isTsgwTraceTarget(state: RequestState, root: string): boolean {
 	}
 }
 
+/** 网关 id 匹配：精确匹配，或允许带供应商前缀变体（google/gemini-3.5-flash 匹配 gemini-3.5-flash）。 */
+function gatewayHasModel(gatewayIds: ReadonlySet<string>, id: string): boolean {
+	if (gatewayIds.has(id)) return true;
+	const suffix = `/${id}`;
+	for (const gatewayId of gatewayIds)
+		if (gatewayId.endsWith(suffix)) return true;
+	return false;
+}
+
+/** 模型缓存文件：~/.pi/tsgw/models-cache.json（CONFIG_DIR_NAME 跟随 piConfig 覆盖）。 */
+function gatewayModelCachePath(): string {
+	return join(homedir(), CONFIG_DIR_NAME, "tsgw", "models-cache.json");
+}
+
+/**
+ * 三层模型过滤：静态目录 ∩ 网关实际列表 ∩ 用户黑白名单。
+ * 网关列表拉取失败/无凭据时跳过网关层（回退静态目录）。
+ */
+async function resolveEffectiveModels(
+	root: string,
+	filter: ModelFilter | undefined,
+): Promise<{
+	models: ReturnType<typeof modelsForRoot>;
+	gatewayIds: ReadonlySet<string> | undefined;
+}> {
+	const staticModels = modelsForRoot(root);
+
+	// 凭据解析失败不阻塞：无凭据时直接跳过网关层。
+	let apiKey = "";
+	try {
+		const credential = readStoredCredential(PROVIDER_ID);
+		apiKey = credential?.type === "api_key" ? (credential.key ?? "") : "";
+	} catch {
+		apiKey = "";
+	}
+
+	let gatewayIds: ReadonlySet<string> | undefined;
+	if (apiKey) {
+		try {
+			const gateway = await getGatewayModelIds(root, apiKey, {
+				cacheFilePath: gatewayModelCachePath(),
+			});
+			if (gateway.ok) gatewayIds = new Set(gateway.ids);
+			else
+				console.warn(
+					`TSGW: gateway model list unavailable (${gateway.reason ?? "unknown"}); using static catalog.`,
+				);
+		} catch (error) {
+			console.warn(
+				`TSGW: gateway model list load failed; using static catalog.`,
+			);
+		}
+	}
+
+	const intersected = gatewayIds
+		? staticModels.filter((model) => gatewayHasModel(gatewayIds, model.id))
+		: staticModels;
+	return { models: filterModels(intersected, filter), gatewayIds };
+}
+
 export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
-	const settings = readTsgwSettings();
-	const root = rootForRuntime(settings.baseUrl);
-	const tsSearchMode: WebSearchMode =
-		settings.tsSearch === "cached" || settings.tsSearch === "live"
-			? settings.tsSearch
-			: "off";
-	const traceEnabled = settings.traceHeaders === true;
-	const modelFilter: ModelFilter = {
-		include: settings.includeModels,
-		exclude: settings.excludeModels,
-	};
-	let requestState: RequestState | undefined;
+const settings = readTsgwSettings();
+const root = rootForRuntime(settings.baseUrl);
+const tsSearchMode: WebSearchMode =
+settings.tsSearch === "cached" || settings.tsSearch === "live"
+? settings.tsSearch
+: "off";
+const traceEnabled = settings.traceHeaders === true;
+const modelFilter: ModelFilter = {
+include: settings.includeModels,
+exclude: settings.excludeModels,
+};
+let requestState: RequestState | undefined;
 
-	const refreshRequestState = (ctx: {
-		model: RequestModel | undefined;
-		thinkingLevel?: ThinkingLevel;
-	}): void => {
-		requestState = requestStateFor(ctx.model, ctx.thinkingLevel ?? "off");
-	};
+const refreshRequestState = (ctx: {
+model: RequestModel | undefined;
+thinkingLevel?: ThinkingLevel;
+}): void => {
+requestState = requestStateFor(ctx.model, ctx.thinkingLevel ?? "off");
+};
 
-	const models = modelsForRoot(root, modelFilter);
-	pi.registerProvider(PROVIDER_ID, {
-		name: "TSGW",
-		baseUrl: `${root}/v1`,
-		api: "openai-completions",
-		apiKey: "$TSGW_API_KEY",
-		models,
-	});
-	registerTsSearch(pi, {
-		baseUrl: root,
-		searchModels: models
-			.map(({ id }) => id)
-			.filter((id) => id.startsWith("gpt-") || id.startsWith("grok-")),
-	});
+// 三层模型过滤：静态目录 ∩ 网关实际列表 ∩ 用户黑白名单。
+const { models, gatewayIds } = await resolveEffectiveModels(root, modelFilter);
+pi.registerProvider(PROVIDER_ID, {
+name: "TSGW",
+baseUrl: `${root}/v1`,
+api: "openai-completions",
+apiKey: "$TSGW_API_KEY",
+models,
+});
+
+// ts_search 条件注册：固定白名单后端与可用模型列表有交集才注册，
+// 否则失活（避免注册一个无后端可用的死工具）。
+const availableIds =
+gatewayIds ?? new Set(modelsForRoot(root).map(({ id }) => id));
+if (DEFAULT_SEARCH_MODELS.some((id) => gatewayHasModel(availableIds, id))) {
+registerTsSearch(pi, { baseUrl: root });
+}
 
 	pi.on("session_start", (_event, ctx) => {
 		refreshRequestState(ctx);
