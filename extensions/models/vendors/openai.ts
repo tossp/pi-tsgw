@@ -9,6 +9,25 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 	const v1 = `${root}/v1`;
 	return [
 		{
+			// 参数与 GPT 5.6 Sol 一致。
+			id: "hack",
+			name: "日站专用",
+			api: "openai-responses",
+			baseUrl: v1,
+			reasoning: true,
+			thinkingLevelMap: {
+				low: "low",
+				medium: "medium",
+				high: "high",
+				xhigh: "xhigh",
+				max: "max",
+			},
+			input: ["text", "image"],
+			cost: { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25 },
+			contextWindow: 372000,
+			maxTokens: 128000,
+		},
+		{
 			id: "gpt-5.6-sol",
 			name: "GPT 5.6 Sol",
 			api: "openai-responses",
@@ -235,6 +254,7 @@ function applyOpenAIResponses(writer: PayloadWriter, modelId: string): void {
 }
 
 export const openaiThinking: Record<string, ThinkingApplier> = {
+	"hack": (w, c) => applyOpenAIResponses(w, c.modelId),
 	"gpt-5.6-sol": (w, c) => applyOpenAIResponses(w, c.modelId),
 	"gpt-5.6-terra": (w, c) => applyOpenAIResponses(w, c.modelId),
 	"gpt-5.6-luna": (w, c) => applyOpenAIResponses(w, c.modelId),

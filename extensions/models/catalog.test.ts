@@ -13,8 +13,8 @@ function testCatalogConcatenation(): void {
 	const models = modelsForRoot(ROOT);
 	const ids = models.map(({ id }) => id);
 
-	// 11 家供应商分片拼接，共 65 个模型（原 59 + Grok 6）。
-	equal(ids.length, 65);
+	// 11 家供应商分片拼接，共 58 个模型（原 65 − Claude 冗余 8 + Hack）。
+	equal(ids.length, 58);
 	// id 全局唯一。
 	equal(new Set(ids).size, ids.length);
 
@@ -67,9 +67,9 @@ function testFilterModels(): void {
 		true,
 	);
 	// 黑名单精确匹配。
-	const excluded = filterModels(all, { exclude: ["claude-sonnet"] });
+	const excluded = filterModels(all, { exclude: ["claude-sonnet-5"] });
 	equal(
-		excluded.some(({ id }) => id === "claude-sonnet"),
+		excluded.some(({ id }) => id === "claude-sonnet-5"),
 		false,
 	);
 	equal(excluded.length, all.length - 1);
@@ -83,7 +83,7 @@ function testFilterModels(): void {
 
 	// 黑白名单并存：include 拉回被系列黑名单排除的精确模型。
 	const both = filterModels(all, {
-		include: ["glm-5.2", "claude-sonnet"],
+		include: ["glm-5.2", "claude-sonnet-5"],
 		exclude: ["glm-*", "claude-*"],
 	});
 	equal(
@@ -91,7 +91,7 @@ function testFilterModels(): void {
 		true,
 	);
 	equal(
-		both.some(({ id }) => id === "claude-sonnet"),
+		both.some(({ id }) => id === "claude-sonnet-5"),
 		true,
 	);
 	equal(
