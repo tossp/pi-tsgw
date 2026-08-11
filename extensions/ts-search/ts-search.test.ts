@@ -111,7 +111,10 @@ function testRoutesConfigurationAndPayloads(): void {
 	} finally {
 		console.warn = originalWarn;
 	}
-	strictEqual(warnings.some((warning) => warning.includes("claude-invalid")), true);
+	strictEqual(
+		warnings.some((warning) => warning.includes("claude-invalid")),
+		true,
+	);
 
 	strictEqual(
 		buildSearchUrl("https://gateway.example.com"),
@@ -296,12 +299,10 @@ async function testRetryClassification(): Promise<void> {
 	strictEqual(timeoutResult.answer, "timeout retry success");
 
 	let exhaustedCalls = 0;
-	const exhausted = await route(
-		(async () => {
-			exhaustedCalls += 1;
-			throw new Error("network unavailable");
-		}) as typeof fetch,
-	);
+	const exhausted = await route((async () => {
+		exhaustedCalls += 1;
+		throw new Error("network unavailable");
+	}) as typeof fetch);
 	strictEqual(exhaustedCalls, 3);
 	strictEqual(exhausted.ok, false);
 	match(exhausted.error, /network unavailable/);
@@ -311,37 +312,31 @@ async function testRetryClassification(): Promise<void> {
 		[500, "Internal Server Error"],
 	] as const) {
 		let calls = 0;
-		const result = await route(
-			(async () => {
-				calls += 1;
-				return calls === 1
-					? failedResponse("retryable", status, statusText)
-					: responseWithAnswer(`recovered from ${status}`);
-			}) as typeof fetch,
-		);
+		const result = await route((async () => {
+			calls += 1;
+			return calls === 1
+				? failedResponse("retryable", status, statusText)
+				: responseWithAnswer(`recovered from ${status}`);
+		}) as typeof fetch);
 		strictEqual(calls, 2);
 		strictEqual(result.ok, true);
 		strictEqual(result.answer, `recovered from ${status}`);
 	}
 
 	let badRequestCalls = 0;
-	const badRequest = await route(
-		(async () => {
-			badRequestCalls += 1;
-			return failedResponse("invalid request");
-		}) as typeof fetch,
-	);
+	const badRequest = await route((async () => {
+		badRequestCalls += 1;
+		return failedResponse("invalid request");
+	}) as typeof fetch);
 	strictEqual(badRequestCalls, 1);
 	strictEqual(badRequest.ok, false);
 	match(badRequest.error, /HTTP 400 Bad Request/);
 
 	let noLiveWebCalls = 0;
-	const noLiveWeb = await route(
-		(async () => {
-			noLiveWebCalls += 1;
-			return responseWithAnswer("NO_LIVE_WEB");
-		}) as typeof fetch,
-	);
+	const noLiveWeb = await route((async () => {
+		noLiveWebCalls += 1;
+		return responseWithAnswer("NO_LIVE_WEB");
+	}) as typeof fetch);
 	strictEqual(noLiveWebCalls, 1);
 	strictEqual(noLiveWeb.ok, true);
 	strictEqual(noLiveWeb.answer, "NO_LIVE_WEB");

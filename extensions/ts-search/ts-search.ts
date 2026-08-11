@@ -12,7 +12,10 @@ export interface TsSearchOptions {
 	searchModels?: readonly string[];
 }
 
-export const DEFAULT_SEARCH_MODELS = ["gpt-5.6-luna", "grok-chat-fast"] as const;
+export const DEFAULT_SEARCH_MODELS = [
+	"gpt-5.6-luna",
+	"grok-chat-fast",
+] as const;
 const CHAT_COMPLETIONS_PATH = "v1/chat/completions";
 const MAX_ATTEMPTS = 3;
 const REQUEST_TIMEOUT_MS = 45_000;
@@ -341,11 +344,7 @@ export async function retrySearchRoute(
 			requestTimeoutMs,
 		);
 		lastResult = current.result;
-		if (
-			current.result.ok ||
-			!current.retryable ||
-			attempt === MAX_ATTEMPTS - 1
-		)
+		if (current.result.ok || !current.retryable || attempt === MAX_ATTEMPTS - 1)
 			return current.result;
 
 		try {
