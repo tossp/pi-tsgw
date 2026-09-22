@@ -12,13 +12,19 @@
  * 独立的 ts_search 工具（所有模型可用）单独实现，与内置查询注入分离。
  */
 
-import { isPlainObject, PayloadWriter, type WebSearchMode } from "./_tools.ts";
+import {
+	isPlainObject,
+	type Payload,
+	PayloadWriter,
+	type WebSearchMode,
+} from "./_tools.ts";
 
 const OPENAI_RESPONSES = "openai-responses";
 const OPENAI_COMPLETIONS = "openai-completions";
 
 // 支持内置查询的模型名单（GPT Responses 系列）。
 const BUILTIN_SEARCH_MODELS = new Set([
+	"gpt-6-astra",
 	"gpt-5.6-sol",
 	"gpt-5.6-terra",
 	"gpt-5.6-luna",
@@ -42,7 +48,7 @@ function isExistingWebSearchTool(tools: readonly unknown[]): boolean {
 	});
 }
 
-function hasGrokSearchFields(payload: Record<string, unknown>): boolean {
+function hasGrokSearchFields(payload: Payload): boolean {
 	return (
 		Object.hasOwn(payload, "search_parameters") ||
 		Object.hasOwn(payload, "web_search_options")
@@ -76,12 +82,12 @@ function applyGrokSearch(writer: PayloadWriter): void {
  * preserved. Pi drops requested sources, so GPT injection deliberately does
  * not request them.
  */
-export function applyBuiltinSearchTool(
-	payload: unknown,
+export function applyBuiltinSearchTool<T>(
+	payload: T,
 	modelId: string,
 	api: string,
 	mode: WebSearchMode,
-): unknown {
+): T | Payload {
 	if (!isPlainObject(payload) || mode === "off") return payload;
 	const writer = new PayloadWriter(payload);
 

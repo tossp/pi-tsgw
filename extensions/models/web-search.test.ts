@@ -28,7 +28,7 @@ function testBuiltinSearchInjection(): void {
 			include: ["reasoning.encrypted_content"],
 			store: false,
 		};
-		const result = apply(input, "gpt-5.6-sol", mode);
+		const result = apply(input, "gpt-6-astra", mode);
 		const tools = result.tools as unknown[];
 		equal(tools.length, mode === "off" ? 1 : 2);
 		strictEqual(tools[0], functionTool);
@@ -72,7 +72,7 @@ function testNoOpsAndScope(): void {
 	strictEqual(
 		applyBuiltinSearchTool(
 			nonSearch,
-			"gpt-5.3-codex-spark",
+			"gpt-5.6-k3",
 			OPENAI_RESPONSES,
 			"live",
 		),
@@ -116,7 +116,7 @@ function testGrokSearchInjection(): void {
 			"cached",
 		);
 		if (!isPlainObject(result)) throw new Error("expected plain object");
-		deepStrictEqual(result.search_parameters, { mode: "on" });
+		deepStrictEqual((result as Payload).search_parameters, { mode: "on" });
 	}
 
 	// off 模式不注入（原样返回，无 search_parameters）。

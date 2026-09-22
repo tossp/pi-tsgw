@@ -13,8 +13,8 @@ function testCatalogConcatenation(): void {
 	const models = modelsForRoot(ROOT);
 	const ids = models.map(({ id }) => id);
 
-	// 11 家供应商分片拼接，共 59 个模型（含 DeepSeek 新名称及旧 alias）。
-	equal(ids.length, 59);
+	// 11 家供应商分片拼接，共 51 个模型（含 DeepSeek 新名称及旧 alias）。
+	equal(ids.length, 51);
 	// id 全局唯一。
 	equal(new Set(ids).size, ids.length);
 
@@ -70,6 +70,27 @@ function testCatalogConcatenation(): void {
 	deepStrictEqual(deepseekPro?.input, ["text"]);
 	deepStrictEqual(deepseekPro?.compat, deepseek?.compat);
 	deepStrictEqual(deepseekPro?.thinkingLevelMap, deepseek?.thinkingLevelMap);
+	const openaiIds = models
+		.filter(({ id }) => id.startsWith("gpt-"))
+		.map(({ id }) => id);
+	deepStrictEqual(openaiIds, [
+		"gpt-6-astra",
+		"gpt-5.6-sol",
+		"gpt-5.6-terra",
+		"gpt-5.6-luna",
+		"gpt-5.5",
+	]);
+	const astra = models.find(({ id }) => id === "gpt-6-astra");
+	strictEqual(astra?.api, "openai-responses");
+	deepStrictEqual(astra?.input, ["text", "image"]);
+	deepStrictEqual(astra?.cost, {
+		input: 10,
+		output: 50,
+		cacheRead: 1,
+		cacheWrite: 12.5,
+	});
+	strictEqual(astra?.contextWindow, 1050000);
+	strictEqual(astra?.maxTokens, 128000);
 	const gemini = models.find(({ id }) => id === "gemini-flash");
 	strictEqual(gemini?.baseUrl, `${ROOT}/gemini`);
 	const claude = models.find(({ id }) => id === "claude-fable-5");
