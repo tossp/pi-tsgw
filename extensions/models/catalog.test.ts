@@ -13,8 +13,8 @@ function testCatalogConcatenation(): void {
 	const models = modelsForRoot(ROOT);
 	const ids = models.map(({ id }) => id);
 
-	// 11 家供应商分片拼接，共 58 个模型（原 65 − Claude 冗余 8 + Hack）。
-	equal(ids.length, 58);
+	// 11 家供应商分片拼接，共 59 个模型（含 DeepSeek 新名称及旧 alias）。
+	equal(ids.length, 59);
 	// id 全局唯一。
 	equal(new Set(ids).size, ids.length);
 
@@ -39,12 +39,37 @@ function testCatalogConcatenation(): void {
 	}
 
 	// 拼接顺序保持目录顺序（deepseek → … → claude → grok）。
-	equal(ids[0], "deepseek-v4-flash");
+	equal(ids[0], "deepseek-flash");
 	equal(ids[ids.length - 1], "grok-4.20-fast");
 
-	// 模型 baseUrl 按协议端点派生。
-	const deepseek = models.find(({ id }) => id === "deepseek-v4-flash");
+	// 模型 baseUrl 按协议端点派生；DeepSeek aliases 使用官方 Responses 能力。
+	const deepseek = models.find(({ id }) => id === "deepseek-flash");
 	strictEqual(deepseek?.baseUrl, `${ROOT}/v1`);
+	strictEqual(deepseek?.api, "openai-responses");
+	deepStrictEqual(deepseek?.input, ["text", "image"]);
+	deepStrictEqual(deepseek?.compat, {
+		supportsDeveloperRole: false,
+		supportsLongCacheRetention: false,
+	});
+	deepStrictEqual(deepseek?.thinkingLevelMap, {
+		off: "none",
+		minimal: "low",
+		low: "low",
+		medium: "high",
+		high: "high",
+		xhigh: "high",
+		max: "max",
+	});
+	const deepseekLegacy = models.find(({ id }) => id === "deepseek-v4-flash");
+	strictEqual(deepseekLegacy?.api, "openai-responses");
+	deepStrictEqual(deepseekLegacy?.input, deepseek?.input);
+	deepStrictEqual(deepseekLegacy?.compat, deepseek?.compat);
+	deepStrictEqual(deepseekLegacy?.thinkingLevelMap, deepseek?.thinkingLevelMap);
+	const deepseekPro = models.find(({ id }) => id === "deepseek-v4-pro");
+	strictEqual(deepseekPro?.api, "openai-responses");
+	deepStrictEqual(deepseekPro?.input, ["text"]);
+	deepStrictEqual(deepseekPro?.compat, deepseek?.compat);
+	deepStrictEqual(deepseekPro?.thinkingLevelMap, deepseek?.thinkingLevelMap);
 	const gemini = models.find(({ id }) => id === "gemini-flash");
 	strictEqual(gemini?.baseUrl, `${ROOT}/gemini`);
 	const claude = models.find(({ id }) => id === "claude-fable-5");

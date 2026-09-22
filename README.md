@@ -85,6 +85,11 @@ global whitelist: models matching neither list remain available. To register
 only selected models, use `"excludeModels": ["*"]` and pull them back through
 `includeModels`.
 
+Opening `/model` refreshes the gateway catalog in the background, with a
+five-minute cache to avoid repeated requests. Run `/tsgw-refresh` to bypass the
+cache and force an immediate refresh without restarting or reloading Pi. If a
+refresh fails, the last successful model list remains active.
+
 ## Development
 
 ```bash

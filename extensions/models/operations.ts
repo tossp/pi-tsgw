@@ -12,7 +12,6 @@ import {
 	type ThinkingApplier,
 } from "./_tools.ts";
 import { applyBuiltinSearchTool } from "./web-search.ts";
-import { deepseekThinking } from "./vendors/deepseek.ts";
 import { geminiThinking } from "./vendors/gemini.ts";
 import { glmThinking } from "./vendors/glm.ts";
 import { grokThinking } from "./vendors/grok.ts";
@@ -27,7 +26,6 @@ import { qwenThinking } from "./vendors/qwen.ts";
 const TSGW_PROVIDER = "tsgw";
 
 const THINKING_STRATEGIES: Record<string, ThinkingApplier> = {
-	...deepseekThinking,
 	...glmThinking,
 	...mimoThinking,
 	...minimaxThinking,

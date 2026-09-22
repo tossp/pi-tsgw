@@ -6,7 +6,7 @@
 
 `pi-tsgw` 是 [Pi](https://pi.dev)（`@earendil-works/pi-coding-agent`）的扩展包（pi package），用于接入 **TOSSP AIH 网关**（兼容网关实例，地址由用户配置）。它向 Pi 注册 `tsgw` provider，提供：
 
-- **模型目录**（`extensions/models/`）：按供应商分片（`vendors/`），由 `catalog.ts` 拼接展开，横跨四种 wire 协议——`openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative-ai`；支持 `excludeModels` 宽排除 + `includeModels` 精确拉回（拉回优先）。
+- **模型目录**（`extensions/models/`）：按供应商分片（`vendors/`），由 `catalog.ts` 拼接展开，横跨四种 wire 协议——`openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative-ai`；支持 `excludeModels` 宽排除 + `includeModels` 精确拉回（拉回优先）。网关目录在打开 `/model` 时按 5 分钟 TTL 动态刷新，也可用 `/tsgw-refresh` 强制刷新；失败保留最近成功列表。
 - **请求体改写**（厂商思维链策略下沉在各 `vendors/*.ts`，`operations.ts` 只做调度）：按厂商改写 thinking 档位、reasoning 格式、Google thinkingConfig 等，纯函数、copy-on-write。
 - **内置查询**（`extensions/models/web-search.ts`）：为支持内置查询的模型（GPT / Grok）追加原生搜索参数，属模型请求改写的一部分。
 - **独立查询工具**（`extensions/ts-search/`）：注册所有模型可调用的 `ts_search` 工具，通过网关的 GPT / Grok 后端执行联网查询。
@@ -18,7 +18,7 @@
 
 - 从本机 Pi 全局扩展 `~/.pi/agent/extensions/aih` 抽离而来，已**脱敏**：源码/测试/文档中无真实网关地址（网关地址仅作为用户侧配置值，由用户自行填写），`DEFAULT_ROOT` 为中性占位符 `https://aih.example.com`，无任何密钥。
 - 配置机制：**settings.json 顶层 `tsgw` 命名空间**（`baseUrl` / `tsSearch` / `traceHeaders` / `includeModels` / `excludeModels`）→ 内置默认；模型过滤采用 `include` 拉回优先语义，若要全局只留指定模型，使用 `excludeModels: ["*"]` 后由 `includeModels` 拉回。**插件不读任何环境变量**；API key 由 Pi 凭据机制解析（`/login` 写入 `auth.json`，或 `TSGW_API_KEY` 环境变量兜底——后者是 Pi 宿主行为，插件不触碰）。provider id 为 `tsgw`。
-- 结构：`extensions/index.ts`（薄入口）组装 `models/`（模型目录 + 思维链调度 + 内置查询注入）与独立的 `ts_search` 工具模块。
+- 结构：`extensions/index.ts`（薄入口）组装 `models/`（模型目录 + 思维链调度 + 内置查询注入）与独立的 `ts_search` 工具模块，并通过 provider `refreshModels` 动态同步网关 `/v1/models`；缓存位于 `<agent-dir>/tsgw/models-cache.json`。
 - 测试：6 个测试文件（index / models/operations / models/catalog / models/web-search / models/gateway-catalog / ts-search），纯 npm 生态（tsc 编译 + node 运行），`FakePi` / `FakeContext` 模拟宿主，`PI_CODING_AGENT_DIR` 隔离配置目录。`npm run test` 全绿。
 - **模型扩充进行中**：从网关实际目录（173 个）筛选 8 家供应商新增约 42 个对话模型，规格/定价需从各官网查证后写入 vendors 分片。
 - **尚未 git init / 未发布**……（已发布至 github.com/tossp/pi-tsgw，main 分支；本机旧扩展 `~/.pi/agent/extensions/aih` 仍在被 Pi 加载，待本机切换后删除）。
@@ -35,7 +35,7 @@
 
 ## 代码结构
 
-```
+```text
 extensions/index.ts            # 唯一 Pi 宿主耦合点：配置读取 + registerProvider + 生命周期钩子 + 追踪
 extensions/index.test.ts       # 宿主集成测试（FakePi/FakeContext/withAgentDir）
 extensions/models/             # 模型模块（平行、独立）
@@ -61,7 +61,7 @@ extensions/ts-search/          # 所有模型可调用的独立查询工具
 
 1. **宿主耦合只允许在 `extensions/index.ts`**。`models/` 保持纯逻辑，保证可在无 Pi 环境直接测试。`index.ts` 是唯一的组装点（两模块互不感知）。
 2. **生命周期快照模式**：Pi 0.82+ 可能由旧 runner 延迟回调钩子（context 已失效）。`index.ts` 的钩子只读私有快照（provider/modelId/api/baseUrl/thinkingLevel），**不得**读取 `ctx` / `pi`；快照在 `session_start` / `agent_start` / `model_select` / `thinking_level_select` 刷新，`session_shutdown` 后保留。
-3. **思维链策略跟厂商走**：各 `vendors/*.ts` 自带该厂商模型的 thinking 策略（导出 `xxxThinking: Record<modelId, ThinkingApplier>`）；`operations.ts` 只汇总调度，**不得**在 operations.ts 里新增模型族 switch。通用工具（`PayloadWriter`、`applyEnabledThinking` 等）在 `_tools.ts`，vendors 与 operations 都从这里引用（避免循环依赖）。
+3. **思维链策略跟厂商走**：需要请求体改写的 `vendors/*.ts` 自带该厂商模型的 thinking 策略（导出 `xxxThinking: Record<modelId, ThinkingApplier>`）；由 Pi adapter 原生处理的 Responses/Anthropic 模型可以没有策略。`operations.ts` 只汇总调度，**不得**在 operations.ts 里新增模型族 switch。通用工具（`PayloadWriter`、`applyEnabledThinking` 等）在 `_tools.ts`，vendors 与 operations 都从这里引用（避免循环依赖）。
 4. **协议定义单一来源**：协议 id 与协议级 compat 在 `vendors/_protocols.ts`；只维护四种主流协议（openai-completions / openai-responses / anthropic-messages / google-generative-ai），其他协议暂不纳入。
 5. **新增模型**：改对应 `vendors/*.ts`（模型定义 + 该厂商 thinking 策略 + 头部文档 URL）；新增供应商 → 新建分片 + `catalog.ts` 加一行 import/spread + `catalog.test.ts` 补供应商覆盖断言。模型规格（contextWindow/maxTokens/input）与定价须从各官网公开信息查证，不得臆造；有国内站/国际站的供应商统一用国内站文档。
 6. **配置**：settings.json `tsgw.*` > 内置默认。**插件不得读取环境变量**（含 `PI_CODING_AGENT_DIR`——那是测试隔离专用）；新增配置项保持该顺序并在 `testSettingsConfig` 补测试。
@@ -74,7 +74,7 @@ extensions/ts-search/          # 所有模型可调用的独立查询工具
 
 | 别名族 | `off` | `high` | `xhigh` / `max` |
 | --- | --- | --- | --- |
-| DeepSeek V4 | `thinking.type=disabled`, remove generic effort | enabled + `reasoning_effort=high` | enabled + `reasoning_effort=max` |
+| DeepSeek V4 Responses | Pi 原生 `reasoning.effort=none` | Pi 原生 `reasoning.effort=high` | `xhigh=high`, `max=max` |
 | GLM 5.1 / 5.2 | disabled + `reasoning_effort=none` | enabled + `clear_thinking=false` + `high` | enabled + `clear_thinking=false` + `max` |
 | MiMo / Kimi Coding | disabled, remove generic effort | enabled, remove generic effort | enabled, remove generic effort |
 | MiniMax M3 | disabled + `reasoning_split=true` | adaptive + split | adaptive + split |
@@ -85,6 +85,8 @@ extensions/ts-search/          # 所有模型可调用的独立查询工具
 | Gemini Pro | thoughts false + `thinkingLevel=LOW` | thoughts true + `HIGH` | `HIGH` |
 | GPT Responses | retain Pi's `reasoning`; text verbosity by alias; no `service_tier` (flex is beta, model/account-limited — upstream rejects with 400) | same | same |
 | Claude | Pi native adaptive thinking; no operation | no operation | no operation |
+
+DeepSeek V4 aliases use `openai-responses`; Pi's adapter owns the `reasoning` object. The extension only declares the official effort mapping (`off=none`、`minimal/low=low`、`medium/high/xhigh=high`、`max=max`) and Responses compat, and does not rewrite its payload. Flash supports image input; Pro remains text-only.
 
 For GLM, `tool_stream=true` is added only when the already-built payload has `stream === true`. Lower GLM levels retain Pi's existing native mapping rather than inventing an unverified provider strength. LongCat is explicitly an OC/AIH compatibility policy because its public HTTP thinking schema was not verified. The extension does not tighten `catalog.ts` thinking maps, so no model's current default `medium` level is newly clamped.
 

@@ -14,6 +14,7 @@ export const DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS = 5 * 60 * 1_000;
 export type GatewayModelFailureReason =
 	| "http"
 	| "timeout"
+	| "aborted"
 	| "network"
 	| "invalid-json"
 	| "invalid-data"
@@ -27,10 +28,12 @@ export type GatewayFetch = (
 export interface FetchGatewayModelIdsOptions {
 	timeoutMs?: number;
 	fetcher?: GatewayFetch;
+	signal?: AbortSignal;
 }
 
 export interface GetGatewayModelIdsOptions extends FetchGatewayModelIdsOptions {
 	cacheFilePath?: string;
+	force?: boolean;
 }
 
 export type FetchGatewayModelIdsResult =
@@ -94,8 +97,12 @@ export async function fetchGatewayModelIds(
 ): Promise<FetchGatewayModelIdsResult> {
 	const timeoutMs = opts.timeoutMs ?? DEFAULT_GATEWAY_MODEL_TIMEOUT_MS;
 	const fetcher = opts.fetcher ?? globalThis.fetch;
+	if (opts.signal?.aborted) return { ok: false, reason: "aborted" };
+
 	const controller = new AbortController();
 	let timedOut = false;
+	const abortFromCaller = (): void => controller.abort(opts.signal?.reason);
+	opts.signal?.addEventListener("abort", abortFromCaller, { once: true });
 	const timeout = setTimeout(
 		() => {
 			timedOut = true;
@@ -113,9 +120,9 @@ export async function fetchGatewayModelIds(
 				signal: controller.signal,
 			});
 		} catch (error) {
-			return timedOut
-				? { ok: false, reason: "timeout" }
-				: { ok: false, reason: "network", detail: errorDetail(error) };
+			if (timedOut) return { ok: false, reason: "timeout" };
+			if (opts.signal?.aborted) return { ok: false, reason: "aborted" };
+			return { ok: false, reason: "network", detail: errorDetail(error) };
 		}
 
 		if (!response.ok) {
@@ -126,9 +133,9 @@ export async function fetchGatewayModelIds(
 		try {
 			payload = await response.json();
 		} catch (error) {
-			return timedOut
-				? { ok: false, reason: "timeout" }
-				: { ok: false, reason: "invalid-json", detail: errorDetail(error) };
+			if (timedOut) return { ok: false, reason: "timeout" };
+			if (opts.signal?.aborted) return { ok: false, reason: "aborted" };
+			return { ok: false, reason: "invalid-json", detail: errorDetail(error) };
 		}
 
 		if (!payload || typeof payload !== "object")
@@ -140,6 +147,7 @@ export async function fetchGatewayModelIds(
 		return { ok: true, ids };
 	} finally {
 		clearTimeout(timeout);
+		opts.signal?.removeEventListener("abort", abortFromCaller);
 	}
 }
 
@@ -269,7 +277,7 @@ export async function getGatewayModelIds(
 ): Promise<GetGatewayModelIdsResult> {
 	const key = baseUrl.replace(/\/+$/, "");
 	const cache = cacheFor(key);
-	if (cache.isFresh(now)) {
+	if (!opts.force && cache.isFresh(now)) {
 		const entry = cache.get();
 		if (entry) return { ok: true, ids: entry.ids, cached: true, stale: false };
 	}
@@ -278,6 +286,7 @@ export async function getGatewayModelIds(
 		? readGatewayModelCacheEntry(opts.cacheFilePath)
 		: undefined;
 	if (
+		!opts.force &&
 		diskEntry &&
 		isCacheEntryFresh(diskEntry, now, DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS)
 	) {
@@ -290,20 +299,27 @@ export async function getGatewayModelIds(
 		};
 	}
 
-	let request = inFlightRequests.get(key);
+	const requestKey = `${key}\0${opts.force ? "force" : "normal"}`;
+	// A shared request cannot safely inherit one caller's AbortSignal: Pi may
+	// supersede that refresh while a newer caller is still waiting. Only
+	// signal-free calls share in-flight work; abortable calls own their fetch.
+	const shareRequest = opts.signal === undefined;
+	let request = shareRequest ? inFlightRequests.get(requestKey) : undefined;
 	if (!request) {
 		request = fetchGatewayModelIds(key, apiKey, {
 			fetcher: opts.fetcher,
 			timeoutMs: opts.timeoutMs,
+			signal: opts.signal,
 		});
-		inFlightRequests.set(key, request);
+		if (shareRequest) inFlightRequests.set(requestKey, request);
 	}
 
 	let fetched: FetchGatewayModelIdsResult;
 	try {
 		fetched = await request;
 	} finally {
-		if (inFlightRequests.get(key) === request) inFlightRequests.delete(key);
+		if (shareRequest && inFlightRequests.get(requestKey) === request)
+			inFlightRequests.delete(requestKey);
 	}
 
 	if (fetched.ok) {

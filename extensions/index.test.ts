@@ -1,4 +1,10 @@
-import { deepStrictEqual, equal, match, strictEqual } from "node:assert";
+import {
+	deepStrictEqual,
+	equal,
+	match,
+	rejects,
+	strictEqual,
+} from "node:assert";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +13,7 @@ import type {
 	ProviderConfig,
 } from "@earendil-works/pi-coding-agent";
 import registerTsgw from "./index.ts";
+import { PROVIDER_ID } from "./models/catalog.ts";
 
 type HookName =
 	| "session_start"
@@ -26,8 +33,8 @@ const TSGW_TERRA = {
 };
 const TSGW_DEEPSEEK = {
 	provider: "tsgw",
-	id: "deepseek-v4-flash",
-	api: "openai-completions",
+	id: "deepseek-flash",
+	api: "openai-responses",
 	baseUrl: `${TEST_ROOT}/v1`,
 };
 const TSGW_GLM = {
@@ -72,6 +79,7 @@ class FakeContext {
 class FakePi {
 	readonly providers: Array<{ name: string; config: unknown }> = [];
 	readonly tools: unknown[] = [];
+	readonly commands = new Map<string, unknown>();
 	private readonly handlers = new Map<HookName, unknown[]>();
 
 	on: ExtensionAPI["on"] = (event, handler) => {
@@ -83,7 +91,9 @@ class FakePi {
 	registerTool: ExtensionAPI["registerTool"] = (tool) => {
 		this.tools.push(tool);
 	};
-	registerCommand: ExtensionAPI["registerCommand"] = () => {};
+	registerCommand: ExtensionAPI["registerCommand"] = (name, command) => {
+		this.commands.set(name, command);
+	};
 	registerShortcut: ExtensionAPI["registerShortcut"] = () => {};
 	registerFlag: ExtensionAPI["registerFlag"] = () => {};
 	getFlag: ExtensionAPI["getFlag"] = () => undefined;
@@ -136,6 +146,14 @@ class FakePi {
 			result = handler(payload, ctx);
 		}
 		return result;
+	}
+
+	async invokeCommand(name: string, ctx: unknown): Promise<void> {
+		const command = this.commands.get(name) as
+			| { handler?: (args: string, ctx: unknown) => void | Promise<void> }
+			| undefined;
+		if (!command?.handler) throw new Error(`missing ${name} command`);
+		await command.handler("", ctx);
 	}
 
 	private isHookName(event: string): event is HookName {
@@ -313,19 +331,15 @@ async function testSafeProviderHooksAfterContextStales(): Promise<void> {
 async function testLifecycleStateUpdates(): Promise<void> {
 	const pi = await createPi();
 	sessionStart(pi, new FakeContext(TSGW_DEEPSEEK, "high"));
-	deepStrictEqual(providerRequest(pi, {}), {
-		reasoning_effort: "high",
-		thinking: { type: "enabled" },
-	});
+	// DeepSeek Responses thinking is handled natively by Pi's adapter.
+	deepStrictEqual(providerRequest(pi, {}), {});
 
 	pi.invoke("thinking_level_select", {
 		type: "thinking_level_select",
 		level: "off",
 		previousLevel: "high",
 	});
-	deepStrictEqual(providerRequest(pi, {}), {
-		thinking: { type: "disabled" },
-	});
+	deepStrictEqual(providerRequest(pi, {}), {});
 
 	pi.invoke("model_select", {
 		type: "model_select",
@@ -355,9 +369,7 @@ async function testLifecycleStateUpdates(): Promise<void> {
 	const agentContext = new FakeContext(TSGW_DEEPSEEK, "off");
 	agentStart(pi, agentContext);
 	agentContext.makeStale();
-	deepStrictEqual(providerRequest(pi, {}), {
-		thinking: { type: "disabled" },
-	});
+	deepStrictEqual(providerRequest(pi, {}), {});
 }
 
 async function testNoStateAndTraceLimits(): Promise<void> {
@@ -449,7 +461,7 @@ async function testOldInstanceCallbacksKeepOwnSnapshot(): Promise<void> {
 		);
 		deepStrictEqual(
 			providerRequest(newPi, {}),
-			{ thinking: { type: "disabled" } },
+			{},
 			`${replacement.label}: new instance must use its own state`,
 		);
 
@@ -513,6 +525,127 @@ async function testSettingsConfig(): Promise<void> {
 	strictEqual(brokenBase, `${TEST_ROOT}/v1`);
 }
 
+async function testDynamicModelRefresh(): Promise<void> {
+	await withAgentDir(undefined, async () => {
+		const pi = new FakePi();
+		await registerTsgw(pi);
+		const provider = pi.providers.find(({ name }) => name === PROVIDER_ID);
+		const refreshModels = (
+			provider?.config as
+				| {
+						refreshModels?: (context: {
+							credential?: { type: string; key?: string };
+							allowNetwork: boolean;
+							force?: boolean;
+							signal: AbortSignal;
+						}) => Promise<Array<{ id: string }>>;
+				  }
+				| undefined
+		)?.refreshModels;
+		if (!refreshModels) throw new Error("expected dynamic model refresh");
+
+		const previousFetch = globalThis.fetch;
+		let calls = 0;
+		try {
+			globalThis.fetch = async () => {
+				calls += 1;
+				return new Response(
+					JSON.stringify({
+						data: [{ id: "deepseek-flash" }, { id: "glm-5.2" }],
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				);
+			};
+			const signal = new AbortController().signal;
+			const offline = await refreshModels({ allowNetwork: false, signal });
+			equal(offline.length > 2, true);
+			equal(calls, 0);
+
+			const refreshed = await refreshModels({
+				credential: { type: "api_key", key: "test-key" },
+				allowNetwork: true,
+				force: true,
+				signal,
+			});
+			deepStrictEqual(
+				refreshed.map(({ id }) => id),
+				["deepseek-flash", "glm-5.2"],
+			);
+			equal(calls, 1);
+
+			globalThis.fetch = async () =>
+				new Response("unavailable", { status: 503 });
+			await rejects(
+				refreshModels({
+					credential: { type: "api_key", key: "test-key" },
+					allowNetwork: true,
+					force: true,
+					signal,
+				}),
+				/keeping the last successful catalog/,
+			);
+			const preserved = await refreshModels({ allowNetwork: false, signal });
+			deepStrictEqual(
+				preserved.map(({ id }) => id),
+				["deepseek-flash", "glm-5.2"],
+			);
+		} finally {
+			globalThis.fetch = previousFetch;
+		}
+	});
+}
+
+async function testRefreshCommand(): Promise<void> {
+	const pi = await createPi();
+	let available = [{ provider: PROVIDER_ID }];
+	let refreshOptions: unknown;
+	const notifications: Array<{ message: string; level: string }> = [];
+	await pi.invokeCommand("tsgw-refresh", {
+		waitForIdle: async () => {},
+		modelRegistry: {
+			getProviderAuthStatus: () => ({ configured: true }),
+			getAvailable: () => available,
+			refresh: async (options: unknown) => {
+				refreshOptions = options;
+				available = [{ provider: PROVIDER_ID }, { provider: PROVIDER_ID }];
+				return { aborted: false, errors: new Map<string, Error>() };
+			},
+		},
+		ui: {
+			notify: (message: string, level: string) => {
+				notifications.push({ message, level });
+			},
+		},
+	});
+	deepStrictEqual(refreshOptions, {
+		providers: [PROVIDER_ID],
+		force: true,
+	});
+	deepStrictEqual(notifications, [
+		{ message: "TSGW models refreshed (1 → 2).", level: "info" },
+	]);
+
+	const skipped: Array<{ message: string; level: string }> = [];
+	await pi.invokeCommand("tsgw-refresh", {
+		waitForIdle: async () => {},
+		modelRegistry: {
+			getProviderAuthStatus: () => ({ configured: false }),
+		},
+		ui: {
+			notify: (message: string, level: string) => {
+				skipped.push({ message, level });
+			},
+		},
+	});
+	deepStrictEqual(skipped, [
+		{
+			message:
+				"TSGW model refresh skipped: configure an API key with /login first.",
+			level: "warning",
+		},
+	]);
+}
+
 async function main(): Promise<void> {
 	await testChatCompletionsCompatibility();
 	await testTsSearchRegistration();
@@ -522,6 +655,8 @@ async function main(): Promise<void> {
 	await testTraceHeaderSettings();
 	await testOldInstanceCallbacksKeepOwnSnapshot();
 	await testSettingsConfig();
+	await testDynamicModelRefresh();
+	await testRefreshCommand();
 	console.log("index.test.ts: all assertions passed");
 }
 

@@ -111,6 +111,14 @@ async function testFetchFailures(): Promise<void> {
 		{ fetcher: timeoutFetcher, timeoutMs: 1 },
 	);
 	expectFailure(timeout, "timeout");
+
+	const controller = new AbortController();
+	const aborted = fetchGatewayModelIds("https://aborted.example.com", "key", {
+		fetcher: timeoutFetcher,
+		signal: controller.signal,
+	});
+	controller.abort();
+	expectFailure(await aborted, "aborted");
 }
 
 function testModelCache(): void {
@@ -150,6 +158,52 @@ async function testFreshCacheHit(): Promise<void> {
 	equal(second.stale, false);
 	deepStrictEqual(second.ids, ["gpt-5.4"]);
 	equal(calls, 1);
+}
+
+async function testForceRefreshesFreshCache(): Promise<void> {
+	let calls = 0;
+	const fetcher: GatewayFetch = async () => {
+		calls += 1;
+		return jsonResponse({ data: [{ id: `model-${calls}` }] });
+	};
+	const baseUrl = "https://force-fresh-cache.example.com";
+	await getGatewayModelIds(baseUrl, "key", { fetcher }, 0);
+	const refreshed = await getGatewayModelIds(
+		baseUrl,
+		"key",
+		{ fetcher, force: true },
+		1,
+	);
+
+	if (!refreshed.ok) throw new Error("expected forced refresh");
+	equal(refreshed.cached, false);
+	deepStrictEqual(refreshed.ids, ["model-2"]);
+	equal(calls, 2);
+}
+
+async function testForceFailureUsesStaleCache(): Promise<void> {
+	let calls = 0;
+	const fetcher: GatewayFetch = async () => {
+		calls += 1;
+		return calls === 1
+			? jsonResponse({ data: [{ id: "gpt-5.4" }] })
+			: new Response("unavailable", { status: 503 });
+	};
+	const baseUrl = "https://force-stale-cache.example.com";
+	await getGatewayModelIds(baseUrl, "key", { fetcher }, 0);
+	const fallback = await getGatewayModelIds(
+		baseUrl,
+		"key",
+		{ fetcher, force: true },
+		1,
+	);
+
+	if (!fallback.ok) throw new Error("expected forced stale fallback");
+	equal(fallback.cached, true);
+	equal(fallback.stale, true);
+	equal(fallback.fallbackReason, "http");
+	deepStrictEqual(fallback.ids, ["gpt-5.4"]);
+	equal(calls, 2);
 }
 
 async function testExpiredCacheRefresh(): Promise<void> {
@@ -229,6 +283,42 @@ async function testConcurrentRequestDeduplication(): Promise<void> {
 	);
 }
 
+async function testAbortableRequestsAreIsolated(): Promise<void> {
+	let calls = 0;
+	const fetcher: GatewayFetch = async (_input, init) => {
+		calls += 1;
+		if (calls === 2) return jsonResponse({ data: [{ id: "fresh-model" }] });
+		return new Promise((_resolve, reject) => {
+			const signal = init?.signal;
+			const rejectAbort = () => reject(new Error("aborted"));
+			if (signal?.aborted) rejectAbort();
+			else signal?.addEventListener("abort", rejectAbort, { once: true });
+		});
+	};
+	const firstController = new AbortController();
+	const secondController = new AbortController();
+	const baseUrl = "https://isolated-abort.example.com";
+	const first = getGatewayModelIds(
+		baseUrl,
+		"key",
+		{ fetcher, force: true, signal: firstController.signal },
+		0,
+	);
+	const second = getGatewayModelIds(
+		baseUrl,
+		"key",
+		{ fetcher, force: true, signal: secondController.signal },
+		0,
+	);
+	firstController.abort();
+	const [aborted, refreshed] = await Promise.all([first, second]);
+	if (aborted.ok) throw new Error("expected first request to abort");
+	equal(aborted.reason, "aborted");
+	if (!refreshed.ok) throw new Error("expected isolated refresh to succeed");
+	deepStrictEqual(refreshed.ids, ["fresh-model"]);
+	equal(calls, 2);
+}
+
 function testPersistedCacheRoundTrip(directory: string): void {
 	const cacheFilePath = join(directory, "round-trip.json");
 	const source = ["gpt-5.6-luna", "grok-4.20"];
@@ -305,6 +395,35 @@ async function testFreshDiskCacheHit(directory: string): Promise<void> {
 	deepStrictEqual(result.ids, ["gpt-5.6-luna"]);
 }
 
+async function testForceBypassesFreshDiskCache(
+	directory: string,
+): Promise<void> {
+	const cacheFilePath = join(directory, "force-disk.json");
+	saveGatewayModelCache(cacheFilePath, ["old-model"], 100);
+	let calls = 0;
+	const result = await getGatewayModelIds(
+		"https://force-disk-cache.example.com",
+		"key",
+		{
+			cacheFilePath,
+			force: true,
+			fetcher: async () => {
+				calls += 1;
+				return jsonResponse({ data: [{ id: "new-model" }] });
+			},
+		},
+		101,
+	);
+
+	if (!result.ok) throw new Error("expected forced disk refresh");
+	equal(calls, 1);
+	equal(result.cached, false);
+	deepStrictEqual(result.ids, ["new-model"]);
+	deepStrictEqual(loadGatewayModelCache(cacheFilePath, 101)?.ids, [
+		"new-model",
+	]);
+}
+
 async function testSuccessfulFetchPersistsDiskCache(
 	directory: string,
 ): Promise<void> {
@@ -353,15 +472,19 @@ try {
 	await testFetchFailures();
 	testModelCache();
 	await testFreshCacheHit();
+	await testForceRefreshesFreshCache();
+	await testForceFailureUsesStaleCache();
 	await testExpiredCacheRefresh();
 	await testStaleFallback();
 	await testFailureWithoutCache();
 	await testConcurrentRequestDeduplication();
+	await testAbortableRequestsAreIsolated();
 	testPersistedCacheRoundTrip(cacheDirectory);
 	testInvalidPersistedCache(cacheDirectory);
 	testPersistFailureIsIgnored(cacheDirectory);
 	testExpiredPersistedCache(cacheDirectory);
 	await testFreshDiskCacheHit(cacheDirectory);
+	await testForceBypassesFreshDiskCache(cacheDirectory);
 	await testSuccessfulFetchPersistsDiskCache(cacheDirectory);
 	await testStaleDiskFallback(cacheDirectory);
 } finally {

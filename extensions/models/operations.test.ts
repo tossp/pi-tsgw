@@ -59,46 +59,6 @@ function completionBase(): Payload {
 }
 
 function testCompletionProfiles(): void {
-	for (const modelId of ["deepseek-v4-flash", "deepseek-v4-pro"]) {
-		for (const level of levels) {
-			const result = apply(
-				completionBase(),
-				modelId,
-				"openai-completions",
-				level,
-			);
-			const effort =
-				level === "off"
-					? undefined
-					: level === "xhigh" || level === "max"
-						? "max"
-						: "high";
-			deepStrictEqual(
-				result,
-				effort === undefined
-					? { stream: true, thinking: { type: "disabled", retained: true } }
-					: {
-							stream: true,
-							reasoning_effort: effort,
-							thinking: { type: "enabled", retained: true },
-						},
-			);
-		}
-	}
-	deepStrictEqual(
-		apply(
-			completionBase(),
-			"deepseek-v4-flash",
-			"openai-completions",
-			"minimal",
-		),
-		{
-			stream: true,
-			reasoning_effort: "high",
-			thinking: { type: "enabled", retained: true },
-		},
-	);
-
 	for (const modelId of ["glm-5.2", "glm-5.1"]) {
 		for (const level of levels) {
 			const result = apply(
@@ -326,6 +286,24 @@ function testGeminiProfiles(): void {
 }
 
 function testOpenAIResponsesProfiles(): void {
+	for (const modelId of [
+		"deepseek-flash",
+		"deepseek-v4-flash",
+		"deepseek-v4-pro",
+	]) {
+		for (const level of levels) {
+			const input = {
+				input: [{ role: "user", content: "keep" }],
+				reasoning: { effort: "high", summary: "auto" },
+				include: ["reasoning.encrypted_content"],
+				store: false,
+				prompt_cache_key: "keep",
+			};
+			const result = apply(input, modelId, "openai-responses", level);
+			strictEqual(result, input);
+		}
+	}
+
 	const verbosityByModel: Record<string, "low" | "medium"> = {
 		"gpt-5.6-sol": "low",
 		"gpt-5.6-terra": "medium",
@@ -360,7 +338,7 @@ function testNoOpsAndProtectedFields(): void {
 	const nonPlain = [null, [], new Date()] as const;
 	for (const payload of nonPlain)
 		strictEqual(
-			applyModelOperations(payload, context("deepseek-v4-flash")),
+			applyModelOperations(payload, context("deepseek-flash")),
 			payload,
 		);
 	const claude = { model: "keep" };

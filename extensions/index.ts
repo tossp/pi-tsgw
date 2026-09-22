@@ -1,11 +1,9 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
-	CONFIG_DIR_NAME,
 	getAgentDir,
 	readStoredCredential,
 } from "@earendil-works/pi-coding-agent";
 import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
@@ -124,9 +122,21 @@ function gatewayHasModel(gatewayIds: ReadonlySet<string>, id: string): boolean {
 	return false;
 }
 
-/** 模型缓存文件：~/.pi/tsgw/models-cache.json（CONFIG_DIR_NAME 跟随 piConfig 覆盖）。 */
+/** 模型缓存文件：<agent-dir>/tsgw/models-cache.json。 */
 function gatewayModelCachePath(): string {
-	return join(homedir(), CONFIG_DIR_NAME, "tsgw", "models-cache.json");
+	return join(getAgentDir(), "tsgw", "models-cache.json");
+}
+
+function effectiveModelsForGateway(
+	root: string,
+	filter: ModelFilter | undefined,
+	gatewayIds: ReadonlySet<string> | undefined,
+): ReturnType<typeof modelsForRoot> {
+	const staticModels = modelsForRoot(root);
+	const intersected = gatewayIds
+		? staticModels.filter((model) => gatewayHasModel(gatewayIds, model.id))
+		: staticModels;
+	return filterModels(intersected, filter);
 }
 
 /**
@@ -136,12 +146,11 @@ function gatewayModelCachePath(): string {
 async function resolveEffectiveModels(
 	root: string,
 	filter: ModelFilter | undefined,
+	cacheFilePath: string,
 ): Promise<{
 	models: ReturnType<typeof modelsForRoot>;
 	gatewayIds: ReadonlySet<string> | undefined;
 }> {
-	const staticModels = modelsForRoot(root);
-
 	// 凭据解析失败不阻塞：无凭据时直接跳过网关层。
 	let apiKey = "";
 	try {
@@ -155,24 +164,24 @@ async function resolveEffectiveModels(
 	if (apiKey) {
 		try {
 			const gateway = await getGatewayModelIds(root, apiKey, {
-				cacheFilePath: gatewayModelCachePath(),
+				cacheFilePath,
 			});
 			if (gateway.ok) gatewayIds = new Set(gateway.ids);
 			else
 				console.warn(
 					`TSGW: gateway model list unavailable (${gateway.reason ?? "unknown"}); using static catalog.`,
 				);
-		} catch (error) {
+		} catch {
 			console.warn(
 				`TSGW: gateway model list load failed; using static catalog.`,
 			);
 		}
 	}
 
-	const intersected = gatewayIds
-		? staticModels.filter((model) => gatewayHasModel(gatewayIds, model.id))
-		: staticModels;
-	return { models: filterModels(intersected, filter), gatewayIds };
+	return {
+		models: effectiveModelsForGateway(root, filter, gatewayIds),
+		gatewayIds,
+	};
 }
 
 export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
@@ -187,6 +196,7 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 		include: settings.includeModels,
 		exclude: settings.excludeModels,
 	};
+	const cacheFilePath = gatewayModelCachePath();
 	let requestState: RequestState | undefined;
 
 	const refreshRequestState = (ctx: {
@@ -200,13 +210,99 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 	const { models, gatewayIds } = await resolveEffectiveModels(
 		root,
 		modelFilter,
+		cacheFilePath,
 	);
+	let latestModels = models;
 	pi.registerProvider(PROVIDER_ID, {
 		name: "TSGW",
 		baseUrl: `${root}/v1`,
 		api: "openai-completions",
 		apiKey: "$TSGW_API_KEY",
 		models,
+		async refreshModels(context) {
+			if (!context.allowNetwork) return latestModels;
+			context.signal.throwIfAborted();
+			const credential = context.credential;
+			if (credential?.type !== "api_key" || !credential.key)
+				throw new Error("TSGW API key is unavailable for model refresh.");
+
+			const gateway = await getGatewayModelIds(root, credential.key, {
+				cacheFilePath,
+				force: context.force === true,
+				signal: context.signal,
+			});
+			context.signal.throwIfAborted();
+			if (!gateway.ok)
+				throw new Error(
+					`TSGW gateway model refresh failed (${gateway.reason}).`,
+				);
+			if (gateway.stale)
+				throw new Error(
+					`TSGW gateway model refresh failed (${gateway.fallbackReason ?? "unknown"}); keeping the last successful catalog.`,
+				);
+
+			latestModels = effectiveModelsForGateway(
+				root,
+				modelFilter,
+				new Set(gateway.ids),
+			);
+			return latestModels;
+		},
+	});
+
+	pi.registerCommand("tsgw-refresh", {
+		description: "Force-refresh the TSGW gateway model catalog",
+		handler: async (_args, ctx) => {
+			await ctx.waitForIdle();
+			if (!ctx.modelRegistry.getProviderAuthStatus(PROVIDER_ID).configured) {
+				ctx.ui.notify(
+					"TSGW model refresh skipped: configure an API key with /login first.",
+					"warning",
+				);
+				return;
+			}
+			const count = (): number =>
+				ctx.modelRegistry
+					.getAvailable()
+					.filter((model) => model.provider === PROVIDER_ID).length;
+			const before = count();
+			try {
+				// Pi 0.84+ returns cancellation/errors; older supported Pi versions
+				// resolve void, so treat missing result metadata as success.
+				const result = (await ctx.modelRegistry.refresh({
+					providers: [PROVIDER_ID],
+					force: true,
+				})) as
+					| {
+							aborted?: boolean;
+							errors?: ReadonlyMap<string, Error>;
+					  }
+					| undefined;
+				const after = count();
+				const error = result?.errors?.get(PROVIDER_ID);
+				if (result?.aborted) {
+					ctx.ui.notify(
+						`TSGW model refresh cancelled (${before} → ${after}).`,
+						"warning",
+					);
+				} else if (error) {
+					ctx.ui.notify(
+						`TSGW model refresh failed (${before} → ${after}): ${error.message}`,
+						"error",
+					);
+				} else {
+					ctx.ui.notify(
+						`TSGW models refreshed (${before} → ${after}).`,
+						"info",
+					);
+				}
+			} catch (error) {
+				ctx.ui.notify(
+					`TSGW model refresh failed (${before} → ${count()}): ${error instanceof Error ? error.message : String(error)}`,
+					"error",
+				);
+			}
+		},
 	});
 
 	// ts_search 条件注册：固定白名单后端与可用模型列表有交集才注册，
