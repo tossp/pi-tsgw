@@ -10,8 +10,8 @@ export function minimaxModels(root: string): ProviderModelConfig[] {
 	const v1 = `${root}/v1`;
 	return [
 		{
-			id: "minimax-m3",
-			name: "Minimax M3",
+			id: "MiniMax-M3",
+			name: "MiniMax-M3",
 			api: "openai-completions",
 			baseUrl: v1,
 			reasoning: true,
@@ -27,7 +27,7 @@ export function minimaxModels(root: string): ProviderModelConfig[] {
 			compat: OPENAI_COMPLETIONS_COMPAT,
 		},
 		{
-			id: "minimax-m2.7",
+			id: "MiniMax-M2.7",
 			name: "MiniMax-M2.7",
 			api: "openai-completions",
 			baseUrl: v1,
@@ -40,7 +40,7 @@ export function minimaxModels(root: string): ProviderModelConfig[] {
 			compat: OPENAI_COMPLETIONS_COMPAT,
 		},
 		{
-			id: "minimax-m2.5",
+			id: "MiniMax-M2.5",
 			name: "MiniMax-M2.5",
 			api: "openai-completions",
 			baseUrl: v1,
@@ -53,7 +53,7 @@ export function minimaxModels(root: string): ProviderModelConfig[] {
 			compat: OPENAI_COMPLETIONS_COMPAT,
 		},
 		{
-			id: "minimax-m2.1",
+			id: "MiniMax-M2.1",
 			name: "MiniMax-M2.1",
 			api: "openai-completions",
 			baseUrl: v1,
@@ -76,9 +76,9 @@ function applyMiniMax(writer: PayloadWriter, level: ThinkingLevel): void {
 	writer.setThinking({ type: level === "off" ? "disabled" : "adaptive" });
 }
 
-export const minimaxThinking: Record<string, ThinkingApplier> = {
-	"minimax-m3": (w, c) => applyMiniMax(w, c.thinkingLevel),
-	"minimax-m2.7": (w, c) => applyMiniMax(w, c.thinkingLevel),
-	"minimax-m2.5": (w, c) => applyMiniMax(w, c.thinkingLevel),
-	"minimax-m2.1": (w, c) => applyMiniMax(w, c.thinkingLevel),
-};
+export const minimaxThinking = {
+	"MiniMax-M3": (w, c) => applyMiniMax(w, c.thinkingLevel),
+	"MiniMax-M2.7": (w, c) => applyMiniMax(w, c.thinkingLevel),
+	"MiniMax-M2.5": (w, c) => applyMiniMax(w, c.thinkingLevel),
+	"MiniMax-M2.1": (w, c) => applyMiniMax(w, c.thinkingLevel),
+} satisfies Record<string, ThinkingApplier>;

@@ -118,7 +118,7 @@ function testCompletionProfiles(): void {
 	for (const level of levels) {
 		const result = apply(
 			completionBase(),
-			"minimax-m3",
+			"MiniMax-M3",
 			"openai-completions",
 			level,
 		);

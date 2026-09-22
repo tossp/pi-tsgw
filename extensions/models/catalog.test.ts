@@ -23,7 +23,7 @@ function testCatalogConcatenation(): void {
 		"deepseek-",
 		"glm-",
 		"mimo-",
-		"minimax-",
+		"MiniMax-",
 		"kimi-",
 		"longcat-",
 		"qwen",
@@ -70,6 +70,15 @@ function testCatalogConcatenation(): void {
 	deepStrictEqual(deepseekPro?.input, ["text"]);
 	deepStrictEqual(deepseekPro?.compat, deepseek?.compat);
 	deepStrictEqual(deepseekPro?.thinkingLevelMap, deepseek?.thinkingLevelMap);
+	const minimaxIds = models
+		.filter(({ id }) => id.startsWith("MiniMax-"))
+		.map(({ id }) => id);
+	deepStrictEqual(minimaxIds, [
+		"MiniMax-M3",
+		"MiniMax-M2.7",
+		"MiniMax-M2.5",
+		"MiniMax-M2.1",
+	]);
 	const openaiIds = models
 		.filter(({ id }) => id.startsWith("gpt-"))
 		.map(({ id }) => id);
