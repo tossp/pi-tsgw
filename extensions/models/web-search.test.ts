@@ -66,6 +66,27 @@ function testBuiltinSearchInjection(): void {
 	strictEqual(invalidTools.tools, null);
 }
 
+function testGpt6SearchInjection(): void {
+	for (const modelId of ["gpt-6-sol", "gpt-6-luna"]) {
+		for (const mode of ["off", "cached", "live"] as const) {
+			const input = { tools: [functionTool], tool_choice: "auto" };
+			const result = apply(input, modelId, mode);
+			if (mode === "off") {
+				strictEqual(result, input);
+			} else {
+				deepStrictEqual(result.tools, [functionTool, {
+					type: "web_search",
+					search_context_size: "medium",
+					external_web_access: mode === "live",
+				}]);
+				strictEqual(result.tool_choice, "auto");
+				strictEqual(apply(result, modelId, mode), result);
+			}
+			deepStrictEqual(input.tools, [functionTool]);
+		}
+	}
+}
+
 function testNoOpsAndScope(): void {
 	// 非内置查询名单内的模型不注入。
 	const nonSearch = { tools: [functionTool] };
@@ -142,6 +163,7 @@ function testGrokSearchInjection(): void {
 const functionTool = { type: "function", name: "keep" };
 
 testBuiltinSearchInjection();
+testGpt6SearchInjection();
 testNoOpsAndScope();
 testGrokSearchInjection();
 console.log("web-search.test.ts: all assertions passed");

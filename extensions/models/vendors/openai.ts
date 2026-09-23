@@ -4,6 +4,9 @@ import { type PayloadWriter, type ThinkingApplier } from "../_tools.ts";
 /**
  * OpenAI GPT 系列（Responses 协议）。
  * 官方文档：https://platform.openai.com/docs/models
+ * GPT-6 Sol：https://developers.openai.com/api/docs/models/gpt-6-sol
+ * GPT-6 Luna：https://developers.openai.com/api/docs/models/gpt-6-luna
+ * 两款价格为 Standard ≤272K 输入费率（2026-09-23 核验）。
  */
 export function openaiModels(root: string): ProviderModelConfig[] {
 	const v1 = `${root}/v1`;
@@ -23,6 +26,46 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			},
 			input: ["text", "image"],
 			cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
+			contextWindow: 1050000,
+			maxTokens: 128000,
+		},
+		{
+			id: "gpt-6-sol",
+			name: "GPT 6 Sol",
+			api: "openai-responses",
+			baseUrl: v1,
+			reasoning: true,
+			thinkingLevelMap: {
+				off: "none",
+				minimal: "low",
+				low: "low",
+				medium: "medium",
+				high: "high",
+				xhigh: "xhigh",
+				max: "max",
+			},
+			input: ["text", "image"],
+			cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+			contextWindow: 1050000,
+			maxTokens: 128000,
+		},
+		{
+			id: "gpt-6-luna",
+			name: "GPT 6 Luna",
+			api: "openai-responses",
+			baseUrl: v1,
+			reasoning: true,
+			thinkingLevelMap: {
+				off: "none",
+				minimal: "low",
+				low: "low",
+				medium: "medium",
+				high: "high",
+				xhigh: "xhigh",
+				max: "max",
+			},
+			input: ["text", "image"],
+			cost: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
 			contextWindow: 1050000,
 			maxTokens: 128000,
 		},
@@ -110,6 +153,8 @@ function applyOpenAIResponses(writer: PayloadWriter, modelId: string): void {
 
 export const openaiThinking = {
 	"gpt-6-astra": (w, c) => applyOpenAIResponses(w, c.modelId),
+	"gpt-6-sol": (w, c) => applyOpenAIResponses(w, c.modelId),
+	"gpt-6-luna": (w, c) => applyOpenAIResponses(w, c.modelId),
 	"gpt-5.6-sol": (w, c) => applyOpenAIResponses(w, c.modelId),
 	"gpt-5.6-terra": (w, c) => applyOpenAIResponses(w, c.modelId),
 	"gpt-5.6-luna": (w, c) => applyOpenAIResponses(w, c.modelId),
