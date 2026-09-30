@@ -25,6 +25,7 @@ const OPENAI_COMPLETIONS = "openai-completions";
 // 支持内置查询的模型名单（GPT Responses 系列）。
 const BUILTIN_SEARCH_MODELS = new Set([
 	"gpt-6-astra",
+	"gpt-6.1-sol",
 	"gpt-6-sol",
 	"gpt-6-luna",
 	"gpt-5.6-sol",

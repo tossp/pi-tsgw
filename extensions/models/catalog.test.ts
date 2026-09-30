@@ -13,8 +13,8 @@ function testCatalogConcatenation(): void {
 	const models = modelsForRoot(ROOT);
 	const ids = models.map(({ id }) => id);
 
-	// 11 家供应商分片拼接，共 53 个模型（含 DeepSeek 新名称及旧 alias）。
-	equal(ids.length, 53);
+	// 11 家供应商分片拼接，共 54 个模型（含 DeepSeek 新名称及旧 alias）。
+	equal(ids.length, 54);
 	// id 全局唯一。
 	equal(new Set(ids).size, ids.length);
 
@@ -84,6 +84,7 @@ function testCatalogConcatenation(): void {
 		.map(({ id }) => id);
 	deepStrictEqual(openaiIds, [
 		"gpt-6-astra",
+		"gpt-6.1-sol",
 		"gpt-6-sol",
 		"gpt-6-luna",
 		"gpt-5.6-sol",
@@ -125,6 +126,22 @@ function testCatalogConcatenation(): void {
 			max: "max",
 		});
 	}
+	const sol61 = models.find(({ id }) => id === "gpt-6.1-sol");
+	strictEqual(sol61?.name, "GPT 6.1 Sol");
+	strictEqual(sol61?.api, "openai-responses");
+	strictEqual(sol61?.baseUrl, `${ROOT}/v1`);
+	strictEqual(sol61?.reasoning, true);
+	deepStrictEqual(sol61?.input, ["text", "image"]);
+	deepStrictEqual(sol61?.cost, { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 });
+	strictEqual(sol61?.contextWindow, 1050000);
+	strictEqual(sol61?.maxTokens, 128000);
+	deepStrictEqual(sol61?.thinkingLevelMap, {
+		low: "low",
+		medium: "medium",
+		high: "high",
+		xhigh: "xhigh",
+		max: "max",
+	});
 	const gemini = models.find(({ id }) => id === "gemini-flash");
 	strictEqual(gemini?.baseUrl, `${ROOT}/gemini`);
 	const claude = models.find(({ id }) => id === "claude-fable-5");

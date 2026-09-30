@@ -306,6 +306,7 @@ function testOpenAIResponsesProfiles(): void {
 
 	const verbosityByModel: Record<string, "low" | "medium"> = {
 		"gpt-6-astra": "low",
+		"gpt-6.1-sol": "low",
 		"gpt-6-sol": "low",
 		"gpt-6-luna": "low",
 		"gpt-5.6-sol": "low",

@@ -67,7 +67,7 @@ function testBuiltinSearchInjection(): void {
 }
 
 function testGpt6SearchInjection(): void {
-	for (const modelId of ["gpt-6-sol", "gpt-6-luna"]) {
+	for (const modelId of ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"]) {
 		for (const mode of ["off", "cached", "live"] as const) {
 			const input = { tools: [functionTool], tool_choice: "auto" };
 			const result = apply(input, modelId, mode);

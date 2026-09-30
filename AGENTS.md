@@ -94,6 +94,8 @@ For the OpenAI Responses aliases, the installed Pi 0.82.0 implementation and the
 
 GPT-6 Sol / Luna（2026-09-23）：采用 `openai-responses`，保留既有 GPT-5.x；`off=none`、`minimal=low`，其余档位同名映射，沿用 `text.verbosity=low` 并加入内置查询名单。规格与 Standard 短上下文价格依据 Blinko #763 及 vendors 中的官方模型页；网关最小文本请求均返回 HTTP 200，尚未实测工具调用或内置查询。
 
+GPT-6.1 Sol（2026-09-30）：依据[官方模型页](https://developers.openai.com/api/docs/models/gpt-6.1-sol.md)新增 `gpt-6.1-sol`，保留全部旧模型；采用 Responses、`low/medium/high/xhigh/max` 同名映射（不声明不受支持的 `none/minimal`）、`text.verbosity=low`，加入内置查询名单。网关目录已包含该 ID，最小文本请求返回 HTTP 200；工具调用与内置查询未实测。本轮 Blinko MCP 不可用，外部证据尚未同步至 Blinko。
+
 ### 内置查询（models/web-search.ts）
 
 `tsgw.tsSearch` accepts only `off` (default), `cached`, and `live`. For models in the `BUILTIN_SEARCH_MODELS` list (GPT Responses aliases today; Grok uses the same `web_search` tool name per xAI docs, pending gateway protocol confirmation) using the AIH/OpenAI Responses API, a missing `tools` field or an existing tools array gets this append-only operation unless any `web_search*` tool is already present:
