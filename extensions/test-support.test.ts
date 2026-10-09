@@ -75,10 +75,14 @@ export class FakePi {
 	private readonly handlers = new Map<HookName, unknown[]>();
 
 	on: ExtensionAPI["on"] = (event, handler) => {
-		if (!this.isHookName(event)) return;
+		if (!this.isHookName(event)) return () => {};
 		const handlers = this.handlers.get(event) ?? [];
 		handlers.push(handler);
 		this.handlers.set(event, handlers);
+		return () => {
+			const index = handlers.indexOf(handler);
+			if (index >= 0) handlers.splice(index, 1);
+		};
 	};
 	registerTool: ExtensionAPI["registerTool"] = (tool) => {
 		this.tools.push(tool);
@@ -86,6 +90,13 @@ export class FakePi {
 	registerCommand: ExtensionAPI["registerCommand"] = (name, command) => {
 		this.commands.set(name, command);
 	};
+	registerToolRenderer: ExtensionAPI["registerToolRenderer"] = () => {};
+	getSettings: ExtensionAPI["getSettings"] = () => ({});
+	registerMcpServer: ExtensionAPI["registerMcpServer"] = () => {};
+	unregisterMcpServer: ExtensionAPI["unregisterMcpServer"] = () => {};
+	getMcpServers: ExtensionAPI["getMcpServers"] = () => [];
+	registerVirtualModel: ExtensionAPI["registerVirtualModel"] = () => {};
+	unregisterVirtualModel: ExtensionAPI["unregisterVirtualModel"] = () => {};
 	registerShortcut: ExtensionAPI["registerShortcut"] = () => {};
 	registerFlag: ExtensionAPI["registerFlag"] = () => {};
 	getFlag: ExtensionAPI["getFlag"] = () => undefined;
