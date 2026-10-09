@@ -7,6 +7,7 @@ import { test, type TestContext } from "node:test";
 import {
 	DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL,
 	getGatewayModelIds,
+	gatewayModelCacheScope,
 	saveGatewayModelCache,
 	type GatewayFetch,
 } from "./gateway-catalog.ts";
@@ -54,6 +55,7 @@ test("network success returns exactly the timestamp persisted to disk", async (t
 		storedAt,
 	});
 	deepStrictEqual(JSON.parse(readFileSync(cacheFilePath, "utf8")), {
+		scope: gatewayModelCacheScope(baseUrl, "key"),
 		ids: ["network-model"],
 		storedAt,
 	});
@@ -88,7 +90,7 @@ test("memory hit keeps the network storage time rather than the lookup time", as
 test("disk hit and subsequent memory hit both keep the disk storage time", async (t) => {
 	const { baseUrl, cacheFilePath } = fixture(t);
 	const storedAt = 456;
-	saveGatewayModelCache(cacheFilePath, ["disk-model"], storedAt);
+	saveGatewayModelCache(cacheFilePath, gatewayModelCacheScope(baseUrl, "key"), ["disk-model"], storedAt);
 	const original = readFileSync(cacheFilePath, "utf8");
 	const blocked = cacheOnly();
 	const disk = await getGatewayModelIds(
@@ -133,7 +135,7 @@ for (const scenario of [
 			);
 		}
 		if (diskAt !== undefined)
-			saveGatewayModelCache(cacheFilePath, ["disk-model"], diskAt);
+			saveGatewayModelCache(cacheFilePath, gatewayModelCacheScope(baseUrl, "key"), ["disk-model"], diskAt);
 		const original = diskAt === undefined
 			? undefined
 			: readFileSync(cacheFilePath, "utf8");

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
 	mkdirSync,
 	readFileSync,
@@ -6,7 +6,7 @@ import {
 	unlinkSync,
 	writeFileSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 
 export const DEFAULT_GATEWAY_MODEL_TIMEOUT_MS = 5_000;
 export const DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS = 5 * 60 * 1_000;
@@ -126,6 +126,8 @@ export async function fetchGatewayModelIds(
 			return { ok: false, reason: "network", detail: errorDetail(error) };
 		}
 
+		if (timedOut) return { ok: false, reason: "timeout" };
+		if (opts.signal?.aborted) return { ok: false, reason: "aborted" };
 		if (!response.ok) {
 			return { ok: false, reason: "http", status: response.status };
 		}
@@ -139,6 +141,8 @@ export async function fetchGatewayModelIds(
 			return { ok: false, reason: "invalid-json", detail: errorDetail(error) };
 		}
 
+		if (timedOut) return { ok: false, reason: "timeout" };
+		if (opts.signal?.aborted) return { ok: false, reason: "aborted" };
 		if (!payload || typeof payload !== "object")
 			return { ok: false, reason: "invalid-data" };
 		const data = (payload as { data?: unknown }).data;
@@ -176,17 +180,27 @@ export function createModelCache(
 	};
 }
 
+/** Hash both identity components; no plaintext credentials in cache keys or files. */
+export function gatewayModelCacheScope(baseUrl: string, apiKey: string): string {
+	return createHash("sha256")
+		.update(JSON.stringify([baseUrl.replace(/\/+$/, ""), apiKey]))
+		.digest("hex");
+}
+
 function readGatewayModelCacheEntry(
 	filePath: string,
+	scope: string,
 ): ModelCacheEntry | undefined {
 	try {
 		const payload: unknown = JSON.parse(readFileSync(filePath, "utf8"));
 		if (!payload || typeof payload !== "object") return undefined;
-		const { storedAt, ids } = payload as {
+		const { storedAt, ids, scope: storedScope } = payload as {
+			scope?: unknown;
 			storedAt?: unknown;
 			ids?: unknown;
 		};
 		if (
+			!scope || storedScope !== scope ||
 			typeof storedAt !== "number" ||
 			!Number.isFinite(storedAt) ||
 			storedAt < 0 ||
@@ -214,6 +228,7 @@ function isCacheEntryFresh(
 /** Atomically persist gateway model IDs. Write failures are non-fatal. */
 export function saveGatewayModelCache(
 	filePath: string,
+	scope: string,
 	ids: readonly string[],
 	now = Date.now(),
 ): void {
@@ -222,7 +237,7 @@ export function saveGatewayModelCache(
 		mkdirSync(dirname(filePath), { recursive: true });
 		writeFileSync(
 			temporaryPath,
-			JSON.stringify({ storedAt: now, ids: [...ids] }),
+			JSON.stringify({ scope, storedAt: now, ids: [...ids] }),
 			{ encoding: "utf8", mode: 0o600 },
 		);
 		renameSync(temporaryPath, filePath);
@@ -238,12 +253,13 @@ export function saveGatewayModelCache(
 /** Load a persisted gateway model list. Missing or invalid files are ignored. */
 export function loadGatewayModelCache(
 	filePath: string,
+	scope: string,
 	now = Date.now(),
 	ttlMs = DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
 ): LoadedGatewayModelCache | undefined {
 	if (!Number.isFinite(ttlMs) || ttlMs < 0)
 		throw new RangeError("ttlMs must be a non-negative finite number");
-	const entry = readGatewayModelCacheEntry(filePath);
+	const entry = readGatewayModelCacheEntry(filePath, scope);
 	if (!entry) return undefined;
 	return {
 		ids: [...entry.ids],
@@ -252,10 +268,18 @@ export function loadGatewayModelCache(
 }
 
 const gatewayCaches = new Map<string, ModelCache>();
-const inFlightRequests = new Map<string, Promise<FetchGatewayModelIdsResult>>();
+interface PendingRequest {
+	promise: Promise<FetchGatewayModelIdsResult>;
+	revision: number;
+	storedAt: number;
+}
+const inFlightRequests = new Map<string, PendingRequest>();
+const latestRequests = new Map<string, number>();
+// Disk is single-slot per normalized path, independently of the memory scope.
+const latestDiskRequests = new Map<string, number>();
+let revision = 0;
 
-function cacheFor(baseUrl: string): ModelCache {
-	const key = baseUrl.replace(/\/+$/, "");
+function cacheFor(key: string): ModelCache {
 	let cache = gatewayCaches.get(key);
 	if (!cache) {
 		cache = createModelCache();
@@ -276,7 +300,8 @@ export async function getGatewayModelIds(
 	opts: GetGatewayModelIdsOptions = {},
 	now = Date.now(),
 ): Promise<GetGatewayModelIdsResult> {
-	const key = baseUrl.replace(/\/+$/, "");
+	if (opts.signal?.aborted) return { ok: false, reason: "aborted" };
+	const key = gatewayModelCacheScope(baseUrl, apiKey);
 	const cache = cacheFor(key);
 	if (!opts.force && cache.isFresh(now)) {
 		const entry = cache.get();
@@ -291,7 +316,7 @@ export async function getGatewayModelIds(
 	}
 
 	const diskEntry = opts.cacheFilePath
-		? readGatewayModelCacheEntry(opts.cacheFilePath)
+		? readGatewayModelCacheEntry(opts.cacheFilePath, key)
 		: undefined;
 	if (
 		!opts.force &&
@@ -315,32 +340,53 @@ export async function getGatewayModelIds(
 	const shareRequest = opts.signal === undefined;
 	let request = shareRequest ? inFlightRequests.get(requestKey) : undefined;
 	if (!request) {
-		request = fetchGatewayModelIds(key, apiKey, {
-			fetcher: opts.fetcher,
-			timeoutMs: opts.timeoutMs,
-			signal: opts.signal,
-		});
+		const requestRevision = ++revision;
+		latestRequests.set(key, requestRevision);
+		request = {
+			revision: requestRevision,
+			storedAt: now,
+			promise: fetchGatewayModelIds(baseUrl, apiKey, {
+				fetcher: opts.fetcher,
+				timeoutMs: opts.timeoutMs,
+				signal: opts.signal,
+			}),
+		};
 		if (shareRequest) inFlightRequests.set(requestKey, request);
+	}
+
+	const diskPath = opts.cacheFilePath ? resolve(opts.cacheFilePath) : undefined;
+	if (diskPath) {
+		// Register every subscriber's path, including shared requests with different
+		// destinations. Joining an older request must not roll back a newer fence.
+		latestDiskRequests.set(diskPath, Math.max(
+			latestDiskRequests.get(diskPath) ?? 0, request.revision,
+		));
 	}
 
 	let fetched: FetchGatewayModelIdsResult;
 	try {
-		fetched = await request;
+		fetched = await request.promise;
 	} finally {
 		if (shareRequest && inFlightRequests.get(requestKey) === request)
 			inFlightRequests.delete(requestKey);
 	}
 
+	// Cancellation never falls back or writes, even if a fetcher ignores its signal.
+	if (opts.signal?.aborted) return { ok: false, reason: "aborted" };
 	if (fetched.ok) {
-		cache.set(fetched.ids, now);
-		if (opts.cacheFilePath)
-			saveGatewayModelCache(opts.cacheFilePath, fetched.ids, now);
+		// Latest-started wins even if the newer request fails or aborts.
+		// Superseded successes still return to their callers without cache writes.
+		if (latestRequests.get(key) === request.revision) {
+			cache.set(fetched.ids, request.storedAt);
+			if (diskPath && latestDiskRequests.get(diskPath) === request.revision)
+				saveGatewayModelCache(diskPath, key, fetched.ids, request.storedAt);
+		}
 		return {
 			ok: true,
 			ids: [...fetched.ids],
 			cached: false,
 			stale: false,
-			storedAt: now,
+			storedAt: request.storedAt,
 		};
 	}
 

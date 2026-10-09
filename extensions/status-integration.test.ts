@@ -2,7 +2,7 @@ import { deepStrictEqual, equal, match, rejects } from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import registerTsgw from "./index.ts";
-import { saveGatewayModelCache, DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "./models/gateway-catalog.ts";
+import { gatewayModelCacheScope, saveGatewayModelCache, DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "./models/gateway-catalog.ts";
 import { FakePi, TSGW_TERRA, withAgentDir, providerRequest } from "./test-support.test.ts";
 
 type Refresh = (context: {
@@ -13,7 +13,7 @@ type Refresh = (context: {
 }) => Promise<Array<{ id: string }>>;
 let fixtureId = 0;
 
-async function withUi(run: (context: Awaited<ReturnType<typeof fixture>>) => Promise<void>, search = "off") {
+async function withUi(run: (context: Awaited<ReturnType<typeof fixture>>) => Promise<void>, search = "live") {
 	const root = `https://status-${++fixtureId}.example.test`;
 	await withAgentDir({ tsgw: { baseUrl: root, tsSearch: search } }, async (dir) => {
 		const previousFetch = globalThis.fetch;
@@ -75,7 +75,7 @@ const modelResponse = (ids = ["gpt-5.6-terra", "glm-5.2"]) =>
 
 await withUi(async ({ pi, ctx, statuses, choices, dialogs, notices, dir }) => {
 	match(statuses.get("command:/tsgw")!, /^🟡 TSGW/); // Static is not a healthy gateway.
-	equal(statuses.get("command:/tsgw-search"), "⚪ 内置联网：关");
+	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：实时");
 	const before = readFileSync(join(dir, "settings.json"), "utf8");
 	choices.push("🟢 内置联网：实时");
 	await pi.invokeCommand("tsgw-search", ctx);
@@ -84,28 +84,40 @@ await withUi(async ({ pi, ctx, statuses, choices, dialogs, notices, dir }) => {
 	equal(live.tools[0].external_web_access, true);
 	await pi.invokeCommand("tsgw-search", ctx, "cached");
 	equal((providerRequest(pi, {}) as typeof live).tools[0].external_web_access, false);
-	await pi.invokeCommand("tsgw-search", ctx, "invalid");
-	equal(notices.at(-1)?.level, "warning");
+	for (const mode of ["invalid", "off"]) {
+		await pi.invokeCommand("tsgw-search", ctx, mode);
+		equal(notices.at(-1)?.level, "warning");
+		equal((providerRequest(pi, {}) as typeof live).tools[0].external_web_access, false);
+	}
 	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：缓存");
 	choices.push(undefined);
 	await pi.invokeCommand("tsgw-search", ctx);
 	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：缓存");
 	equal(readFileSync(join(dir, "settings.json"), "utf8"), before);
 	equal(dialogs[0].title, "内置联网（仅本会话）");
+	deepStrictEqual(dialogs[0].options, ["🟡 内置联网：缓存", "🟢 内置联网：实时"]);
 	pi.invoke("session_start", { reason: "new" }, ctx);
-	equal(statuses.get("command:/tsgw-search"), "⚪ 内置联网：关");
+	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：实时");
 });
 
-await withUi(async ({ pi, ctx, statuses, choices, dialogs }) => {
+await withUi(async ({ pi, ctx, statuses, dialogs, notices }) => {
 	ctx.model = { ...ctx.model, id: "grok-4.5", api: "openai-completions" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
 	// Existing cached setting maps to live Grok search; don't advertise cache-only access.
 	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：实时");
-	choices.push(undefined);
-	await pi.invokeCommand("tsgw-search", ctx);
-	deepStrictEqual(dialogs.at(-1)?.options, ["⚪ 内置联网：关", "🟢 内置联网：实时"]);
-	await pi.invokeCommand("tsgw-search", ctx, "off");
-	equal((providerRequest(pi, {}) as { search_parameters?: unknown }).search_parameters, undefined);
+	for (const args of ["", "off", "cached", "live", "invalid"]) {
+		await pi.invokeCommand("tsgw-search", ctx, args);
+		equal(dialogs.length, 0);
+		match(notices.at(-1)!.text, /固定为实时/);
+		deepStrictEqual((providerRequest(pi, {}) as { search_parameters: unknown }).search_parameters, { mode: "on" });
+	}
+	ctx.model = { ...TSGW_TERRA };
+	pi.invoke("model_select", { model: ctx.model }, ctx);
+	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：缓存");
+	equal((providerRequest(pi, {}) as { tools: Array<{ external_web_access: boolean }> }).tools[0].external_web_access, false);
+	await pi.invokeCommand("tsgw-search", ctx, "live");
+	pi.invoke("session_start", { reason: "new" }, ctx);
+	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：缓存");
 	ctx.model = { ...ctx.model, id: "glm-5.2" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
 	equal(statuses.get("command:/tsgw-search"), "⚪ 内置联网：不支持");
@@ -175,7 +187,7 @@ await withUi(async ({ pi, ctx, notices }) => {
 	};
 	await pi.invokeCommand("tsgw-search", ctx);
 	match(notices.at(-1)!.text, /支持性已变化/);
-	equal((providerRequest(pi, {}) as { search_parameters?: unknown }).search_parameters, undefined);
+	deepStrictEqual((providerRequest(pi, {}) as { search_parameters: unknown }).search_parameters, { mode: "on" });
 	// Headless commands can use explicit arguments without touching UI rendering.
 	ctx.hasUI = false;
 	ctx.model = { ...TSGW_TERRA };
@@ -275,16 +287,33 @@ for (const commandName of ["tsgw-refresh", "tsgw-search", "tsgw"]) {
 		release();
 		await pending;
 		// Late picker completions must not mutate the old instance's search snapshot.
-		equal((providerRequest(pi, {}) as { tools?: unknown }).tools, undefined);
-	});
+		equal((providerRequest(pi, {}) as { tools: Array<{ external_web_access: boolean }> })
+			.tools[0].external_web_access, false);
+	}, "cached");
 }
+
+await withUi(async ({ pi, ctx, statuses, notices }) => {
+	// A picker from the previous session cannot override the restored default.
+	await pi.invokeCommand("tsgw-search", ctx, "cached");
+	ctx.ui.select = async () => {
+		pi.invoke("session_start", { reason: "new" }, ctx);
+		return "🟡 内置联网：缓存";
+	};
+	const count = notices.length;
+	await pi.invokeCommand("tsgw-search", ctx);
+	equal(notices.length, count);
+	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：实时");
+	equal((providerRequest(pi, {}) as { tools: Array<{ external_web_access: boolean }> })
+		.tools[0].external_web_access, true);
+});
 
 for (const stale of [false, true]) {
 	const root = `https://bootstrap-${++fixtureId}.example.test`;
 	await withAgentDir({ tsgw: { baseUrl: root } }, async (dir) => {
 		writeFileSync(join(dir, "auth.json"), JSON.stringify({ tsgw: { type: "api_key", key: "test-bootstrap-key" } }));
 		const storedAt = Date.now() - (stale ? TTL * 2 : 1000);
-		saveGatewayModelCache(join(dir, "tsgw", "models-cache.json"), ["gpt-5.6-terra"], storedAt);
+		saveGatewayModelCache(join(dir, "tsgw", "models-cache.json"),
+			gatewayModelCacheScope(root, "test-bootstrap-key"), ["gpt-5.6-terra"], storedAt);
 		const previous = globalThis.fetch;
 		let calls = 0;
 		globalThis.fetch = async () => { calls++; return new Response("unavailable", { status: 503 }); };
