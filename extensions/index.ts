@@ -1,4 +1,8 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import {
 	getAgentDir,
 	readStoredCredential,
@@ -16,11 +20,14 @@ import {
 } from "./models/catalog.ts";
 import { getGatewayModelIds } from "./models/gateway-catalog.ts";
 import { applyModelOperations } from "./models/operations.ts";
-import type { ThinkingLevel, WebSearchMode } from "./models/_tools.ts";
+import { builtinSearchSupport } from "./models/web-search.ts";
 import {
-	DEFAULT_SEARCH_MODELS,
-	registerTsSearch,
-} from "./ts-search/ts-search.ts";
+	catalogLabel,
+	catalogDiagnostics,
+	searchLabel,
+	type CatalogStatus,
+} from "./status.ts";
+import type { ThinkingLevel, WebSearchMode } from "./models/_tools.ts";
 
 /**
  * The data needed by provider hooks, copied while the lifecycle context is
@@ -150,6 +157,7 @@ async function resolveEffectiveModels(
 ): Promise<{
 	models: ReturnType<typeof modelsForRoot>;
 	gatewayIds: ReadonlySet<string> | undefined;
+	catalog: CatalogStatus;
 }> {
 	// 凭据解析失败不阻塞：无凭据时直接跳过网关层。
 	let apiKey = "";
@@ -161,36 +169,39 @@ async function resolveEffectiveModels(
 	}
 
 	let gatewayIds: ReadonlySet<string> | undefined;
+	let catalog: CatalogStatus = { count: 0, source: "static", loading: false };
 	if (apiKey) {
 		try {
 			const gateway = await getGatewayModelIds(root, apiKey, {
 				cacheFilePath,
 			});
-			if (gateway.ok) gatewayIds = new Set(gateway.ids);
-			else
-				console.warn(
-					`TSGW: gateway model list unavailable (${gateway.reason ?? "unknown"}); using static catalog.`,
-				);
+			if (gateway.ok) {
+				gatewayIds = new Set(gateway.ids);
+				catalog = {
+					...catalog,
+					source: gateway.cached ? "cache" : "network",
+					storedAt: gateway.storedAt,
+					error: gateway.stale
+						? `刷新失败（${gateway.fallbackReason ?? "unknown"}），沿用旧目录` : undefined,
+				};
+			} else catalog.error = `目录获取失败（${gateway.reason}），使用内置目录`;
 		} catch {
-			console.warn(
-				`TSGW: gateway model list load failed; using static catalog.`,
-			);
+			catalog.error = "目录获取失败，使用内置目录";
 		}
 	}
-
-	return {
-		models: effectiveModelsForGateway(root, filter, gatewayIds),
-		gatewayIds,
-	};
+	if (catalog.error) console.warn(`TSGW: ${catalog.error}`);
+	const models = effectiveModelsForGateway(root, filter, gatewayIds);
+	return { models, gatewayIds, catalog: { ...catalog, count: models.length } };
 }
 
 export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 	const settings = readTsgwSettings();
 	const root = rootForRuntime(settings.baseUrl);
-	const tsSearchMode: WebSearchMode =
+	const defaultSearchMode: WebSearchMode =
 		settings.tsSearch === "cached" || settings.tsSearch === "live"
 			? settings.tsSearch
 			: "off";
+	let tsSearchMode = defaultSearchMode;
 	const traceEnabled = settings.traceHeaders === true;
 	const modelFilter: ModelFilter = {
 		include: settings.includeModels,
@@ -207,12 +218,38 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 	};
 
 	// 三层模型过滤：静态目录 ∩ 网关实际列表 ∩ 用户黑白名单。
-	const { models, gatewayIds } = await resolveEffectiveModels(
+	const initial = await resolveEffectiveModels(
 		root,
 		modelFilter,
 		cacheFilePath,
 	);
+	const { models } = initial;
 	let latestModels = models;
+	let catalog = initial.catalog;
+	let credentialConfigured = false;
+	let publishStatus: (() => void) | undefined;
+	let refreshRevision = 0;
+	let lifecycleRevision = 0;
+	const rootConfigured = root !== DEFAULT_ROOT;
+	const searchSupport = () => requestState?.provider === PROVIDER_ID
+		? builtinSearchSupport(requestState.modelId, requestState.api) : undefined;
+	// Retain only the UI sink, never a lifecycle context; disconnect on shutdown.
+	const bindStatus = (ctx: ExtensionContext): void => {
+		if (!ctx.hasUI) {
+			publishStatus = undefined;
+			return;
+		}
+		credentialConfigured = ctx.modelRegistry.getProviderAuthStatus(PROVIDER_ID).configured;
+		const ui = ctx.ui;
+		publishStatus = () => {
+			ui.setStatus("command:/tsgw",
+				catalogLabel(catalog, credentialConfigured, rootConfigured));
+			ui.setStatus("command:/tsgw-search",
+				requestState?.provider === PROVIDER_ID
+					? searchLabel(tsSearchMode, searchSupport()) : undefined);
+		};
+		publishStatus();
+	};
 	pi.registerProvider(PROVIDER_ID, {
 		name: "TSGW",
 		baseUrl: `${root}/v1`,
@@ -222,108 +259,174 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 		async refreshModels(context) {
 			if (!context.allowNetwork) return latestModels;
 			context.signal.throwIfAborted();
-			const credential = context.credential;
-			if (credential?.type !== "api_key" || !credential.key)
-				throw new Error("TSGW API key is unavailable for model refresh.");
-
-			const gateway = await getGatewayModelIds(root, credential.key, {
-				cacheFilePath,
-				force: context.force === true,
-				signal: context.signal,
-			});
-			context.signal.throwIfAborted();
-			if (!gateway.ok)
-				throw new Error(
-					`TSGW gateway model refresh failed (${gateway.reason}).`,
-				);
-			if (gateway.stale)
-				throw new Error(
-					`TSGW gateway model refresh failed (${gateway.fallbackReason ?? "unknown"}); keeping the last successful catalog.`,
-				);
-
-			latestModels = effectiveModelsForGateway(
-				root,
-				modelFilter,
-				new Set(gateway.ids),
-			);
-			return latestModels;
+			const revision = ++refreshRevision;
+			catalog = { ...catalog, loading: true };
+			publishStatus?.();
+			try {
+				const credential = context.credential;
+				credentialConfigured = credential?.type === "api_key" && !!credential.key;
+				if (credential?.type !== "api_key" || !credential.key)
+					throw new Error("TSGW API key is unavailable for model refresh.");
+				const gateway = await getGatewayModelIds(root, credential.key, {
+					cacheFilePath,
+					force: context.force === true,
+					signal: context.signal,
+				});
+				context.signal.throwIfAborted();
+				if (!gateway.ok)
+					throw new Error(`TSGW gateway model refresh failed (${gateway.reason}).`);
+				if (gateway.stale)
+					throw new Error("TSGW refresh failed; keeping the last successful catalog.");
+				if (revision === refreshRevision) {
+					latestModels = effectiveModelsForGateway(root, modelFilter, new Set(gateway.ids));
+					catalog = {
+						count: latestModels.length,
+						source: gateway.cached ? "cache" : "network",
+						storedAt: gateway.storedAt,
+						loading: false,
+					};
+				}
+				return latestModels;
+			} catch (error) {
+				if (revision === refreshRevision) catalog = {
+					...catalog,
+					loading: false,
+					error: context.signal.aborted
+						? "刷新已取消，保留原目录" : "刷新失败，保留原目录；请检查凭据、网关与网络",
+				};
+				throw error;
+			} finally {
+				if (revision === refreshRevision) publishStatus?.();
+			}
 		},
 	});
 
-	pi.registerCommand("tsgw-refresh", {
-		description: "Force-refresh the TSGW gateway model catalog",
-		handler: async (_args, ctx) => {
+	let refreshPending = false;
+	const refreshCatalog = async (ctx: ExtensionCommandContext): Promise<void> => {
+		if (refreshPending) return;
+		refreshPending = true;
+		const lifecycle = lifecycleRevision;
+		let revision = refreshRevision;
+		// Provider callbacks own their state; only diagnose failures before one starts.
+		const recordFailure = (message: string): void => {
+			if (revision === refreshRevision && !catalog.loading) {
+				catalog.error = message;
+				publishStatus?.();
+			}
+		};
+		try {
 			await ctx.waitForIdle();
+			if (lifecycle !== lifecycleRevision) return;
+			bindStatus(ctx);
 			if (!ctx.modelRegistry.getProviderAuthStatus(PROVIDER_ID).configured) {
-				ctx.ui.notify(
-					"TSGW model refresh skipped: configure an API key with /login first.",
-					"warning",
-				);
+				ctx.ui.notify("TSGW model refresh skipped: configure an API key with /login first.", "warning");
 				return;
 			}
-			const count = (): number =>
-				ctx.modelRegistry
-					.getAvailable()
-					.filter((model) => model.provider === PROVIDER_ID).length;
+			const count = () => ctx.modelRegistry.getAvailable()
+				.filter((model) => model.provider === PROVIDER_ID).length;
 			const before = count();
-			try {
-				// Pi 0.84+ returns cancellation/errors; older supported Pi versions
-				// resolve void, so treat missing result metadata as success.
-				const result = (await ctx.modelRegistry.refresh({
-					providers: [PROVIDER_ID],
-					force: true,
-				})) as
-					| {
-							aborted?: boolean;
-							errors?: ReadonlyMap<string, Error>;
-					  }
-					| undefined;
-				const after = count();
-				const error = result?.errors?.get(PROVIDER_ID);
-				if (result?.aborted) {
-					ctx.ui.notify(
-						`TSGW model refresh cancelled (${before} → ${after}).`,
-						"warning",
-					);
-				} else if (error) {
-					ctx.ui.notify(
-						`TSGW model refresh failed (${before} → ${after}): ${error.message}`,
-						"error",
-					);
-				} else {
-					ctx.ui.notify(
-						`TSGW models refreshed (${before} → ${after}).`,
-						"info",
-					);
-				}
-			} catch (error) {
-				ctx.ui.notify(
-					`TSGW model refresh failed (${before} → ${count()}): ${error instanceof Error ? error.message : String(error)}`,
-					"error",
-				);
+			revision = refreshRevision;
+			// Older Pi versions return void instead of cancellation/error metadata.
+			const result = (await ctx.modelRegistry.refresh({
+				providers: [PROVIDER_ID], force: true,
+			})) as { aborted?: boolean; errors?: ReadonlyMap<string, Error> } | undefined;
+			if (lifecycle !== lifecycleRevision) return;
+			const after = count();
+			if (result?.aborted) {
+				recordFailure("刷新已取消，保留原目录");
+				ctx.ui.notify(`TSGW model refresh cancelled (${before} → ${after}).`, "warning");
+			} else if (result?.errors?.has(PROVIDER_ID)) {
+				recordFailure("刷新失败，保留原目录；请检查凭据、网关与网络");
+				ctx.ui.notify(`TSGW model refresh failed (${before} → ${after}).`, "error");
+			} else {
+				ctx.ui.notify(`TSGW models refreshed (${before} → ${after}).`, "info");
+			}
+		} catch {
+			if (lifecycle !== lifecycleRevision) return;
+			recordFailure("刷新失败，保留原目录；请检查凭据、网关与网络");
+			ctx.ui.notify("TSGW model refresh failed; keeping the previous catalog.", "error");
+		} finally {
+			if (lifecycle === lifecycleRevision) refreshPending = false;
+		}
+	};
+	pi.registerCommand("tsgw-refresh", {
+		description: "Force-refresh the TSGW gateway model catalog",
+		handler: async (_args, ctx) => refreshCatalog(ctx),
+	});
+	pi.registerCommand("tsgw", {
+		description: "TSGW model catalog and configuration diagnostics",
+		handler: async (_args, ctx) => {
+			if (!ctx.hasUI) return;
+			const lifecycle = lifecycleRevision;
+			bindStatus(ctx);
+			const choice = await ctx.ui.select("TSGW", ["刷新模型目录", "查看状态与诊断"]);
+			if (lifecycle !== lifecycleRevision) return;
+			if (choice === "刷新模型目录") await refreshCatalog(ctx);
+			if (choice === "查看状态与诊断") {
+				bindStatus(ctx);
+				const diagnostics = catalogDiagnostics(catalog,
+					{ credentialConfigured, rootConfigured, traceEnabled });
+				await ctx.ui.select("TSGW 状态与诊断（选择任一行关闭）", diagnostics.split("\n"));
 			}
 		},
 	});
-
-	// ts_search 条件注册：固定白名单后端与可用模型列表有交集才注册，
-	// 否则失活（避免注册一个无后端可用的死工具）。
-	const availableIds =
-		gatewayIds ?? new Set(modelsForRoot(root).map(({ id }) => id));
-	if (DEFAULT_SEARCH_MODELS.some((id) => gatewayHasModel(availableIds, id))) {
-		registerTsSearch(pi, { baseUrl: root });
-	}
+	pi.registerCommand("tsgw-search", {
+		description: "Change built-in web search for this session only",
+		handler: async (args, ctx) => {
+			const lifecycle = lifecycleRevision;
+			await ctx.waitForIdle();
+			if (lifecycle !== lifecycleRevision) return;
+			refreshRequestState(ctx);
+			bindStatus(ctx);
+			const support = searchSupport();
+			if (!support) {
+				ctx.ui.notify("当前模型不支持插件内置联网。", "info");
+				return;
+			}
+			const modes: WebSearchMode[] = support === "gpt"
+				? ["off", "cached", "live"] : ["off", "live"];
+			const labels = modes.map((mode) => searchLabel(mode, support));
+			const input = args.trim();
+			const choice = input || (ctx.hasUI
+				? await ctx.ui.select("内置联网（仅本会话）", labels) : undefined);
+			if (!choice || lifecycle !== lifecycleRevision) return;
+			if (searchSupport() !== support) {
+				ctx.ui.notify("模型支持性已变化，请重新选择内置联网模式。", "warning");
+				return;
+			}
+			const mode = modes.find((mode, index) => mode === choice || labels[index] === choice);
+			if (!mode) {
+				ctx.ui.notify("不支持的模式；GPT: off/cached/live，Grok: off/live。", "warning");
+				return;
+			}
+			tsSearchMode = mode;
+			publishStatus?.();
+			ctx.ui.notify(`${searchLabel(mode, support)}；仅本会话生效。`, "info");
+		},
+	});
 
 	pi.on("session_start", (_event, ctx) => {
+		lifecycleRevision++;
+		refreshPending = false;
+		tsSearchMode = defaultSearchMode;
 		refreshRequestState(ctx);
+		bindStatus(ctx);
 	});
 	pi.on("agent_start", (_event, ctx) => {
 		refreshRequestState(ctx);
+		bindStatus(ctx);
 	});
-	pi.on("model_select", (event) => {
+	pi.on("session_shutdown", () => {
+		lifecycleRevision++;
+		refreshPending = false;
+		publishStatus = undefined;
+	});
+	pi.on("model_select", (event, ctx) => {
 		requestState = requestStateFor(
 			event.model,
 			requestState?.thinkingLevel ?? "off",
 		);
+		if (ctx) bindStatus(ctx);
 	});
 	pi.on("thinking_level_select", (event) => {
 		if (requestState)

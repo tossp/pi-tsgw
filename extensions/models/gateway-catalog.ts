@@ -67,6 +67,7 @@ export type GetGatewayModelIdsResult =
 			ids: string[];
 			cached: boolean;
 			stale: boolean;
+			storedAt: number;
 			fallbackReason?: GatewayModelFailureReason;
 	  }
 	| Extract<FetchGatewayModelIdsResult, { ok: false }>;
@@ -279,7 +280,14 @@ export async function getGatewayModelIds(
 	const cache = cacheFor(key);
 	if (!opts.force && cache.isFresh(now)) {
 		const entry = cache.get();
-		if (entry) return { ok: true, ids: entry.ids, cached: true, stale: false };
+		if (entry)
+			return {
+				ok: true,
+				ids: entry.ids,
+				cached: true,
+				stale: false,
+				storedAt: entry.storedAt,
+			};
 	}
 
 	const diskEntry = opts.cacheFilePath
@@ -294,6 +302,7 @@ export async function getGatewayModelIds(
 		return {
 			ok: true,
 			ids: [...diskEntry.ids],
+			storedAt: diskEntry.storedAt,
 			cached: true,
 			stale: false,
 		};
@@ -326,7 +335,13 @@ export async function getGatewayModelIds(
 		cache.set(fetched.ids, now);
 		if (opts.cacheFilePath)
 			saveGatewayModelCache(opts.cacheFilePath, fetched.ids, now);
-		return { ok: true, ids: [...fetched.ids], cached: false, stale: false };
+		return {
+			ok: true,
+			ids: [...fetched.ids],
+			cached: false,
+			stale: false,
+			storedAt: now,
+		};
 	}
 
 	const memoryEntry = cache.get();
@@ -340,6 +355,7 @@ export async function getGatewayModelIds(
 		return {
 			ok: true,
 			ids: stale.ids,
+			storedAt: stale.storedAt,
 			cached: true,
 			stale: true,
 			fallbackReason: fetched.reason,

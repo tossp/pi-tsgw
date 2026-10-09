@@ -90,6 +90,39 @@ five-minute cache to avoid repeated requests. Run `/tsgw-refresh` to bypass the
 cache and force an immediate refresh without restarting or reloading Pi. If a
 refresh fails, the last successful model list remains active.
 
+## Status bar and session controls
+
+Pi Web 0.11.0+ renders these extension statuses as clickable buttons:
+
+- **`TSGW · N`** (`/tsgw`): one menu for **refreshing the model catalog** and
+  **viewing diagnostics**. The count is the filtered registered catalog, not a
+  count of healthy inference endpoints. 🟢 means a fresh directory result;
+  🟡 means a static/expired directory or a failed refresh; ⚠️ means missing
+  credentials or gateway configuration; ⏳ means a refresh is running.
+- **Built-in search** (`/tsgw-search`): choose a mode for the current session.
+  GPT offers `off / cached / live`; supported Grok models offer `off / live`
+  because the existing Grok request policy does not distinguish cache-only
+  search. Unsupported TSGW models are labeled accordingly; this button is
+  hidden when another provider is selected.
+
+You can also type `/tsgw-search off`, `/tsgw-search cached`, or
+`/tsgw-search live`. These controls do not modify `settings.json` or persist
+across a reload or a new session; `tsgw.tsSearch` remains the startup default.
+
+The standalone `ts_search` tool is no longer bundled. Use a separately configured
+search tool such as `ts_oht.search` instead. Built-in model search remains
+available and does not control external search tools.
+
+Diagnostics show directory source, original fetch time, cache freshness,
+configuration presence, and safe refresh error summaries—never API keys or
+URLs. They make no extra network requests. Statuses update on session/model
+activity and directory refreshes; there is no background health polling.
+
+Icons use Emoji/Unicode: Pi Web currently strips ANSI colors from command
+buttons. Busy sessions disable the buttons. The terminal CLI shows the same
+statuses as text; use the slash commands there. Pi Web may not show extension
+statuses until the session runtime has started.
+
 ## Development
 
 ```bash

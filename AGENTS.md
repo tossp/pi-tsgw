@@ -9,8 +9,8 @@
 - **模型目录**（`extensions/models/`）：按供应商分片（`vendors/`），由 `catalog.ts` 拼接展开，横跨四种 wire 协议——`openai-completions`、`openai-responses`、`anthropic-messages`、`google-generative-ai`；支持 `excludeModels` 宽排除 + `includeModels` 精确拉回（拉回优先）。网关目录在打开 `/model` 时按 5 分钟 TTL 动态刷新，也可用 `/tsgw-refresh` 强制刷新；失败保留最近成功列表。
 - **请求体改写**（厂商思维链策略下沉在各 `vendors/*.ts`，`operations.ts` 只做调度）：按厂商改写 thinking 档位、reasoning 格式、Google thinkingConfig 等，纯函数、copy-on-write。
 - **内置查询**（`extensions/models/web-search.ts`）：为支持内置查询的模型（GPT / Grok）追加原生搜索参数，属模型请求改写的一部分。
-- **独立查询工具**（`extensions/ts-search/`）：注册所有模型可调用的 `ts_search` 工具，通过网关的 GPT / Grok 后端执行联网查询。
 - **网关追踪**（可选）：`AH-Thread-Id` / `AH-Trace-Id` 请求头，供网关侧链路追踪。
+- **状态栏控制**：`/tsgw` 合并目录刷新与只读诊断，`/tsgw-search` 切换本会话内置联网；Pi Web 0.11.0+ 显示为图标按钮，CLI 保留文字与命令入口。
 
 定位：**公开项目**（MIT），发布为 pi package，供多台设备统一安装（`pi install git:...` 或 `npm:pi-tsgw`）。
 
@@ -18,8 +18,8 @@
 
 - 从本机 Pi 全局扩展 `~/.pi/agent/extensions/aih` 抽离而来，已**脱敏**：源码/测试/文档中无真实网关地址（网关地址仅作为用户侧配置值，由用户自行填写），`DEFAULT_ROOT` 为中性占位符 `https://aih.example.com`，无任何密钥。
 - 配置机制：**settings.json 顶层 `tsgw` 命名空间**（`baseUrl` / `tsSearch` / `traceHeaders` / `includeModels` / `excludeModels`）→ 内置默认；模型过滤采用 `include` 拉回优先语义，若要全局只留指定模型，使用 `excludeModels: ["*"]` 后由 `includeModels` 拉回。**插件不读任何环境变量**；API key 由 Pi 凭据机制解析（`/login` 写入 `auth.json`，或 `TSGW_API_KEY` 环境变量兜底——后者是 Pi 宿主行为，插件不触碰）。provider id 为 `tsgw`。
-- 结构：`extensions/index.ts`（薄入口）组装 `models/`（模型目录 + 思维链调度 + 内置查询注入）与独立的 `ts_search` 工具模块，并通过 provider `refreshModels` 动态同步网关 `/v1/models`；缓存位于 `<agent-dir>/tsgw/models-cache.json`。
-- 测试：6 个测试文件（index / models/operations / models/catalog / models/web-search / models/gateway-catalog / ts-search），纯 npm 生态（tsc 编译 + node 运行），`FakePi` / `FakeContext` 模拟宿主，`PI_CODING_AGENT_DIR` 隔离配置目录。`npm run test` 全绿。
+- 结构：`extensions/index.ts`（薄入口）组装 `models/`（模型目录 + 思维链调度 + 内置查询注入），并通过 provider `refreshModels` 动态同步网关 `/v1/models`；缓存位于 `<agent-dir>/tsgw/models-cache.json`。
+- 测试：8 个可执行测试文件（独立搜索测试已移除），共享宿主模拟在 `test-support.test.ts`，纯 npm 生态（tsc 编译 + node 运行），`FakePi` / `FakeContext` 模拟宿主，`PI_CODING_AGENT_DIR` 隔离配置目录。`npm run test` 全绿。
 - **模型扩充进行中**：从网关实际目录（173 个）筛选 8 家供应商新增约 42 个对话模型，规格/定价需从各官网查证后写入 vendors 分片。
 - **尚未 git init / 未发布**……（已发布至 github.com/tossp/pi-tsgw，main 分支；本机旧扩展 `~/.pi/agent/extensions/aih` 仍在被 Pi 加载，待本机切换后删除）。
 
@@ -30,14 +30,18 @@
 | Node | v24（含原生 type-stripping，但本仓库用 tsc 编译） |
 | npm | v11（**内置默认 `omit=dev`**，项目 `.npmrc` 已用 `omit[]=` 覆盖；npm 会对该空值打无害 warn） |
 | 编译器 | `typescript@7`（devDependency），tsconfig 开启 `allowImportingTsExtensions` + `rewriteRelativeImportExtensions`（源码 `.ts` 后缀导入编译时改写为 `.js`） |
-| 测试 | `npm run test` = `tsc` + 6 个 node 测试（index / models/operations / models/catalog / models/web-search / models/gateway-catalog / ts-search） |
+| 测试 | `npm run test` = `tsc -p tsconfig.test.json` + 8 个 node 测试；生产构建使用 `tsc -p tsconfig.json`，排除测试及测试辅助文件 |
 | 禁止 | 不使用 bun；不引入运行时依赖（Pi 宿主提供 `@earendil-works/pi-coding-agent` 与 `typebox` peer） |
 
 ## 代码结构
 
 ```text
 extensions/index.ts            # 唯一 Pi 宿主耦合点：配置读取 + registerProvider + 生命周期钩子 + 追踪
-extensions/index.test.ts       # 宿主集成测试（FakePi/FakeContext/withAgentDir）
+extensions/index.test.ts       # 宿主集成测试
+extensions/test-support.test.ts # 测试专用 FakePi/FakeContext/withAgentDir
+extensions/status.ts           # 状态图标、缓存新鲜度与诊断纯展示
+extensions/status.test.ts      # 展示与内置搜索能力测试
+extensions/status-integration.test.ts # 命令、UI 生命周期与请求改写联动测试
 extensions/models/             # 模型模块（平行、独立）
 ├── catalog.ts                 # 拼接 vendors + exclude/include 拉回过滤 + PROVIDER_ID/DEFAULT_ROOT/normalizeRoot
 ├── catalog.test.ts            # 拼接/过滤/规范化纯函数测试
@@ -52,14 +56,11 @@ extensions/models/             # 模型模块（平行、独立）
     ├── longcat.ts / qwen.ts / openai.ts / gemini.ts / anthropic.ts
 ├── web-search.ts              # 内置查询注入：BUILTIN_SEARCH_MODELS + applyBuiltinSearchTool
 └── web-search.test.ts
-extensions/ts-search/          # 所有模型可调用的独立查询工具
-├── ts-search.ts               # 注册工具 + GPT/Grok 路由 + 结果合并
-└── ts-search.test.ts          # 模型选择、默认路由与请求体纯函数测试
 ```
 
 ## 关键约束（改动前必读）
 
-1. **宿主耦合只允许在 `extensions/index.ts`**。`models/` 保持纯逻辑，保证可在无 Pi 环境直接测试。`index.ts` 是唯一的组装点（两模块互不感知）。
+1. **宿主耦合只允许在 `extensions/index.ts`**。`models/` 保持纯逻辑，保证可在无 Pi 环境直接测试。`index.ts` 是唯一的组装点。
 2. **生命周期快照模式**：Pi 0.82+ 可能由旧 runner 延迟回调钩子（context 已失效）。`index.ts` 的钩子只读私有快照（provider/modelId/api/baseUrl/thinkingLevel），**不得**读取 `ctx` / `pi`；快照在 `session_start` / `agent_start` / `model_select` / `thinking_level_select` 刷新，`session_shutdown` 后保留。
 3. **思维链策略跟厂商走**：需要请求体改写的 `vendors/*.ts` 自带该厂商模型的 thinking 策略（导出 `xxxThinking: Record<modelId, ThinkingApplier>`）；由 Pi adapter 原生处理的 Responses/Anthropic 模型可以没有策略。`operations.ts` 只汇总调度，**不得**在 operations.ts 里新增模型族 switch。通用工具（`PayloadWriter`、`applyEnabledThinking` 等）在 `_tools.ts`，vendors 与 operations 都从这里引用（避免循环依赖）。
 4. **协议定义单一来源**：协议 id 与协议级 compat 在 `vendors/_protocols.ts`；只维护四种主流协议（openai-completions / openai-responses / anthropic-messages / google-generative-ai），其他协议暂不纳入。
@@ -112,9 +113,19 @@ GPT-6 档位回归：`gpt-6-astra` 与 `gpt-6.1-sol` 的 `off/minimal` 必须显
 
 `cached` uses `false`; `live` uses `true`. Existing function tools, `tool_choice`, and `include` are preserved. Pi 0.82.0 drops requested sources, so this operation deliberately does not request them.
 
-### 独立查询工具（ts-search/ts-search.ts）
+### 独立查询工具边界
 
-`ts_search` 对所有模型可见。调用方只提供查询，默认并行请求 `gpt-5.4` 与 `grok-4.20-fast`；可通过枚举参数选择单个已登记的 `gpt-*` / `grok-*` 后端。工具复用 Pi 为 `tsgw` provider 解析的 API key，通过网关 `chat/completions` 路由执行查询并合并答案与来源 URL。
+独立 `ts_search` 已移除；其 GPT / Grok 并行搜索能力由外部 `ts_oht.search` 覆盖，不要求超时、重试等实现细节完全等价。使用者需自行配置外部搜索工具，本包不依赖或自动连接该 MCP 服务。模型原生联网与 `tsgw.tsSearch` 配置保留。
+
+### 状态栏与会话控制
+
+采用 Pi Web `command:/…` 状态键约定：`command:/tsgw` 打开目录刷新/诊断菜单，`command:/tsgw-search` 选择内置联网模式；不注册独立的刷新状态格。状态展示纯函数在 `status.ts`，宿主命令、生命周期与 UI 绑定仍只在 `index.ts`。
+
+内置联网覆盖值只存于当前扩展运行时，`session_start` 恢复 settings 默认；不写 settings，不持久化到会话历史，不控制外部搜索工具。支持性查询和请求注入复用 `builtinSearchSupport`，避免 UI 声称支持实际上不注入的模型。Grok 既有 cached/live 均注入 `mode:on`，因此界面只提供 off/live，已有 cached 配置显示为实时。
+
+目录加载结果携带原始 `storedAt`（内存/磁盘命中和失败回退均不重置），绿色表示新鲜目录而非推理健康。目录数量是过滤后的已登记目录；诊断只接收凭据/地址存在性，不展示密钥、URL 或原始异常。没有后台探测或刷新定时器，在生命周期/模型选择/目录刷新时更新 UI。异步目录刷新使用 revision 避免迟到的旧刷新覆盖新状态，命令收尾不得覆盖 provider 管理的加载状态；跨 await 的命令以生命周期 revision 检查会话是否已替换。`session_shutdown` 断开 UI sink，但保留请求快照。
+
+采用依据：Blinko #856（2026-10-09 核验 Pi Web 0.11.0 源码）；按钮剥离 ANSI，因此第一版用 Emoji/Unicode 体现状态，不假称支持自定义按钮文字颜色。CLI 仍可直接执行命令；非 UI 模式不发布状态。
 
 ### Pi 0.82.0 lifecycle compatibility
 

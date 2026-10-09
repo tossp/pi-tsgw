@@ -9,7 +9,7 @@
  * - Grok（openai-completions）：追加 `search_parameters: { mode: "on" }`
  *   （xAI 文档：https://docs.x.ai/developers/tools/web-search）
  *
- * 独立的 ts_search 工具（所有模型可用）单独实现，与内置查询注入分离。
+ * 独立搜索由外部工具提供，与本模块的内置查询注入无关。
  */
 
 import {
@@ -43,6 +43,18 @@ const GROK_SEARCH_MODELS = new Set([
 	"grok-4.3-high",
 	"grok-4.20-fast",
 ]);
+
+/** Exact model/protocol support, shared by request injection and display code. */
+export function builtinSearchSupport(
+	modelId: string,
+	api: string,
+): "gpt" | "grok" | undefined {
+	if (api === OPENAI_RESPONSES && BUILTIN_SEARCH_MODELS.has(modelId))
+		return "gpt";
+	if (api === OPENAI_COMPLETIONS && GROK_SEARCH_MODELS.has(modelId))
+		return "grok";
+	return undefined;
+}
 
 function isExistingWebSearchTool(tools: readonly unknown[]): boolean {
 	return tools.some((tool) => {
@@ -93,12 +105,13 @@ export function applyBuiltinSearchTool<T>(
 ): T | Payload {
 	if (!isPlainObject(payload) || mode === "off") return payload;
 	const writer = new PayloadWriter(payload);
+	const support = builtinSearchSupport(modelId, api);
 
-	if (api === OPENAI_RESPONSES && BUILTIN_SEARCH_MODELS.has(modelId)) {
+	if (support === "gpt") {
 		applyGptSearch(writer, mode);
 		return writer.result();
 	}
-	if (api === OPENAI_COMPLETIONS && GROK_SEARCH_MODELS.has(modelId)) {
+	if (support === "grok") {
 		applyGrokSearch(writer);
 		return writer.result();
 	}
