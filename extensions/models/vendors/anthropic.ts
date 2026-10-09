@@ -1,4 +1,4 @@
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { ChatModelConfig as ProviderModelConfig } from "../_tools.ts";
 import { ANTHROPIC_COMPAT } from "./_protocols.ts";
 
 /**

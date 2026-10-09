@@ -200,7 +200,7 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 	const defaultSearchMode: WebSearchMode =
 		settings.tsSearch === "cached" || settings.tsSearch === "live"
 			? settings.tsSearch
-			: "off";
+			: "live";
 	let tsSearchMode = defaultSearchMode;
 	const traceEnabled = settings.traceHeaders === true;
 	const modelFilter: ModelFilter = {
@@ -383,8 +383,11 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 				ctx.ui.notify("当前模型不支持插件内置联网。", "info");
 				return;
 			}
-			const modes: WebSearchMode[] = support === "gpt"
-				? ["off", "cached", "live"] : ["off", "live"];
+			if (support === "grok") {
+				ctx.ui.notify("当前 Grok 模型内置联网固定为实时；不修改 GPT 会话模式。", "info");
+				return;
+			}
+			const modes: WebSearchMode[] = ["cached", "live"];
 			const labels = modes.map((mode) => searchLabel(mode, support));
 			const input = args.trim();
 			const choice = input || (ctx.hasUI
@@ -396,7 +399,7 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 			}
 			const mode = modes.find((mode, index) => mode === choice || labels[index] === choice);
 			if (!mode) {
-				ctx.ui.notify("不支持的模式；GPT: off/cached/live，Grok: off/live。", "warning");
+				ctx.ui.notify("不支持的模式；GPT 仅支持 cached/live，Grok 固定实时。", "warning");
 				return;
 			}
 			tsSearchMode = mode;

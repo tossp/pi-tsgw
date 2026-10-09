@@ -1,10 +1,12 @@
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { ChatModelConfig as ProviderModelConfig } from "../_tools.ts";
 import { OPENAI_COMPLETIONS_COMPAT } from "./_protocols.ts";
 import { isMaximum, type PayloadWriter, type ThinkingApplier, type ThinkingLevel } from "../_tools.ts";
 
 /**
  * 智谱 AI（Zhipu）GLM 系列。
- * 官方文档：https://open.bigmodel.cn/（国际站 docs.z.ai）
+ * 国内官方依据：
+ * https://docs.bigmodel.cn/cn/guide/capabilities/thinking （effort 仅 5.2+）
+ * https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode （保留式思考）
  */
 export function glmModels(root: string): ProviderModelConfig[] {
 	const v1 = `${root}/v1`;
@@ -130,28 +132,29 @@ export function glmModels(root: string): ProviderModelConfig[] {
 }
 
 // GLM 思维链：`tool_stream=true` 仅在流式请求时附加；高级档位加 `clear_thinking=false`。
-function applyGlm(writer: PayloadWriter, level: ThinkingLevel): void {
+function applyGlm(writer: PayloadWriter, level: ThinkingLevel, effort = true, preserve = true): void {
+	if (!effort) writer.remove("reasoning_effort");
 	if (writer.get("stream") === true) writer.set("tool_stream", true);
 	if (level === "off") {
 		writer.setThinking({ type: "disabled" });
-		writer.set("reasoning_effort", "none");
+		if (effort) writer.set("reasoning_effort", "none");
 		return;
 	}
 
 	writer.setThinking({ type: "enabled" });
 	if (level === "high" || isMaximum(level)) {
-		writer.setThinking({ clear_thinking: false });
-		writer.set("reasoning_effort", isMaximum(level) ? "max" : "high");
+		if (preserve) writer.setThinking({ clear_thinking: false });
+		if (effort) writer.set("reasoning_effort", isMaximum(level) ? "max" : "high");
 	}
 }
 
 export const glmThinking: Record<string, ThinkingApplier> = {
 	"glm-5.2": (w, c) => applyGlm(w, c.thinkingLevel),
-	"glm-5.1": (w, c) => applyGlm(w, c.thinkingLevel),
-	"glm-5": (w, c) => applyGlm(w, c.thinkingLevel),
-	"glm-5-turbo": (w, c) => applyGlm(w, c.thinkingLevel),
-	"glm-4.7": (w, c) => applyGlm(w, c.thinkingLevel),
-	"glm-4.6": (w, c) => applyGlm(w, c.thinkingLevel),
-	"glm-4.5": (w, c) => applyGlm(w, c.thinkingLevel),
-	"glm-4.5-air": (w, c) => applyGlm(w, c.thinkingLevel),
+	"glm-5.1": (w, c) => applyGlm(w, c.thinkingLevel, false),
+	"glm-5": (w, c) => applyGlm(w, c.thinkingLevel, false),
+	"glm-5-turbo": (w, c) => applyGlm(w, c.thinkingLevel, false),
+	"glm-4.7": (w, c) => applyGlm(w, c.thinkingLevel, false),
+	"glm-4.6": (w, c) => applyGlm(w, c.thinkingLevel, false, false),
+	"glm-4.5": (w, c) => applyGlm(w, c.thinkingLevel, false, false),
+	"glm-4.5-air": (w, c) => applyGlm(w, c.thinkingLevel, false, false),
 };

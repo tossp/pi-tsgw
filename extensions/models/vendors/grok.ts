@@ -1,4 +1,4 @@
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { ChatModelConfig as ProviderModelConfig } from "../_tools.ts";
 import { OPENAI_COMPLETIONS_COMPAT } from "./_protocols.ts";
 import { type PayloadWriter, type ThinkingApplier, type ThinkingLevel } from "../_tools.ts";
 
@@ -91,8 +91,10 @@ export function grokModels(root: string): ProviderModelConfig[] {
 	];
 }
 
-// Grok 思维链：`reasoning_effort`（none/low/medium/high）。
-// 注意：grok-4.5 不支持禁用 reasoning（none），off 档映射到最小 effort "low"。
+// 官方：https://docs.x.ai/developers/model-capabilities/text/reasoning
+// grok-4.5 支持 low/medium/high，不支持禁用 reasoning，off 映射到 low。
+// 4.20 / 4.3 网关别名暂保留既有映射；上述官方指南没有确认其 effort 支持，
+// 不应将同族回归测试视为这些别名已通过端点验证。
 function applyGrok(writer: PayloadWriter, level: ThinkingLevel): void {
 	writer.remove("thinking");
 	if (level === "off") {

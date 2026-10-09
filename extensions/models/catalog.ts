@@ -1,4 +1,4 @@
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { ChatModelConfig as ProviderModelConfig } from "./_tools.ts";
 import { anthropicModels } from "./vendors/anthropic.ts";
 import { deepseekModels } from "./vendors/deepseek.ts";
 import { geminiModels } from "./vendors/gemini.ts";

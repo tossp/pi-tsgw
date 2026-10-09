@@ -1,9 +1,11 @@
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
-import { isAtLeastHigh, type PayloadWriter, type ThinkingApplier, type ThinkingLevel } from "../_tools.ts";
+import type { ChatModelConfig as ProviderModelConfig } from "../_tools.ts";
+import { type PayloadWriter, type ThinkingApplier, type ThinkingLevel } from "../_tools.ts";
 
 /**
  * Google Gemini 系列（google-generative-ai 协议）。
  * 官方文档：https://ai.google.dev/gemini-api/docs
+ * GenerateContent 档位/预算：https://docs.cloud.google.com/vertex-ai/generative-ai/docs/thinking
+ * 2.5 使用 budget；3.x 使用 level。网关别名的路由仍需网关侧验证。
  */
 export function geminiModels(root: string): ProviderModelConfig[] {
 	const gemini = `${root}/gemini`;
@@ -135,14 +137,31 @@ function applyGeminiPro(writer: PayloadWriter, level: ThinkingLevel): void {
 	writer.setGoogleThinking({ includeThoughts: level !== "off", thinkingLevel }, ["thinkingBudget"]);
 }
 
+// 2.5 Pro 不可关闭思考，官方 budget 范围 128..32768。
+// 128/16000/32768 是项目档位映射选择，并非官方档位表；off 仅隐藏摘要并取最小预算。
+function applyGemini25Pro(writer: PayloadWriter, level: ThinkingLevel): void {
+	writer.remove("reasoning_effort");
+	const thinkingBudget = level === "off" || level === "minimal" || level === "low"
+		? 128 : level === "max" ? 32768 : 16000;
+	writer.setGoogleThinking({ includeThoughts: level !== "off", thinkingBudget }, ["thinkingLevel"]);
+}
+
+// 3.5 Flash 支持 MINIMAL/LOW/MEDIUM/HIGH，不使用 2.5 的 token budget。
+function applyGemini35Flash(writer: PayloadWriter, level: ThinkingLevel): void {
+	writer.remove("reasoning_effort");
+	const thinkingLevel = level === "off" || level === "minimal" ? "MINIMAL"
+		: level === "low" ? "LOW" : level === "medium" ? "MEDIUM" : "HIGH";
+	writer.setGoogleThinking({ includeThoughts: level !== "off", thinkingLevel }, ["thinkingBudget"]);
+}
+
 export const geminiThinking: Record<string, ThinkingApplier> = {
 	"gemini-flash": (w, c) => applyGeminiFlash(w, c.thinkingLevel),
-	"gemini-3.5-flash": (w, c) => applyGeminiFlash(w, c.thinkingLevel),
-	"gemini-3.5-flash-low": (w, c) => applyGeminiFlash(w, c.thinkingLevel),
-	"gemini-3.5-flash-extra-low": (w, c) => applyGeminiFlash(w, c.thinkingLevel),
+	"gemini-3.5-flash": (w, c) => applyGemini35Flash(w, c.thinkingLevel),
+	"gemini-3.5-flash-low": (w, c) => applyGemini35Flash(w, c.thinkingLevel),
+	"gemini-3.5-flash-extra-low": (w, c) => applyGemini35Flash(w, c.thinkingLevel),
 	"gemini-2.5-flash": (w, c) => applyGeminiFlash(w, c.thinkingLevel),
 	"gemini-2.5-flash-lite": (w, c) => applyGeminiFlash(w, c.thinkingLevel),
 	"gemini-pro": (w, c) => applyGeminiPro(w, c.thinkingLevel),
 	"gemini-3.1-pro-low": (w, c) => applyGeminiPro(w, c.thinkingLevel),
-	"gemini-2.5-pro": (w, c) => applyGeminiPro(w, c.thinkingLevel),
+	"gemini-2.5-pro": (w, c) => applyGemini25Pro(w, c.thinkingLevel),
 };

@@ -21,7 +21,7 @@ function apply(
 
 function testBuiltinSearchInjection(): void {
 	const functionTool = { type: "function", name: "keep" };
-	for (const mode of ["off", "cached", "live"] as const) {
+	for (const mode of ["cached", "live"] as const) {
 		const input = {
 			tools: [functionTool],
 			tool_choice: "auto",
@@ -30,14 +30,13 @@ function testBuiltinSearchInjection(): void {
 		};
 		const result = apply(input, "gpt-6-astra", mode);
 		const tools = result.tools as unknown[];
-		equal(tools.length, mode === "off" ? 1 : 2);
+		equal(tools.length, 2);
 		strictEqual(tools[0], functionTool);
-		if (mode !== "off")
-			deepStrictEqual(tools[1], {
-				type: "web_search",
-				search_context_size: "medium",
-				external_web_access: mode === "live",
-			});
+		deepStrictEqual(tools[1], {
+			type: "web_search",
+			search_context_size: "medium",
+			external_web_access: mode === "live",
+		});
 		deepStrictEqual(result.tool_choice, "auto");
 		deepStrictEqual(result.include, ["reasoning.encrypted_content"]);
 		strictEqual(result.store, false);
@@ -68,20 +67,16 @@ function testBuiltinSearchInjection(): void {
 
 function testGpt6SearchInjection(): void {
 	for (const modelId of ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"]) {
-		for (const mode of ["off", "cached", "live"] as const) {
+		for (const mode of ["cached", "live"] as const) {
 			const input = { tools: [functionTool], tool_choice: "auto" };
 			const result = apply(input, modelId, mode);
-			if (mode === "off") {
-				strictEqual(result, input);
-			} else {
-				deepStrictEqual(result.tools, [functionTool, {
-					type: "web_search",
-					search_context_size: "medium",
-					external_web_access: mode === "live",
-				}]);
-				strictEqual(result.tool_choice, "auto");
-				strictEqual(apply(result, modelId, mode), result);
-			}
+			deepStrictEqual(result.tools, [functionTool, {
+				type: "web_search",
+				search_context_size: "medium",
+				external_web_access: mode === "live",
+			}]);
+			strictEqual(result.tool_choice, "auto");
+			strictEqual(apply(result, modelId, mode), result);
 			deepStrictEqual(input.tools, [functionTool]);
 		}
 	}
@@ -140,17 +135,15 @@ function testGrokSearchInjection(): void {
 		deepStrictEqual((result as Payload).search_parameters, { mode: "on" });
 	}
 
-	// off 模式不注入（原样返回，无 search_parameters）。
-	const offPayload: Payload = {};
-	strictEqual(
-		applyBuiltinSearchTool(
-			offPayload,
-			"grok-4.20",
-			"openai-completions",
-			"off",
-		),
-		offPayload,
-	);
+	// 两种 GPT 会话模式下 Grok 均固定实时，保留现有搜索字段。
+	for (const mode of ["cached", "live"] as const) {
+		deepStrictEqual(applyBuiltinSearchTool({}, "grok-4.20", "openai-completions", mode),
+			{ search_parameters: { mode: "on" } });
+		for (const input of [{ search_parameters: { mode: "off" } }, { web_search_options: {} }]) {
+			Object.freeze(input);
+			strictEqual(applyBuiltinSearchTool(input, "grok-4.20", "openai-completions", mode), input);
+		}
+	}
 
 	// 已有 search_parameters 不重复注入。
 	const existing = { search_parameters: { mode: "off" } };

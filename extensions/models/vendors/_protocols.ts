@@ -1,4 +1,4 @@
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { ChatModelConfig as ProviderModelConfig } from "../_tools.ts";
 
 /**
  * Wire 协议公共配置。

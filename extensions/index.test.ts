@@ -251,19 +251,16 @@ async function testSettingsConfig(): Promise<void> {
 		?.baseUrl;
 	strictEqual(baseUrl, "https://gateway.example.net/v1");
 
-	// `tsgw.tsSearch: "live"` enables the built-in search injection.
-	const piSearch = await createPi({ tsgw: { tsSearch: "live" } });
-	sessionStart(piSearch, new FakeContext(TSGW_TERRA, "high"));
-	deepStrictEqual(providerRequest(piSearch, { tools: [] }), {
-		tools: [
-			{
-				type: "web_search",
-				search_context_size: "medium",
-				external_web_access: true,
-			},
-		],
-		text: { verbosity: "medium" },
-	});
+	// Missing, legacy off, and invalid settings default to live; cached is retained.
+	for (const tsSearch of [undefined, "off", "invalid", null, false, 42, {}, "cached", "live"]) {
+		const piSearch = await createPi({ tsgw: { tsSearch } });
+		sessionStart(piSearch, new FakeContext(TSGW_TERRA, "off"));
+		deepStrictEqual(providerRequest(piSearch, { tools: [] }), {
+			tools: [{ type: "web_search", search_context_size: "medium",
+				external_web_access: tsSearch !== "cached" }],
+			text: { verbosity: "medium" },
+		});
+	}
 
 	// `includeModels` pulls exact models back from broad `excludeModels` rules.
 	const piFiltered = await createPi({

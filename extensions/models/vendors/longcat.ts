@@ -1,4 +1,4 @@
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { ChatModelConfig as ProviderModelConfig } from "../_tools.ts";
 import { OPENAI_COMPLETIONS_COMPAT } from "./_protocols.ts";
 import { applyEnabledThinking, type ThinkingApplier } from "../_tools.ts";
 

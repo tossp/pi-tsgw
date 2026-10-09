@@ -92,10 +92,10 @@ function applyGrokSearch(writer: PayloadWriter): void {
 
 /**
  * Append-only built-in search injection for models with native search.
- * Non-plain payloads, `off` mode, and unsupported models are returned
+ * Non-plain payloads and unsupported models are returned
  * unchanged. Existing function tools, `tool_choice`, and `include` are
- * preserved. Pi drops requested sources, so GPT injection deliberately does
- * not request them.
+ * preserved. Sources are not requested: this conservative policy originated
+ * with Pi 0.82.0; source rendering on newer hosts needs separate validation.
  */
 export function applyBuiltinSearchTool<T>(
 	payload: T,
@@ -103,7 +103,7 @@ export function applyBuiltinSearchTool<T>(
 	api: string,
 	mode: WebSearchMode,
 ): T | Payload {
-	if (!isPlainObject(payload) || mode === "off") return payload;
+	if (!isPlainObject(payload)) return payload;
 	const writer = new PayloadWriter(payload);
 	const support = builtinSearchSupport(modelId, api);
 

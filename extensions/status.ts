@@ -82,8 +82,7 @@ export function searchLabel(
 	support: "gpt" | "grok" | undefined,
 ): string {
 	if (support === undefined) return "⚪ 内置联网：不支持";
-	if (mode === "off") return "⚪ 内置联网：关";
-	// Grok 的 cached/live 均注入 mode: "on"，不能声称是缓存查询。
+	// Grok 固定实时，不受 GPT 的 cached/live 会话模式影响。
 	if (support === "grok" || mode === "live") return "🟢 内置联网：实时";
 	return "🟡 内置联网：缓存";
 }

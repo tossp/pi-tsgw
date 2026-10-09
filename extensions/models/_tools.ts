@@ -5,6 +5,12 @@
  * 与 operations 调度都从这里引用，避免 vendors ↔ operations 循环依赖。
  */
 
+import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+
+// Pi 1.x also includes image/classifier configs; this catalog is chat-only.
+// Structural extraction keeps compatibility with the older chat-only type.
+export type ChatModelConfig = Extract<ProviderModelConfig, { reasoning: boolean }>;
+
 export type ThinkingLevel =
 	| "off"
 	| "minimal"
@@ -13,7 +19,7 @@ export type ThinkingLevel =
 	| "high"
 	| "xhigh"
 	| "max";
-export type WebSearchMode = "off" | "cached" | "live";
+export type WebSearchMode = "cached" | "live";
 
 export interface ModelOperationContext {
 	provider: string;
@@ -28,7 +34,7 @@ type GoogleThinkingField =
 	| "includeThoughts"
 	| "thinkingLevel"
 	| "thinkingBudget";
-type ThinkingUpdate = Partial<Pick<Payload, "type" | "clear_thinking">>;
+type ThinkingUpdate = Partial<Pick<Payload, "type" | "clear_thinking" | "keep">>;
 type GoogleThinkingUpdate = Partial<Pick<Payload, GoogleThinkingField>>;
 
 export function isPlainObject(value: unknown): value is Payload {
@@ -109,7 +115,7 @@ export class PayloadWriter {
 	}
 }
 
-const THINKING_FIELDS = ["type", "clear_thinking"] as const;
+const THINKING_FIELDS = ["type", "clear_thinking", "keep"] as const;
 const GOOGLE_THINKING_FIELDS = [
 	"includeThoughts",
 	"thinkingLevel",

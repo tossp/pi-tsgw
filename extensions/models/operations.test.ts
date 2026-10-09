@@ -32,7 +32,7 @@ function context(
 	api = "openai-completions",
 	thinkingLevel: ThinkingLevel = "high",
 ): ModelOperationContext {
-	return { provider: "tsgw", modelId, api, thinkingLevel, tsSearchMode: "off" };
+	return { provider: "tsgw", modelId, api, thinkingLevel, tsSearchMode: "live" };
 }
 
 function apply(
@@ -76,7 +76,7 @@ function testCompletionProfiles(): void {
 			deepStrictEqual(result, {
 				stream: true,
 				tool_stream: true,
-				reasoning_effort: effort,
+				...(modelId === "glm-5.2" ? { reasoning_effort: effort } : {}),
 				thinking:
 					level === "off"
 						? { type: "disabled", retained: true }
@@ -148,19 +148,10 @@ function testCompletionProfiles(): void {
 			level,
 		);
 		const effort =
-			level === "off"
-				? undefined
-				: level === "minimal" || level === "low"
-					? "low"
-					: level === "max"
-						? "max"
-						: "high";
-		deepStrictEqual(
-			result,
-			effort === undefined
-				? { stream: true }
-				: { stream: true, reasoning_effort: effort },
-		);
+			level === "off" || level === "minimal" || level === "low"
+				? "low"
+				: level === "max" ? "max" : "high";
+		deepStrictEqual(result, { stream: true, reasoning_effort: effort });
 	}
 
 	for (const modelId of ["qwen3.7-plus", "qwen3.7-max"]) {
@@ -328,6 +319,7 @@ function testOpenAIResponsesProfiles(): void {
 			deepStrictEqual(result, {
 				reasoning,
 				text: { format: "text", verbosity },
+				tools: [{ type: "web_search", search_context_size: "medium", external_web_access: true }],
 				include: ["reasoning.encrypted_content"],
 				store: false,
 				parallel_tool_calls: false,
@@ -379,13 +371,16 @@ function testNoOpsAndProtectedFields(): void {
 		parallel_tool_calls: false,
 	};
 	const result = apply(input, "gpt-5.6-terra", "openai-responses", "high");
+	deepStrictEqual(result.tools, [...input.tools as unknown[],
+		{ type: "web_search", search_context_size: "medium", external_web_access: true }]);
+	strictEqual((result.tools as unknown[])[0], (input.tools as unknown[])[0]);
+	deepStrictEqual(input.tools, [{ type: "function", name: "keep" }]);
 	for (const key of [
 		"model",
 		"messages",
 		"input",
 		"contents",
 		"system",
-		"tools",
 		"tool_choice",
 		"headers",
 		"stream",

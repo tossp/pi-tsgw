@@ -170,11 +170,11 @@ function testBuiltinSearchSupport(): void {
 					? "grok"
 					: undefined;
 			strictEqual(builtinSearchSupport(model, api), expected, `${model}/${api}`);
-			// 查询与实际注入使用同一支持判断；off/不支持仍返回原对象。
-			for (const mode of ["off", "cached", "live"] as const) {
+			// 查询与实际注入使用同一支持判断；不支持仍返回原对象。
+			for (const mode of ["cached", "live"] as const) {
 				const input = Object.freeze({ marker: "preserve" });
 				const result = applyBuiltinSearchTool(input, model, api, mode);
-				if (expected === undefined || mode === "off") {
+				if (expected === undefined) {
 					strictEqual(result, input);
 				} else if (expected === "grok") {
 					deepStrictEqual(result, { ...input, search_parameters: { mode: "on" } });
@@ -194,13 +194,11 @@ function testBuiltinSearchSupport(): void {
 }
 
 function testSearchLabels(): void {
-	for (const mode of ["off", "cached", "live"] as const) {
+	for (const mode of ["cached", "live"] as const) {
 		strictEqual(searchLabel(mode, undefined), "⚪ 内置联网：不支持");
-		strictEqual(searchLabel(mode, "gpt"), mode === "off"
-			? "⚪ 内置联网：关"
-			: mode === "cached" ? "🟡 内置联网：缓存" : "🟢 内置联网：实时");
-		strictEqual(searchLabel(mode, "grok"), mode === "off"
-			? "⚪ 内置联网：关" : "🟢 内置联网：实时");
+		strictEqual(searchLabel(mode, "gpt"), mode === "cached"
+			? "🟡 内置联网：缓存" : "🟢 内置联网：实时");
+		strictEqual(searchLabel(mode, "grok"), "🟢 内置联网：实时");
 	}
 	strictEqual(searchLabel("cached", builtinSearchSupport("gpt-6.1-sol", "openai-responses")), "🟡 内置联网：缓存");
 	strictEqual(searchLabel("cached", builtinSearchSupport("grok-4.20", "openai-completions")), "🟢 内置联网：实时");

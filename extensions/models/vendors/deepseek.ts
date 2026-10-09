@@ -1,4 +1,4 @@
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { ChatModelConfig as ProviderModelConfig } from "../_tools.ts";
 
 // DeepSeek Responses 将 developer role 当作 user，且不支持 OpenAI 的
 // prompt_cache_retention；其余 reasoning 字段交给 Pi 的 Responses adapter。
