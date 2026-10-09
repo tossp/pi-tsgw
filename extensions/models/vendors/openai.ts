@@ -20,6 +20,9 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			baseUrl: v1,
 			reasoning: true,
 			thinkingLevelMap: {
+				// Pi treats omitted lower levels as supported; disable them explicitly.
+				off: null,
+				minimal: null,
 				low: "low",
 				medium: "medium",
 				high: "high",
@@ -38,6 +41,9 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			baseUrl: v1,
 			reasoning: true,
 			thinkingLevelMap: {
+				// Keep the lowest available level at low, including automatic titles.
+				off: null,
+				minimal: null,
 				low: "low",
 				medium: "medium",
 				high: "high",

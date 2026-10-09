@@ -94,7 +94,9 @@ For the OpenAI Responses aliases, the installed Pi 0.82.0 implementation and the
 
 GPT-6 Sol / Luna（2026-09-23）：采用 `openai-responses`，保留既有 GPT-5.x；`off=none`、`minimal=low`，其余档位同名映射，沿用 `text.verbosity=low` 并加入内置查询名单。规格与 Standard 短上下文价格依据 Blinko #763 及 vendors 中的官方模型页；网关最小文本请求均返回 HTTP 200，尚未实测工具调用或内置查询。
 
-GPT-6.1 Sol（2026-09-30）：依据[官方模型页](https://developers.openai.com/api/docs/models/gpt-6.1-sol.md)新增 `gpt-6.1-sol`，保留全部旧模型；采用 Responses、`low/medium/high/xhigh/max` 同名映射（不声明不受支持的 `none/minimal`）、`text.verbosity=low`，加入内置查询名单。网关目录已包含该 ID，最小文本请求返回 HTTP 200；工具调用与内置查询未实测。本轮 Blinko MCP 不可用，外部证据尚未同步至 Blinko。
+GPT-6.1 Sol（2026-09-30）：依据[官方模型页](https://developers.openai.com/api/docs/models/gpt-6.1-sol.md)新增 `gpt-6.1-sol`，保留全部旧模型；采用 Responses、`low/medium/high/xhigh/max` 同名映射（显式设置 `off: null`、`minimal: null`，不能仅省略键）、`text.verbosity=low`，加入内置查询名单。网关目录已包含该 ID，最小文本请求返回 HTTP 200；工具调用与内置查询未实测。本轮 Blinko MCP 不可用，外部证据尚未同步至 Blinko。
+
+GPT-6 档位回归：`gpt-6-astra` 与 `gpt-6.1-sol` 的 `off/minimal` 必须显式映射为 `null`；Pi 将省略的低档位视为支持，会使自动标题发送 `none`。两款均实测拒绝 `none`，`low/medium/high/xhigh/max` 均成功；`minimal` 请求因 `image_gen` 工具兼容性失败，不能据此单独证明无工具时的支持性。`gpt-6-sol` / `gpt-6-luna` 保留 `off=none`、`minimal=low`，七个 Pi 档位均实测成功。
 
 ### 内置查询（models/web-search.ts）
 

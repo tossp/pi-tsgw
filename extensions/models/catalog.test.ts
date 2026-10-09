@@ -103,6 +103,15 @@ function testCatalogConcatenation(): void {
 	});
 	strictEqual(astra?.contextWindow, 1050000);
 	strictEqual(astra?.maxTokens, 128000);
+	deepStrictEqual(astra?.thinkingLevelMap, {
+		off: null,
+		minimal: null,
+		low: "low",
+		medium: "medium",
+		high: "high",
+		xhigh: "xhigh",
+		max: "max",
+	});
 	for (const [modelId, cost] of [
 		["gpt-6-sol", { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 }],
 		["gpt-6-luna", { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 }],
@@ -136,6 +145,8 @@ function testCatalogConcatenation(): void {
 	strictEqual(sol61?.contextWindow, 1050000);
 	strictEqual(sol61?.maxTokens, 128000);
 	deepStrictEqual(sol61?.thinkingLevelMap, {
+		off: null,
+		minimal: null,
 		low: "low",
 		medium: "medium",
 		high: "high",
