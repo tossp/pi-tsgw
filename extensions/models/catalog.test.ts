@@ -70,6 +70,10 @@ function testCatalogConcatenation(): void {
 	deepStrictEqual(deepseekPro?.input, ["text"]);
 	deepStrictEqual(deepseekPro?.compat, deepseek?.compat);
 	deepStrictEqual(deepseekPro?.thinkingLevelMap, deepseek?.thinkingLevelMap);
+	deepStrictEqual(
+		models.filter(({ id }) => id.startsWith("mimo-")).map(({ id }) => id),
+		["mimo-v2.6-pro", "mimo-v2.6-flash"],
+	);
 	const minimaxIds = models
 		.filter(({ id }) => id.startsWith("MiniMax-"))
 		.map(({ id }) => id);

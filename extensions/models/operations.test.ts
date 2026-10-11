@@ -93,8 +93,8 @@ function testCompletionProfiles(): void {
 	equal(Object.hasOwn(glmNotStreaming, "tool_stream"), false);
 
 	for (const modelId of [
-		"mimo-v2.5",
-		"mimo-v2.5-pro",
+		"mimo-v2.6-flash",
+		"mimo-v2.6-pro",
 		"kimi-for-coding",
 		"longcat-2.0",
 	]) {

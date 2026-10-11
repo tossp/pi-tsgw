@@ -5,6 +5,7 @@ import { glmModels, glmThinking } from "./vendors/glm.ts";
 import { grokModels, grokThinking } from "./vendors/grok.ts";
 import { minimaxModels, minimaxThinking } from "./vendors/minimax.ts";
 import { kimiModels, kimiThinking } from "./vendors/kimi.ts";
+import { mimoModels, mimoThinking } from "./vendors/mimo.ts";
 
 // Official evidence lives beside the vendor implementations; research baseline:
 // Blinko #863 (2026-10-09). These are payload regressions, not gateway endpoint tests. Grok aliases and gemini-flash retain
@@ -86,6 +87,31 @@ for (const [id, support] of Object.entries(glmCases)) {
 			equal(result.reasoning_effort, support.effort ? effort : undefined, `${id}/${level}`);
 			if (!support.effort) equal(Object.hasOwn(result, "reasoning_effort"), false);
 		}
+	}
+}
+
+// MiMo V2.6 directly replaces V2.5; both IDs support images and switchable thinking.
+const mimoIds = ["mimo-v2.6-pro", "mimo-v2.6-flash"];
+coverage(mimoIds, mimoThinking, mimoModels(root));
+for (const model of mimoModels(root)) {
+	equal(model.name, model.id === "mimo-v2.6-pro" ? "MiMo V2.6 Pro" : "MiMo V2.6 Flash");
+	equal(model.api, "openai-completions");
+	equal(model.baseUrl, `${root}/v1`);
+	equal(model.reasoning, true);
+	deepStrictEqual(model.input, ["text", "image"]);
+	equal(model.contextWindow, 1000000);
+	equal(model.maxTokens, 131072);
+	deepStrictEqual(model.cost, model.id === "mimo-v2.6-pro"
+		? { input: 0.4425, output: 0.885, cacheRead: 0.0036875, cacheWrite: 0 }
+		: { input: 0.1475, output: 0.295, cacheRead: 0.00295, cacheWrite: 0 });
+	deepStrictEqual(model.compat, { supportsDeveloperRole: false });
+	for (const level of levels) {
+		const result = apply(mimoThinking, model.id, level, { ...base(), thinking: { retained: true }, temperature: 0.2, top_p: 0.8 });
+		deepStrictEqual(result.thinking, { retained: true, type: level === "off" ? "disabled" : "enabled" });
+		equal(Object.hasOwn(result, "reasoning_effort"), false);
+		equal(result.temperature, 0.2);
+		equal(result.top_p, 0.8);
+		strictEqual(apply(mimoThinking, model.id, level, result), result);
 	}
 }
 

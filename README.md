@@ -84,6 +84,8 @@ model IDs, including retained aliases; this is not a live availability count.
 Vendor files carry documentation links and metadata caveats. Alias mappings,
 output limits, and shared thinking policies are not all individually verified
 against gateway endpoints; public-price estimates do not guarantee billing.
+MiMo uses `mimo-v2.6-pro` and `mimo-v2.6-flash`; the former V2.5 IDs are not
+registered. Update any explicit model selections or filter rules to the new IDs.
 
 Use broad `excludeModels` rules to drop model families and precise
 `includeModels` rules to pull selected models back. `includeModels` is not a
