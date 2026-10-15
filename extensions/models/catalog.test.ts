@@ -47,6 +47,8 @@ function testCatalogConcatenation(): void {
 	strictEqual(deepseek?.baseUrl, `${ROOT}/v1`);
 	strictEqual(deepseek?.api, "openai-responses");
 	deepStrictEqual(deepseek?.input, ["text", "image"]);
+	// 国内高峰价按固定 0.1475 USD/CNY 折算；单测固定元数据，不核验实时计费。
+	deepStrictEqual(deepseek?.cost, { input: 0.295, output: 1.18, cacheRead: 0.0059, cacheWrite: 0 });
 	deepStrictEqual(deepseek?.compat, {
 		supportsDeveloperRole: false,
 		supportsLongCacheRetention: false,
@@ -64,6 +66,7 @@ function testCatalogConcatenation(): void {
 	const deepseekPro = models.find(({ id }) => id === "deepseek-v4-pro");
 	strictEqual(deepseekPro?.api, "openai-responses");
 	deepStrictEqual(deepseekPro?.input, ["text"]);
+	deepStrictEqual(deepseekPro?.cost, { input: 1.3275, output: 3.9825, cacheRead: 0.04425, cacheWrite: 0 });
 	deepStrictEqual(deepseekPro?.compat, deepseek?.compat);
 	deepStrictEqual(deepseekPro?.thinkingLevelMap, deepseek?.thinkingLevelMap);
 	deepStrictEqual(

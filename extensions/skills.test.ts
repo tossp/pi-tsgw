@@ -87,6 +87,21 @@ test("selection table uses registered IDs and Pi thinking levels", () => {
 	assert.equal(input.thinking.type, "legacy");
 });
 
+test("DeepSeek skill prices and catalog share the domestic peak-price baseline", () => {
+	const reference = readFileSync(skillPath, "utf8");
+	const row = reference.split("\n").find((line) => line.includes("| `deepseek-flash` | `max` |"));
+	assert.ok(row);
+	const cells = row.split("|").map((cell) => cell.trim());
+	const input = cells[5]!.split("–").map(Number);
+	const output = cells[6]!.split("–").map(Number);
+	assert.deepEqual(input, [0.1475, 0.295]);
+	assert.deepEqual(output, [0.59, 1.18]);
+	const model = modelsForRoot(TEST_ROOT).find(({ id }) => id === "deepseek-flash")!;
+	assert.equal(model.cost.input, input[1]);
+	assert.equal(model.cost.output, output[1]);
+	assert.match(reference, /静态目录采用区间高端，不自动按时段切换/);
+});
+
 test("Pi SDK discovers the bundled skill through the package manifest and respects filtering", { timeout: 60_000 }, async () => {
 	const sandbox = new HostSandbox();
 	try {
