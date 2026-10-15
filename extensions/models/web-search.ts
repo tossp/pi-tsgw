@@ -28,10 +28,6 @@ const BUILTIN_SEARCH_MODELS = new Set([
 	"gpt-6.1-sol",
 	"gpt-6-sol",
 	"gpt-6-luna",
-	"gpt-5.6-sol",
-	"gpt-5.6-terra",
-	"gpt-5.6-luna",
-	"gpt-5.5",
 ]);
 
 // 支持内置查询的 Grok 系列（openai-completions 协议，search_parameters 模式）。

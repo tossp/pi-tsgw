@@ -16,9 +16,9 @@ type HookName =
 
 export const STALE_ERROR = "Extension context is stale after runtime replacement";
 export const TEST_ROOT = "https://aih.example.com";
-export const TSGW_TERRA = {
+export const TSGW_SOL = {
 	provider: "tsgw",
-	id: "gpt-5.6-terra",
+	id: "gpt-6-sol",
 	api: "openai-responses",
 	baseUrl: `${TEST_ROOT}/v1`,
 };
@@ -41,7 +41,7 @@ export class FakeContext {
 
 	constructor(
 		private readonly currentModel:
-			| typeof TSGW_TERRA
+			| typeof TSGW_SOL
 			| typeof TSGW_DEEPSEEK
 			| typeof TSGW_GLM
 			| { provider: string; id: string; api: string; baseUrl: string }

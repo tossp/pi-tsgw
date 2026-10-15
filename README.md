@@ -40,7 +40,7 @@ Example:
     "tsSearch": "live",
     "traceHeaders": false,
     "excludeModels": ["gpt-*", "claude-*"],
-    "includeModels": ["gpt-5.6-*"]
+    "includeModels": ["gpt-6-*"]
   }
 }
 ```
@@ -79,13 +79,27 @@ catalog may fall back to static models until Pi refreshes it.
 The catalog is assembled from per-vendor slices (`extensions/models/vendors/`),
 covering 11 vendor families: DeepSeek, GLM (Zhipu), MiMo (Xiaomi), MiniMax,
 Kimi (Moonshot), Qwen (Alibaba), GPT (OpenAI), Gemini (Google), Claude
-(Anthropic), LongCat, and Grok (xAI). The current static catalog contains 58 chat
+(Anthropic), LongCat, and Grok (xAI). The current static catalog contains 36 chat
 model IDs, including retained aliases; this is not a live availability count.
 Vendor files carry documentation links and metadata caveats. Alias mappings,
 output limits, and shared thinking policies are not all individually verified
 against gateway endpoints; public-price estimates do not guarantee billing.
 MiMo uses `mimo-v2.6-pro` and `mimo-v2.6-flash`; the former V2.5 IDs are not
 registered. Update any explicit model selections or filter rules to the new IDs.
+
+The curated catalog keeps DeepSeek `deepseek-flash` and V4 Pro; GLM 5.2+,
+plus the explicit `glm-4.5-air` exception; MiniMax M3+; Kimi K3; GPT 6+;
+and Gemini 3.5+ plus the unversioned `gemini-flash` / `gemini-pro` aliases.
+Qwen, MiMo, LongCat, Claude, and Grok retain their existing registrations.
+Removed IDs and their dedicated request policies are no longer registered;
+include rules cannot restore them, even if a gateway still lists them. Existing
+explicit model selections referencing removed IDs need to be updated.
+
+Kimi offers `kimi-k3` and the gateway variant `kimi-k3-256k`, displayed as
+**Kimi K3 (256K)** with a 262,144-token context window. Its other metadata,
+price estimates, and thinking policy are inherited from K3; the 131,072-token
+output setting is separate from context size. These inherited values are not
+individual endpoint verification or a guarantee of the variant's billing rates.
 
 The catalog also includes `MiniMax-M3.1-Flash-Preview`, `glm-5.3`,
 `glm-5.3-flash`, and `glm-5.3-flashx`. All four require thinking: MiniMax

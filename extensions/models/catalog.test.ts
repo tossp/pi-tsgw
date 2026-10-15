@@ -13,8 +13,8 @@ function testCatalogConcatenation(): void {
 	const models = modelsForRoot(ROOT);
 	const ids = models.map(({ id }) => id);
 
-	// 11 家供应商分片拼接，共 58 个模型（含 DeepSeek 新名称及旧 alias）。
-	equal(ids.length, 58);
+	// 经确认的精简目录：删除 23 个旧 ID，新增 K3 256K，共 36 个。
+	equal(ids.length, 36);
 	// id 全局唯一。
 	equal(new Set(ids).size, ids.length);
 
@@ -42,7 +42,7 @@ function testCatalogConcatenation(): void {
 	equal(ids[0], "deepseek-flash");
 	equal(ids[ids.length - 1], "grok-4.20-fast");
 
-	// 模型 baseUrl 按协议端点派生；DeepSeek aliases 使用官方 Responses 能力。
+	// 模型 baseUrl 按协议端点派生；DeepSeek 使用官方 Responses 能力。
 	const deepseek = models.find(({ id }) => id === "deepseek-flash");
 	strictEqual(deepseek?.baseUrl, `${ROOT}/v1`);
 	strictEqual(deepseek?.api, "openai-responses");
@@ -60,11 +60,7 @@ function testCatalogConcatenation(): void {
 		xhigh: "high",
 		max: "max",
 	});
-	const deepseekLegacy = models.find(({ id }) => id === "deepseek-v4-flash");
-	strictEqual(deepseekLegacy?.api, "openai-responses");
-	deepStrictEqual(deepseekLegacy?.input, deepseek?.input);
-	deepStrictEqual(deepseekLegacy?.compat, deepseek?.compat);
-	deepStrictEqual(deepseekLegacy?.thinkingLevelMap, deepseek?.thinkingLevelMap);
+	deepStrictEqual(models.filter(({ id }) => id.startsWith("deepseek-")).map(({ id }) => id), ["deepseek-flash", "deepseek-v4-pro"]);
 	const deepseekPro = models.find(({ id }) => id === "deepseek-v4-pro");
 	strictEqual(deepseekPro?.api, "openai-responses");
 	deepStrictEqual(deepseekPro?.input, ["text"]);
@@ -80,13 +76,9 @@ function testCatalogConcatenation(): void {
 	deepStrictEqual(minimaxIds, [
 		"MiniMax-M3.1-Flash-Preview",
 		"MiniMax-M3",
-		"MiniMax-M2.7",
-		"MiniMax-M2.5",
-		"MiniMax-M2.1",
 	]);
 	deepStrictEqual(models.filter(({ id }) => id.startsWith("glm-")).map(({ id }) => id), [
-		"glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "glm-5.2", "glm-5.1",
-		"glm-5", "glm-5-turbo", "glm-4.7", "glm-4.6", "glm-4.5", "glm-4.5-air",
+		"glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "glm-5.2", "glm-4.5-air",
 	]);
 	const glm53Map = { off: null, minimal: "low", low: "low", medium: "high", high: "high", xhigh: "max", max: "max" };
 	for (const [id, name, input, cost] of [
@@ -116,10 +108,6 @@ function testCatalogConcatenation(): void {
 		"gpt-6.1-sol",
 		"gpt-6-sol",
 		"gpt-6-luna",
-		"gpt-5.6-sol",
-		"gpt-5.6-terra",
-		"gpt-5.6-luna",
-		"gpt-5.5",
 	]);
 	const astra = models.find(({ id }) => id === "gpt-6-astra");
 	strictEqual(astra?.api, "openai-responses");
@@ -182,6 +170,23 @@ function testCatalogConcatenation(): void {
 		xhigh: "xhigh",
 		max: "max",
 	});
+	deepStrictEqual(models.filter(({ id }) => id.startsWith("kimi-")).map(({ id }) => id), ["kimi-k3", "kimi-k3-256k"]);
+	const k3 = models.find(({ id }) => id === "kimi-k3")!;
+	const k3Short = models.find(({ id }) => id === "kimi-k3-256k")!;
+	deepStrictEqual(k3Short, { ...k3, id: "kimi-k3-256k", name: "Kimi K3 (256K)", contextWindow: 262144 });
+	equal(k3Short.maxTokens, 131072);
+	deepStrictEqual(models.filter(({ id }) => id.startsWith("gemini-")).map(({ id }) => id), [
+		"gemini-flash", "gemini-pro", "gemini-3.5-flash", "gemini-3.5-flash-low", "gemini-3.5-flash-extra-low",
+	]);
+	const removed = [
+		"deepseek-v4-flash", "glm-5.1", "glm-5", "glm-5-turbo", "glm-4.7", "glm-4.6", "glm-4.5",
+		"MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1", "kimi-for-coding", "kimi-k2.7-code",
+		"kimi-k2.7-code-highspeed", "kimi-k2.6", "kimi-k2.5", "gpt-5.6-sol", "gpt-5.6-terra",
+		"gpt-5.6-luna", "gpt-5.5", "gemini-3.1-pro-low", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
+	];
+	for (const id of removed) equal(ids.includes(id), false, `removed ID: ${id}`);
+	// User include rules cannot resurrect removed static IDs.
+	deepStrictEqual(modelsForRoot(ROOT, { exclude: ["*"], include: removed }), []);
 	const gemini = models.find(({ id }) => id === "gemini-flash");
 	strictEqual(gemini?.baseUrl, `${ROOT}/gemini`);
 	const claude = models.find(({ id }) => id === "claude-fable-5");
@@ -200,7 +205,7 @@ function testFilterModels(): void {
 	const includeOnly = filterModels(all, { include: ["glm-5.2"] });
 	equal(includeOnly.length, all.length);
 	equal(
-		includeOnly.some(({ id }) => id === "deepseek-v4-flash"),
+		includeOnly.some(({ id }) => id === "deepseek-flash"),
 		true,
 	);
 	// 黑名单精确匹配。
@@ -232,7 +237,7 @@ function testFilterModels(): void {
 		true,
 	);
 	equal(
-		both.some(({ id }) => id === "glm-5.1"),
+		both.some(({ id }) => id === "glm-5.3"),
 		false,
 	);
 	equal(
@@ -241,7 +246,7 @@ function testFilterModels(): void {
 	);
 	// 双未命中仍保留。
 	equal(
-		both.some(({ id }) => id === "deepseek-v4-flash"),
+		both.some(({ id }) => id === "deepseek-flash"),
 		true,
 	);
 
@@ -249,9 +254,9 @@ function testFilterModels(): void {
 	deepStrictEqual(
 		filterModels(all, {
 			exclude: ["*"],
-			include: ["glm-5.2", "gpt-5.6-*"],
+			include: ["glm-5.2", "gpt-6-*"],
 		}).map(({ id }) => id),
-		["glm-5.2", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"],
+		["glm-5.2", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"],
 	);
 }
 

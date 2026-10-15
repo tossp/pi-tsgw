@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import registerTsgw from "./index.ts";
 import { gatewayModelCacheScope, saveGatewayModelCache, DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "./models/gateway-catalog.ts";
-import { FakePi, TSGW_TERRA, withAgentDir, providerRequest } from "./test-support.test.ts";
+import { FakePi, TSGW_SOL, withAgentDir, providerRequest } from "./test-support.test.ts";
 
 type Refresh = (context: {
 	allowNetwork: boolean;
@@ -37,7 +37,7 @@ async function fixture(root: string, dir: string) {
 	let refreshCalls = 0;
 	const ctx = {
 		hasUI: true,
-		model: { ...TSGW_TERRA, baseUrl: `${root}/v1` },
+		model: { ...TSGW_SOL, baseUrl: `${root}/v1` },
 		thinkingLevel: "high",
 		waitForIdle: async () => {},
 		modelRegistry: {
@@ -70,7 +70,7 @@ async function fixture(root: string, dir: string) {
 		setConfigured: (value: boolean) => { configured = value; } };
 }
 
-const modelResponse = (ids = ["gpt-5.6-terra", "glm-5.2"]) =>
+const modelResponse = (ids = ["gpt-6-sol", "glm-5.2"]) =>
 	new Response(JSON.stringify({ data: ids.map((id) => ({ id })) }), { status: 200 });
 
 await withUi(async ({ pi, ctx, statuses, choices, dialogs, notices, dir }) => {
@@ -111,7 +111,7 @@ await withUi(async ({ pi, ctx, statuses, dialogs, notices }) => {
 		match(notices.at(-1)!.text, /固定为实时/);
 		deepStrictEqual((providerRequest(pi, {}) as { search_parameters: unknown }).search_parameters, { mode: "on" });
 	}
-	ctx.model = { ...TSGW_TERRA };
+	ctx.model = { ...TSGW_SOL };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
 	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：缓存");
 	equal((providerRequest(pi, {}) as { tools: Array<{ external_web_access: boolean }> }).tools[0].external_web_access, false);
@@ -190,7 +190,7 @@ await withUi(async ({ pi, ctx, notices }) => {
 	deepStrictEqual((providerRequest(pi, {}) as { search_parameters: unknown }).search_parameters, { mode: "on" });
 	// Headless commands can use explicit arguments without touching UI rendering.
 	ctx.hasUI = false;
-	ctx.model = { ...TSGW_TERRA };
+	ctx.model = { ...TSGW_SOL };
 	ctx.ui.select = async () => { throw new Error("headless dialog"); };
 	ctx.ui.setStatus = () => { throw new Error("headless status"); };
 	pi.invoke("agent_start", {}, ctx);
@@ -313,7 +313,7 @@ for (const stale of [false, true]) {
 		writeFileSync(join(dir, "auth.json"), JSON.stringify({ tsgw: { type: "api_key", key: "test-bootstrap-key" } }));
 		const storedAt = Date.now() - (stale ? TTL * 2 : 1000);
 		saveGatewayModelCache(join(dir, "tsgw", "models-cache.json"),
-			gatewayModelCacheScope(root, "test-bootstrap-key"), ["gpt-5.6-terra"], storedAt);
+			gatewayModelCacheScope(root, "test-bootstrap-key"), ["gpt-6-sol"], storedAt);
 		const previous = globalThis.fetch;
 		let calls = 0;
 		globalThis.fetch = async () => { calls++; return new Response("unavailable", { status: 503 }); };

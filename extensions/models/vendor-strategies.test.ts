@@ -44,10 +44,6 @@ const geminiCases = {
 	"gemini-3.5-flash": "flash-level",
 	"gemini-3.5-flash-low": "flash-level",
 	"gemini-3.5-flash-extra-low": "flash-level",
-	"gemini-3.1-pro-low": "pro-level",
-	"gemini-2.5-pro": "pro-budget",
-	"gemini-2.5-flash": "flash-budget",
-	"gemini-2.5-flash-lite": "flash-budget",
 } as const;
 coverage(Object.keys(geminiCases), geminiThinking, geminiModels(root));
 for (const [id, kind] of Object.entries(geminiCases)) {
@@ -56,7 +52,6 @@ for (const [id, kind] of Object.entries(geminiCases)) {
 		const result = apply(geminiThinking, id, level, payload);
 		const expected: Payload = { includeThoughts: level !== "off", retained: true };
 		if (kind === "flash-budget") expected.thinkingBudget = level === "off" ? 0 : level === "max" ? 24576 : 16000;
-		if (kind === "pro-budget") expected.thinkingBudget = ["off", "minimal", "low"].includes(level) ? 128 : level === "max" ? 32768 : 16000;
 		if (kind === "flash-level") expected.thinkingLevel = ["off", "minimal"].includes(level) ? "MINIMAL" : level === "low" ? "LOW" : level === "medium" ? "MEDIUM" : "HIGH";
 		if (kind === "pro-level") expected.thinkingLevel = ["off", "minimal", "low"].includes(level) ? "LOW" : level === "medium" ? "MEDIUM" : "HIGH";
 		deepStrictEqual(result.config, { temperature: 0.2, thinkingConfig: expected }, `${id}/${level}`);
@@ -67,12 +62,6 @@ for (const [id, kind] of Object.entries(geminiCases)) {
 // GLM docs: reasoning_effort only 5.2+; 4.7 introduced preserved thinking.
 const glmCases = {
 	"glm-5.2": { effort: true, preserve: true },
-	"glm-5.1": { effort: false, preserve: true },
-	"glm-5": { effort: false, preserve: true },
-	"glm-5-turbo": { effort: false, preserve: true },
-	"glm-4.7": { effort: false, preserve: true },
-	"glm-4.6": { effort: false, preserve: false },
-	"glm-4.5": { effort: false, preserve: false },
 	"glm-4.5-air": { effort: false, preserve: false },
 };
 const glm53Ids = ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx"];
@@ -129,7 +118,7 @@ for (const model of mimoModels(root)) {
 	}
 }
 
-const minimaxIds = ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1"];
+const minimaxIds = ["MiniMax-M3"];
 const minimax31Id = "MiniMax-M3.1-Flash-Preview";
 coverage([minimax31Id, ...minimaxIds], minimaxThinking, minimaxModels(root));
 for (const level of levels) {
@@ -149,46 +138,27 @@ for (const id of minimaxIds) {
 		equal(Object.hasOwn(result, "reasoning_effort"), false);
 	}
 }
-// Domestic native API explicitly documents these output caps, including M2.x.
+// Domestic native API explicitly documents the M3 / M3.1 output cap.
 for (const model of minimaxModels(root)) {
-	equal(model.maxTokens, model.id.startsWith("MiniMax-M3") ? 524288 : 204800);
-	if (model.id.startsWith("MiniMax-M2")) deepStrictEqual(model.thinkingLevelMap, { off: null });
-	else equal(model.thinkingLevelMap?.off, model.id === minimax31Id ? null : undefined);
+	equal(model.maxTokens, 524288);
+	equal(model.thinkingLevelMap?.off, model.id === minimax31Id ? null : undefined);
 }
 
-const kimiCodeIds = ["kimi-k2.7-code", "kimi-k2.7-code-highspeed"];
-for (const id of kimiCodeIds) {
-	const model = kimiModels(root).find(m => m.id === id)!;
-	deepStrictEqual(model.thinkingLevelMap, { off: null });
-	equal(model.maxTokens, 262144); // Compatibility value, not a verified output limit.
+const kimiIds = ["kimi-k3", "kimi-k3-256k"];
+coverage(kimiIds, kimiThinking, kimiModels(root));
+for (const model of kimiModels(root)) {
+	equal(model.maxTokens, 131072);
+	equal(model.thinkingLevelMap?.off, null);
+	equal(model.contextWindow, model.id === "kimi-k3" ? 1000000 : 262144);
+	equal(model.name, model.id === "kimi-k3" ? "Kimi K3" : "Kimi K3 (256K)");
 	for (const level of levels) {
-		for (const thinking of [undefined, { type: "disabled" }, { type: "enabled", keep: "none", retained: true }]) {
-			const result = apply(kimiThinking, id, level, { ...base(), thinking });
-			deepStrictEqual(result.thinking, { ...thinking, type: "enabled", keep: "all" }, `${id}/${level}`);
-			equal(Object.hasOwn(result, "reasoning_effort"), false);
-			// Already-correct requests remain unchanged (copy-on-write).
-			strictEqual(apply(kimiThinking, id, level, result), result);
+		// Both variants must correct stale off/none without falling back to max.
+		for (const effort of [undefined, "max", "none"]) {
+			const result = apply(kimiThinking, model.id, level, { ...base(), reasoning_effort: effort, thinking: { type: "disabled" } });
+			equal(Object.hasOwn(result, "thinking"), false);
+			equal(result.reasoning_effort, ["off", "minimal", "low"].includes(level) ? "low" : level === "max" ? "max" : "high", `${model.id}/${level}`);
+			strictEqual(apply(kimiThinking, model.id, level, result), result);
 		}
-	}
-}
-// Do not transfer canonical Code restrictions to the unknown gateway alias.
-const codingAlias = kimiModels(root).find(m => m.id === "kimi-for-coding")!;
-equal(codingAlias.thinkingLevelMap?.off, undefined);
-equal(codingAlias.maxTokens, 32768);
-for (const level of levels) {
-	const result = apply(kimiThinking, codingAlias.id, level, base());
-	deepStrictEqual(result.thinking, { type: level === "off" ? "disabled" : "enabled" });
-}
-const kimiK3 = kimiModels(root).find(m => m.id === "kimi-k3")!;
-equal(kimiK3.maxTokens, 131072);
-equal(kimiK3.thinkingLevelMap?.off, null);
-for (const level of levels) {
-	// A stale off snapshot must not omit effort and accidentally select default max.
-	for (const effort of [undefined, "max", "none"]) {
-		const result = apply(kimiThinking, kimiK3.id, level, { ...base(), reasoning_effort: effort, thinking: { type: "disabled" } });
-		equal(Object.hasOwn(result, "thinking"), false);
-		equal(result.reasoning_effort, ["off", "minimal", "low"].includes(level) ? "low" : level === "max" ? "max" : "high", `kimi-k3/${level}`);
-		strictEqual(apply(kimiThinking, kimiK3.id, level, result), result);
 	}
 }
 

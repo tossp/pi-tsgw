@@ -8,7 +8,7 @@ const DEEPSEEK_RESPONSES_COMPAT = {
 };
 
 /**
- * DeepSeek（深度求索）V4 系列。
+ * DeepSeek（深度求索）系列：V4.1 Flash 与 V4 Pro。
  * 官方文档：https://api-docs.deepseek.com/guides/responses_api
  */
 export function deepseekModels(root: string): ProviderModelConfig[] {
@@ -17,27 +17,6 @@ export function deepseekModels(root: string): ProviderModelConfig[] {
 		{
 			id: "deepseek-flash",
 			name: "DeepSeek V4.1 Flash",
-			api: "openai-responses",
-			baseUrl: v1,
-			reasoning: true,
-			input: ["text", "image"],
-			cost: { input: 0.1475, output: 0.295, cacheRead: 0.00295, cacheWrite: 0 },
-			contextWindow: 1000000,
-			maxTokens: 384000,
-			compat: DEEPSEEK_RESPONSES_COMPAT,
-			thinkingLevelMap: {
-				off: "none",
-				minimal: "low",
-				low: "low",
-				medium: "high",
-				high: "high",
-				xhigh: "high",
-				max: "max",
-			},
-		},
-		{
-			id: "deepseek-v4-flash",
-			name: "DeepSeek V4 Flash (Legacy Alias)",
 			api: "openai-responses",
 			baseUrl: v1,
 			reasoning: true,

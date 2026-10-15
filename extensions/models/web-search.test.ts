@@ -48,12 +48,12 @@ function testBuiltinSearchInjection(): void {
 		"web_search_custom",
 	]) {
 		const existing = { type };
-		const result = apply({ tools: [existing] }, "gpt-5.6-terra", "live");
+		const result = apply({ tools: [existing] }, "gpt-6.1-sol", "live");
 		strictEqual((result.tools as unknown[])[0], existing);
 		equal((result.tools as unknown[]).length, 1);
 	}
 
-	const undefinedTools = apply({}, "gpt-5.6-luna", "cached");
+	const undefinedTools = apply({}, "gpt-6-luna", "cached");
 	deepStrictEqual(undefinedTools.tools, [
 		{
 			type: "web_search",
@@ -61,14 +61,17 @@ function testBuiltinSearchInjection(): void {
 			external_web_access: false,
 		},
 	]);
-	const invalidTools = apply({ tools: null }, "gpt-5.5", "live");
+	const invalidTools = apply({ tools: null }, "gpt-6-sol", "live");
 	strictEqual(invalidTools.tools, null);
 }
 
 function testGpt6SearchInjection(): void {
-	for (const modelId of ["gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"]) {
+	for (const modelId of ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"]) {
 		for (const mode of ["cached", "live"] as const) {
-			const input = { tools: [functionTool], tool_choice: "auto" };
+			const input = Object.freeze({
+				tools: Object.freeze([functionTool]),
+				tool_choice: "auto",
+			});
 			const result = apply(input, modelId, mode);
 			deepStrictEqual(result.tools, [functionTool, {
 				type: "web_search",
@@ -78,6 +81,27 @@ function testGpt6SearchInjection(): void {
 			strictEqual(result.tool_choice, "auto");
 			strictEqual(apply(result, modelId, mode), result);
 			deepStrictEqual(input.tools, [functionTool]);
+		}
+	}
+}
+
+function testRemovedGptSearchNoOps(): void {
+	for (const modelId of ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5"]) {
+		for (const mode of ["cached", "live"] as const) {
+			for (const input of [
+				Object.freeze({}),
+				Object.freeze({
+					tools: Object.freeze([functionTool]),
+					tool_choice: "auto",
+					include: Object.freeze(["reasoning.encrypted_content"]),
+				}),
+			]) {
+				strictEqual(
+					applyBuiltinSearchTool(input, modelId, OPENAI_RESPONSES, mode),
+					input,
+					`${modelId} must not inject built-in search in ${mode} mode`,
+				);
+			}
 		}
 	}
 }
@@ -99,7 +123,7 @@ function testNoOpsAndScope(): void {
 	strictEqual(
 		applyBuiltinSearchTool(
 			nonSearch,
-			"gpt-5.6-sol",
+			"gpt-6-sol",
 			"openai-completions",
 			"live",
 		),
@@ -110,7 +134,7 @@ function testNoOpsAndScope(): void {
 	const nonPlain = [null, [], new Date()] as const;
 	for (const payload of nonPlain)
 		strictEqual(
-			applyBuiltinSearchTool(payload, "gpt-5.6-sol", OPENAI_RESPONSES, "live"),
+			applyBuiltinSearchTool(payload, "gpt-6-sol", OPENAI_RESPONSES, "live"),
 			payload,
 		);
 }
@@ -157,6 +181,7 @@ const functionTool = { type: "function", name: "keep" };
 
 testBuiltinSearchInjection();
 testGpt6SearchInjection();
+testRemovedGptSearchNoOps();
 testNoOpsAndScope();
 testGrokSearchInjection();
 console.log("web-search.test.ts: all assertions passed");

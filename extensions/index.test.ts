@@ -7,7 +7,7 @@ import {
 } from "node:assert";
 import registerTsgw from "./index.ts";
 import { PROVIDER_ID } from "./models/catalog.ts";
-import { FakeContext, FakePi, createPi, sessionStart, agentStart, providerRequest, providerHeaders, withAgentDir, STALE_ERROR, TEST_ROOT, TSGW_TERRA, TSGW_DEEPSEEK, TSGW_GLM } from "./test-support.test.ts";
+import { FakeContext, FakePi, createPi, sessionStart, agentStart, providerRequest, providerHeaders, withAgentDir, STALE_ERROR, TEST_ROOT, TSGW_SOL, TSGW_DEEPSEEK, TSGW_GLM } from "./test-support.test.ts";
 
 function assertUuid(value: string | null | undefined): void {
 	match(
@@ -55,12 +55,12 @@ async function testSafeProviderHooksAfterContextStales(): Promise<void> {
 	const pi = await createPi({
 		tsgw: { traceHeaders: true, tsSearch: "cached" },
 	});
-	const sessionContext = new FakeContext(TSGW_TERRA, "high");
+	const sessionContext = new FakeContext(TSGW_SOL, "high");
 	sessionStart(pi, sessionContext);
 
 	const firstHeaders: Record<string, string | null> = {};
 	providerHeaders(pi, firstHeaders);
-	const agentContext = new FakeContext(TSGW_TERRA, "high");
+	const agentContext = new FakeContext(TSGW_SOL, "high");
 	agentStart(pi, agentContext);
 	sessionContext.makeStale();
 	agentContext.makeStale();
@@ -76,7 +76,7 @@ async function testSafeProviderHooksAfterContextStales(): Promise<void> {
 				external_web_access: false,
 			},
 		],
-		text: { verbosity: "medium" },
+		text: { verbosity: "low" },
 	});
 	const headers: Record<string, string | null> = {};
 	providerHeaders(pi, headers);
@@ -161,7 +161,7 @@ async function testTraceHeaderSettings(): Promise<void> {
 	// 非 tsgw provider 不追踪。
 	sessionStart(
 		pi,
-		new FakeContext({ ...TSGW_TERRA, provider: "other" }, "high"),
+		new FakeContext({ ...TSGW_SOL, provider: "other" }, "high"),
 	);
 	const foreign: Record<string, string | null> = {};
 	providerHeaders(pi, foreign);
@@ -171,7 +171,7 @@ async function testTraceHeaderSettings(): Promise<void> {
 	sessionStart(
 		pi,
 		new FakeContext(
-			{ ...TSGW_TERRA, baseUrl: "https://example.test/v1" },
+			{ ...TSGW_SOL, baseUrl: "https://example.test/v1" },
 			"high",
 		),
 	);
@@ -180,7 +180,7 @@ async function testTraceHeaderSettings(): Promise<void> {
 	deepStrictEqual(otherHost, {});
 
 	// 匹配 host：产生追踪头。
-	sessionStart(pi, new FakeContext(TSGW_TERRA, "high"));
+	sessionStart(pi, new FakeContext(TSGW_SOL, "high"));
 	const headers: Record<string, string | null> = {};
 	providerHeaders(pi, headers);
 	assertUuid(headers["AH-Thread-Id"]);
@@ -199,7 +199,7 @@ async function testOldInstanceCallbacksKeepOwnSnapshot(): Promise<void> {
 		const oldPi = await createPi({
 			tsgw: { traceHeaders: true, tsSearch: "cached" },
 		});
-		const oldContext = new FakeContext(TSGW_TERRA, "high");
+		const oldContext = new FakeContext(TSGW_SOL, "high");
 		sessionStart(oldPi, oldContext);
 		agentStart(oldPi, oldContext);
 		oldContext.makeStale();
@@ -224,7 +224,7 @@ async function testOldInstanceCallbacksKeepOwnSnapshot(): Promise<void> {
 						external_web_access: false,
 					},
 				],
-				text: { verbosity: "medium" },
+				text: { verbosity: "low" },
 			},
 			`${replacement.label}: late old callback must retain its own state`,
 		);
@@ -254,18 +254,18 @@ async function testSettingsConfig(): Promise<void> {
 	// Missing, legacy off, and invalid settings default to live; cached is retained.
 	for (const tsSearch of [undefined, "off", "invalid", null, false, 42, {}, "cached", "live"]) {
 		const piSearch = await createPi({ tsgw: { tsSearch } });
-		sessionStart(piSearch, new FakeContext(TSGW_TERRA, "off"));
+		sessionStart(piSearch, new FakeContext(TSGW_SOL, "off"));
 		deepStrictEqual(providerRequest(piSearch, { tools: [] }), {
 			tools: [{ type: "web_search", search_context_size: "medium",
 				external_web_access: tsSearch !== "cached" }],
-			text: { verbosity: "medium" },
+			text: { verbosity: "low" },
 		});
 	}
 
 	// `includeModels` pulls exact models back from broad `excludeModels` rules.
 	const piFiltered = await createPi({
 		tsgw: {
-			includeModels: ["glm-5.1"],
+			includeModels: ["glm-5.3"],
 			excludeModels: ["glm-*"],
 		},
 	});
@@ -279,7 +279,7 @@ async function testSettingsConfig(): Promise<void> {
 		modelIds.some((id) => !id.startsWith("glm-")),
 		true,
 	);
-	equal(modelIds.includes("glm-5.1"), true);
+	equal(modelIds.includes("glm-5.3"), true);
 	equal(modelIds.includes("glm-5.2"), false);
 
 	// Malformed or missing `tsgw` namespaces are ignored.
@@ -355,6 +355,17 @@ async function testDynamicModelRefresh(): Promise<void> {
 				preserved.map(({ id }) => id),
 				["deepseek-flash", "glm-5.2"],
 			);
+			// Retired IDs cannot return through gateway refresh; K3 256K can.
+			globalThis.fetch = async () => new Response(JSON.stringify({ data: [
+				"deepseek-flash", "glm-5.2", "kimi-k3-256k",
+				"deepseek-v4-flash", "glm-5.1", "MiniMax-M2.7",
+				"kimi-k2.6", "gpt-5.6-sol", "gemini-2.5-pro",
+			].map(id => ({ id })) }), { status: 200 });
+			const curated = await refreshModels({
+				credential: { type: "api_key", key: "test-key" },
+				allowNetwork: true, force: true, signal,
+			});
+			deepStrictEqual(curated.map(({ id }) => id), ["deepseek-flash", "glm-5.2", "kimi-k3-256k"]);
 		} finally {
 			globalThis.fetch = previousFetch;
 		}

@@ -47,7 +47,7 @@ export interface ModelFilter {
 	exclude?: readonly string[];
 }
 
-/** 前缀通配匹配：`gpt-5.6-*` 命中该系列全部；不带 `*` 时精确匹配。 */
+/** 前缀通配匹配：`gpt-6-*` 命中该系列全部；不带 `*` 时精确匹配。 */
 function matches(pattern: string, id: string): boolean {
 	if (pattern.endsWith("*")) return id.startsWith(pattern.slice(0, -1));
 	return pattern === id;

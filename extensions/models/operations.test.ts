@@ -79,7 +79,7 @@ function testCompletionProfiles(): void {
 			strictEqual(applyModelOperations(input, { ...context(modelId), provider: "other" }), input);
 		}
 	}
-	for (const modelId of ["glm-5.2", "glm-5.1"]) {
+	for (const modelId of ["glm-5.2", "glm-4.5-air"]) {
 		for (const level of levels) {
 			const result = apply(
 				completionBase(),
@@ -100,7 +100,7 @@ function testCompletionProfiles(): void {
 				thinking:
 					level === "off"
 						? { type: "disabled", retained: true }
-						: { type: "enabled", retained: true, clear_thinking: false },
+						: { type: "enabled", retained: true, ...(modelId === "glm-5.2" ? { clear_thinking: false } : {}) },
 			});
 		}
 	}
@@ -115,7 +115,6 @@ function testCompletionProfiles(): void {
 	for (const modelId of [
 		"mimo-v2.6-flash",
 		"mimo-v2.6-pro",
-		"kimi-for-coding",
 		"longcat-2.0",
 	]) {
 		for (const level of levels) {
@@ -152,26 +151,12 @@ function testCompletionProfiles(): void {
 		});
 	}
 
-	for (const level of [
-		"off",
-		"minimal",
-		"low",
-		"medium",
-		"high",
-		"xhigh",
-		"max",
-	] as const satisfies readonly ThinkingLevel[]) {
-		const result = apply(
-			completionBase(),
-			"kimi-k3",
-			"openai-completions",
-			level,
-		);
-		const effort =
-			level === "off" || level === "minimal" || level === "low"
-				? "low"
-				: level === "max" ? "max" : "high";
-		deepStrictEqual(result, { stream: true, reasoning_effort: effort });
+	for (const modelId of ["kimi-k3", "kimi-k3-256k"]) {
+		for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const) {
+			const result = apply(completionBase(), modelId, "openai-completions", level);
+			const effort = ["off", "minimal", "low"].includes(level) ? "low" : level === "max" ? "max" : "high";
+			deepStrictEqual(result, { stream: true, reasoning_effort: effort });
+		}
 	}
 
 	for (const modelId of ["qwen3.7-plus", "qwen3.7-max"]) {
@@ -299,7 +284,6 @@ function testGeminiProfiles(): void {
 function testOpenAIResponsesProfiles(): void {
 	for (const modelId of [
 		"deepseek-flash",
-		"deepseek-v4-flash",
 		"deepseek-v4-pro",
 	]) {
 		for (const level of levels) {
@@ -320,10 +304,6 @@ function testOpenAIResponsesProfiles(): void {
 		"gpt-6.1-sol": "low",
 		"gpt-6-sol": "low",
 		"gpt-6-luna": "low",
-		"gpt-5.6-sol": "low",
-		"gpt-5.6-terra": "medium",
-		"gpt-5.6-luna": "low",
-		"gpt-5.5": "low",
 	};
 	for (const [modelId, verbosity] of Object.entries(verbosityByModel)) {
 		for (const level of levels) {
@@ -356,6 +336,18 @@ function testNoOpsAndProtectedFields(): void {
 			applyModelOperations(payload, context("deepseek-flash")),
 			payload,
 		);
+	// Retired IDs must not keep stale thinking or search injection policies.
+	for (const id of [
+		"deepseek-v4-flash", "glm-5.1", "glm-5", "glm-5-turbo", "glm-4.7", "glm-4.6", "glm-4.5",
+		"MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1", "kimi-for-coding", "kimi-k2.7-code",
+		"kimi-k2.7-code-highspeed", "kimi-k2.6", "kimi-k2.5", "gpt-5.6-sol", "gpt-5.6-terra",
+		"gpt-5.6-luna", "gpt-5.5", "gemini-3.1-pro-low", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
+	]) {
+		for (const api of ["openai-completions", "openai-responses", "google-generative-ai"]) {
+			const retired = Object.freeze({ ...completionBase(), config: { thinkingConfig: { thinkingBudget: 42 } } });
+			strictEqual(apply(retired, id, api, "high"), retired, id);
+		}
+	}
 	const claude = { model: "keep" };
 	strictEqual(
 		applyModelOperations(
@@ -366,7 +358,7 @@ function testNoOpsAndProtectedFields(): void {
 	);
 	strictEqual(
 		applyModelOperations(claude, {
-			...context("gpt-5.6-sol", "openai-responses"),
+			...context("gpt-6-sol", "openai-responses"),
 			provider: "other",
 		}),
 		claude,
@@ -390,7 +382,7 @@ function testNoOpsAndProtectedFields(): void {
 		reasoning: { effort: "high", summary: "auto" },
 		parallel_tool_calls: false,
 	};
-	const result = apply(input, "gpt-5.6-terra", "openai-responses", "high");
+	const result = apply(input, "gpt-6-sol", "openai-responses", "high");
 	deepStrictEqual(result.tools, [...input.tools as unknown[],
 		{ type: "web_search", search_context_size: "medium", external_web_access: true }]);
 	strictEqual((result.tools as unknown[])[0], (input.tools as unknown[])[0]);
