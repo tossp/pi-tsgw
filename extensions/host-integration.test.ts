@@ -90,7 +90,7 @@ test("Pi 1.1 SDK: source loading, catalog refresh, commands, request hooks and r
 			thinkingLevel: "high",
 		}));
 		const staticModels = modelsForRoot(TEST_ROOT);
-		assert.equal(staticModels.length, 54, "Update intentionally if the static catalog grows");
+		assert.equal(staticModels.length, 58, "Update intentionally if the static catalog grows");
 		assert.deepEqual(runtime.getModels(PROVIDER_ID).map((model) => model.id).sort(),
 			staticModels.map((model) => model.id).sort());
 		assert.equal(runtime.getAllModels(PROVIDER_ID).length, staticModels.length);

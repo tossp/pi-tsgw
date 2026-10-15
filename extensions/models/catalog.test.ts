@@ -13,8 +13,8 @@ function testCatalogConcatenation(): void {
 	const models = modelsForRoot(ROOT);
 	const ids = models.map(({ id }) => id);
 
-	// 11 家供应商分片拼接，共 54 个模型（含 DeepSeek 新名称及旧 alias）。
-	equal(ids.length, 54);
+	// 11 家供应商分片拼接，共 58 个模型（含 DeepSeek 新名称及旧 alias）。
+	equal(ids.length, 58);
 	// id 全局唯一。
 	equal(new Set(ids).size, ids.length);
 
@@ -78,11 +78,36 @@ function testCatalogConcatenation(): void {
 		.filter(({ id }) => id.startsWith("MiniMax-"))
 		.map(({ id }) => id);
 	deepStrictEqual(minimaxIds, [
+		"MiniMax-M3.1-Flash-Preview",
 		"MiniMax-M3",
 		"MiniMax-M2.7",
 		"MiniMax-M2.5",
 		"MiniMax-M2.1",
 	]);
+	deepStrictEqual(models.filter(({ id }) => id.startsWith("glm-")).map(({ id }) => id), [
+		"glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "glm-5.2", "glm-5.1",
+		"glm-5", "glm-5-turbo", "glm-4.7", "glm-4.6", "glm-4.5", "glm-4.5-air",
+	]);
+	const glm53Map = { off: null, minimal: "low", low: "low", medium: "high", high: "high", xhigh: "max", max: "max" };
+	for (const [id, name, input, cost] of [
+		["glm-5.3", "GLM 5.3", ["text"], { input: 1.18, output: 4.13, cacheRead: 0.295, cacheWrite: 0 }],
+		["glm-5.3-flash", "GLM 5.3 Flash", ["text", "image"], { input: 0.118, output: 0.413, cacheRead: 0.033925, cacheWrite: 0 }],
+		["glm-5.3-flashx", "GLM 5.3 FlashX", ["text", "image"], { input: 0.295, output: 1.0325, cacheRead: 0.084075, cacheWrite: 0 }],
+		["MiniMax-M3.1-Flash-Preview", "MiniMax-M3.1-Flash-Preview", ["text", "image"], { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }],
+	] as const) {
+		const model = models.find((model) => model.id === id)!;
+		equal(model.name, name);
+		equal(model.api, "openai-completions");
+		equal(model.baseUrl, `${ROOT}/v1`);
+		equal(model.reasoning, true);
+		deepStrictEqual(model.input, input);
+		deepStrictEqual(model.cost, cost);
+		equal(model.contextWindow, 1000000);
+		equal(model.maxTokens, id.startsWith("MiniMax-") ? 524288 : 131072);
+		deepStrictEqual(model.compat, { supportsDeveloperRole: false });
+		deepStrictEqual(model.thinkingLevelMap, id.startsWith("MiniMax-")
+			? { off: null, minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" } : glm53Map);
+	}
 	const openaiIds = models
 		.filter(({ id }) => id.startsWith("gpt-"))
 		.map(({ id }) => id);

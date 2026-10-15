@@ -75,7 +75,21 @@ const glmCases = {
 	"glm-4.5": { effort: false, preserve: false },
 	"glm-4.5-air": { effort: false, preserve: false },
 };
-coverage(Object.keys(glmCases), glmThinking, glmModels(root));
+const glm53Ids = ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx"];
+coverage([...glm53Ids, ...Object.keys(glmCases)], glmThinking, glmModels(root));
+for (const id of glm53Ids) {
+	for (const level of levels) {
+		for (const stream of [true, false, undefined]) {
+			for (const staleEffort of [undefined, "none", "medium", "max"]) {
+				const result = apply(glmThinking, id, level, { ...base(), stream, reasoning_effort: staleEffort, thinking: { type: "disabled", retained: true } });
+				deepStrictEqual(result.thinking, { type: "enabled", retained: true, ...(["high", "xhigh", "max"].includes(level) ? { clear_thinking: false } : {}) });
+				equal(result.reasoning_effort, ["off", "minimal", "low"].includes(level) ? "low" : ["medium", "high"].includes(level) ? "high" : "max", `${id}/${level}`);
+				equal(result.tool_stream, stream === true ? true : undefined);
+				strictEqual(apply(glmThinking, id, level, result), result);
+			}
+		}
+	}
+}
 for (const [id, support] of Object.entries(glmCases)) {
 	for (const level of levels) {
 		for (const stream of [true, false, undefined]) {
@@ -116,7 +130,17 @@ for (const model of mimoModels(root)) {
 }
 
 const minimaxIds = ["MiniMax-M3", "MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1"];
-coverage(minimaxIds, minimaxThinking, minimaxModels(root));
+const minimax31Id = "MiniMax-M3.1-Flash-Preview";
+coverage([minimax31Id, ...minimaxIds], minimaxThinking, minimaxModels(root));
+for (const level of levels) {
+	for (const staleEffort of [undefined, "none", "max"]) {
+		const result = apply(minimaxThinking, minimax31Id, level, { ...base(), reasoning_effort: staleEffort, reasoning_split: false, thinking: { type: "disabled", retained: true } });
+		deepStrictEqual(result.thinking, { type: "adaptive", retained: true });
+		equal(result.reasoning_effort, ["off", "minimal"].includes(level) ? "low" : level);
+		equal(result.reasoning_split, true);
+		strictEqual(apply(minimaxThinking, minimax31Id, level, result), result);
+	}
+}
 for (const id of minimaxIds) {
 	for (const level of levels) {
 		const result = apply(minimaxThinking, id, level, { ...base(), thinking: { retained: true }, reasoning_split: false });
@@ -127,9 +151,9 @@ for (const id of minimaxIds) {
 }
 // Domestic native API explicitly documents these output caps, including M2.x.
 for (const model of minimaxModels(root)) {
-	equal(model.maxTokens, model.id === "MiniMax-M3" ? 524288 : 204800);
-	if (model.id !== "MiniMax-M3") deepStrictEqual(model.thinkingLevelMap, { off: null });
-	else equal(model.thinkingLevelMap?.off, undefined);
+	equal(model.maxTokens, model.id.startsWith("MiniMax-M3") ? 524288 : 204800);
+	if (model.id.startsWith("MiniMax-M2")) deepStrictEqual(model.thinkingLevelMap, { off: null });
+	else equal(model.thinkingLevelMap?.off, model.id === minimax31Id ? null : undefined);
 }
 
 const kimiCodeIds = ["kimi-k2.7-code", "kimi-k2.7-code-highspeed"];

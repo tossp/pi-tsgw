@@ -79,13 +79,27 @@ catalog may fall back to static models until Pi refreshes it.
 The catalog is assembled from per-vendor slices (`extensions/models/vendors/`),
 covering 11 vendor families: DeepSeek, GLM (Zhipu), MiMo (Xiaomi), MiniMax,
 Kimi (Moonshot), Qwen (Alibaba), GPT (OpenAI), Gemini (Google), Claude
-(Anthropic), LongCat, and Grok (xAI). The current static catalog contains 54 chat
+(Anthropic), LongCat, and Grok (xAI). The current static catalog contains 58 chat
 model IDs, including retained aliases; this is not a live availability count.
 Vendor files carry documentation links and metadata caveats. Alias mappings,
 output limits, and shared thinking policies are not all individually verified
 against gateway endpoints; public-price estimates do not guarantee billing.
 MiMo uses `mimo-v2.6-pro` and `mimo-v2.6-flash`; the former V2.5 IDs are not
 registered. Update any explicit model selections or filter rules to the new IDs.
+
+The catalog also includes `MiniMax-M3.1-Flash-Preview`, `glm-5.3`,
+`glm-5.3-flash`, and `glm-5.3-flashx`. All four require thinking: MiniMax
+uses low/medium/high/xhigh/max; GLM uses low/high/max. Unsupported `off` is
+disabled in model metadata, and stale off/minimal requests map to low rather
+than silently selecting the default max. MiniMax and GLM Flash/FlashX support
+image input; GLM 5.3 is text-only. Registration does not prove gateway
+inference or tool-call support.
+
+As checked on 2026-10-16, MiniMax publishes subscription access but no per-token
+price for M3.1 Flash Preview. Its zero cost fields mean **unknown**, not free,
+and usage cost totals therefore omit its actual charges. GLM 5.3 price estimates
+use domestic public rates and the existing fixed USD/CNY conversion; temporary
+free cache storage is recorded as zero, not a permanent billing guarantee.
 
 Use broad `excludeModels` rules to drop model families and precise
 `includeModels` rules to pull selected models back. `includeModels` is not a

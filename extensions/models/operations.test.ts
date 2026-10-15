@@ -59,6 +59,26 @@ function completionBase(): Payload {
 }
 
 function testCompletionProfiles(): void {
+	for (const modelId of ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "MiniMax-M3.1-Flash-Preview"]) {
+		for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const) {
+			const minimax = modelId.startsWith("MiniMax-");
+			const input = { ...completionBase(), messages: [{ role: "user", content: "keep" }], tools: [{ type: "function", function: { name: "keep" } }], max_tokens: 42 };
+			const result = apply(input, modelId, "openai-completions", level);
+			const effort = ["off", "minimal", "low"].includes(level) ? "low"
+				: minimax ? level : level === "medium" || level === "high" ? "high" : "max";
+			deepStrictEqual(result, {
+				...input,
+				reasoning_effort: effort,
+				...(minimax ? { reasoning_split: true } : { tool_stream: true }),
+				thinking: { type: minimax ? "adaptive" : "enabled", retained: true,
+					...(!minimax && ["high", "xhigh", "max"].includes(level) ? { clear_thinking: false } : {}) },
+			});
+			strictEqual(result.messages, input.messages);
+			strictEqual(result.tools, input.tools);
+			strictEqual(apply(result, modelId, "openai-completions", level), result);
+			strictEqual(applyModelOperations(input, { ...context(modelId), provider: "other" }), input);
+		}
+	}
 	for (const modelId of ["glm-5.2", "glm-5.1"]) {
 		for (const level of levels) {
 			const result = apply(
