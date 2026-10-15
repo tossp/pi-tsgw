@@ -18,10 +18,13 @@
   "pi": {
     "extensions": [
       "./extensions/index.ts"
+    ],
+    "skills": [
+      "./skills"
     ]
   },
   "scripts": {
-    "test": "tsc -p tsconfig.test.json && node dist/extensions/index.test.js && node dist/extensions/status.test.js && node dist/extensions/status-integration.test.js && node dist/extensions/models/gateway-catalog-metadata.test.js && node dist/extensions/models/operations.test.js && node dist/extensions/models/catalog.test.js && node dist/extensions/models/web-search.test.js && node dist/extensions/models/gateway-catalog.test.js && node dist/extensions/models/gateway-catalog-isolation.test.js && node dist/extensions/models/vendor-strategies.test.js && node dist/extensions/host-integration.test.js"
+    "test": "tsc -p tsconfig.test.json && node dist/extensions/index.test.js && node dist/extensions/status.test.js && node dist/extensions/status-integration.test.js && node dist/extensions/models/gateway-catalog-metadata.test.js && node dist/extensions/models/operations.test.js && node dist/extensions/models/catalog.test.js && node dist/extensions/models/web-search.test.js && node dist/extensions/models/gateway-catalog.test.js && node dist/extensions/models/gateway-catalog-isolation.test.js && node dist/extensions/models/vendor-strategies.test.js && node dist/extensions/host-integration.test.js && node dist/extensions/skills.test.js"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.82.0",

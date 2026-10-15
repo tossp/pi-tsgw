@@ -179,6 +179,27 @@ buttons. Busy sessions disable the buttons. The terminal CLI shows the same
 statuses as text; use the slash commands there. Pi Web may not show extension
 statuses until the session runtime has started.
 
+## Subagent orchestration skill
+
+The package ships [delegate-model-selection](skills/delegate-model-selection/SKILL.md),
+which encourages suitable tasks to run through background subagents and provides
+model/thinking-level guidance, including independent Kimi + Astra reviews.
+Task splitting, parallelism, validation, and escalation remain the agent's choice.
+
+The plugin maintains the reference table in the same `SKILL.md`
+for direct use, without asking agents to check live rankings or data freshness.
+It is guidance, not a model whitelist or fixed execution sequence. Prices are
+API reference rates, not subscription charges. GLM guidance uses 5.3, with Flash
+and FlashX as alternatives. Thinking levels use Pi names: M3 recommends `high`,
+which maps to adaptive like its other non-off levels.
+
+Pi discovers the skill through the package manifest after installation and
+`/reload`, unless skills are disabled or filtered by the host/package settings.
+Loading only `extensions/index.ts` does not load package skills. A host-provided
+subagent tool with model selection and available `tsgw` models is required; this
+package does not supply that tool or change dispatch settings, user rules, or
+permissions.
+
 ## Development
 
 ```bash

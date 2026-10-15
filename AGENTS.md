@@ -11,6 +11,7 @@
 | 依赖、测试命令、包版本 | `package.json`、`package-lock.json` |
 | 配置、provider 注册、生命周期、命令、追踪 | `extensions/index.ts` |
 | 模型规格、价格、thinking 策略 | `extensions/models/vendors/*.ts` |
+| 子代理编排与模型选型技能 | `skills/delegate-model-selection/`、`extensions/skills.test.ts` |
 | 目录拼接、过滤与请求调度 | `extensions/models/catalog.ts`、`operations.ts` |
 | 网络目录与缓存 | `extensions/models/gateway-catalog.ts` 及缓存辅助模块 |
 | 内置联网与状态 | `extensions/models/web-search.ts`、`extensions/status.ts` |
@@ -38,6 +39,7 @@
 - 新增模型前核对网关目录、静态登记和测试，列候选供确认；不自动把全部候选加入用户启用配置，不擅自删旧别名。ID 区分大小写，特别是 `MiniMax-*`。
 - 规格、输入能力、价格与 thinking 支持须有明确证据；有国内/国际站时采用国内站。记录来源和必要的档位、汇率、别名说明；上下文窗口不等于最大输出，同族复用不等于逐型号验证。
 - 新模型改 vendor；新供应商接入 catalog，有策略则接入 operations。补逐 ID、档位及非目标字段保留测试，不只检查总数量。
+- 调整模型目录、规格、thinking 档位、价格或选型依据时，同步检查 `skills/delegate-model-selection/SKILL.md` 的选型表与说明是否需要更新，并按需修改对应测试。参考表由插件维护，使用技能的模型直接参考，不承担查榜、实时核验或时效判断职责。
 - 静态目录与网关目录取交集后再应用用户过滤，不自动登记未知 ID。include 优先于 exclude，但不能突破该交集；两者只支持精确 ID 和尾部 `*` 前缀匹配。
 - 缓存按网关与凭据隔离，不存明文凭据。过期/失败回退不得重置 `storedAt`；force 绕过新鲜缓存；迟到请求不得覆盖新缓存。旧格式或不同 scope 的磁盘数据不能直接信任。
 - 带 signal 的请求独立取消，不共享调用者 signal；磁盘写入失败不阻断目录使用。入口和底层缓存分别保护乱序，不能互相替代。
