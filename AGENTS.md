@@ -15,6 +15,8 @@
 | 目录拼接、过滤与请求调度 | `extensions/models/catalog.ts`、`operations.ts` |
 | 网络目录与缓存 | `extensions/models/gateway-catalog.ts` 及缓存辅助模块 |
 | 内置联网与状态 | `extensions/models/web-search.ts`、`extensions/status.ts` |
+| MCP 默认登记与覆盖 | `extensions/mcp.ts`、对应单测和宿主集成测试 |
+| 本地上传、分片恢复与直传安全 | `extensions/upload/`、其中的 `README.md` |
 | 编译、打包、发布 | `tsconfig*.json`、`.npmignore`、`.github/workflows/publish.yml` |
 
 ## 开发边界
@@ -54,6 +56,14 @@
 - GPT reasoning 留给 adapter；Astra/6.1 Sol 的 off/minimal 用显式 null 禁用，不以省略代替。具体映射以 vendor 与测试为准，不把单个带工具请求失败推广到无工具能力。
 - 分开报告目录匹配、参数注入、普通文本推理和搜索/工具/引用验证；单测或 HTTP 200 不能替代端点能力验证。
 
+## 本地上传
+
+- 插件默认经 `pi.registerMcpServer` 登记公共 `ts_oht` 端点，用户级 `tsgw.mcpUrl` 可覆盖；全局/项目同名 MCP 文件配置优先（包括禁用），由宿主负责，不另建合并、连接或认证机制，不读取/改写 MCP 配置和凭据。
+- `upload_local_file` 只经宿主 `ctx.executeTool` 使用已连接且可调用的 `ts_oht`，不另建 MCP 客户端/服务、不读取或保存其凭据。宿主接口依据见 Blinko `871`；运行时能力检查与模型 provider 的最低兼容版本分开。
+- 只支持当前 `mode`/`uploads[]` 契约，不恢复 `uploadUrl` 旧格式。单次 PUT 与 multipart 分开确认；上传成功不因链接签发失败降级，未知结果不自动重试。
+- `resume` 是不含凭据的恢复记录，不是新建授权；先检查旧 key，只有明确 not-found 才恢复未完成分片，核对文件身份及原 key/uid 后仅发送缺失分片。进程内锁不是跨客户端锁。
+- 外传权限由上传工具整体及宿主钩子控制，直接文件读取不等于内置 read 的路径审批或沙箱。签名 URL/原始错误不得进入普通日志；公开 HTTPS 目标校验、禁止重定向、并发排空和失败阶段信息不能省略。
+
 ## 验证
 
 使用 npm，不使用 bun。TypeScript 保持 strict、NodeNext 与 `.ts` 源码导入，生产编译排除测试。
@@ -66,7 +76,8 @@ npm pack --dry-run --json
 git diff --check
 ```
 
-- 改哪个边界就补对应测试。测试隔离 agent-dir、凭据和网络，不读取个人配置、不请求生产网关。检查编译退出码，不把已生成 dist 当作通过。
+- 改哪个边界就补对应测试。默认测试隔离 agent-dir、凭据和网络，不读取个人配置、不请求生产网关。检查编译退出码，不把已生成 dist 当作通过。
+- `TSGW_UPLOAD_LIVE=1 npm run test:upload:live` 是需授权的真实合成上传验收，不属于 `npm test`；复用宿主配置/认证，不修改服务、桶或客户端设置。远端测试对象交由既有生命周期清理，不擅自删除。
 - 升级 Pi 前读目标版本的 extensions、custom-provider、packages 文档与相关示例；同步 package/lock，跑类型检查、单测与真实宿主集成。不要混淆 legacy `ProviderConfig.refreshModels` 返回列表与完整 `Provider` 的 publish 契约。
 - 宿主与开发依赖版本分别核验；不只因本机升级就提高最低 peer 版本。未实测的上游能力与 UI 明确报告，不用模拟结果代替。
 - `.npmrc` 的 dev 依赖覆盖配置有历史原因；修改前确认实际 npm 配置与安装结果，不按旧 npm 版本的假设处理。

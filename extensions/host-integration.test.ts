@@ -48,7 +48,7 @@ test("Pi 1.1 SDK: source loading, catalog refresh, commands, request hooks and r
 	let session: AgentSession | undefined;
 	try {
 		// Dynamic import is essential: the SDK must initialize inside the sandbox.
-		const { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } =
+		const { createAgentSession, createMcpExtension, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } =
 			await import("@earendil-works/pi-coding-agent");
 		writeFileSync(join(sandbox.agentDir, "settings.json"), JSON.stringify({
 			tsgw: { baseUrl: TEST_ROOT, tsSearch: "live", traceHeaders: true },
@@ -66,14 +66,19 @@ test("Pi 1.1 SDK: source loading, catalog refresh, commands, request hooks and r
 			noExtensions: true, additionalExtensionPaths: [entry],
 			noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 			systemPrompt: "Reply briefly. This is an isolated host regression.",
-			extensionFactories: [(pi) => {
+			extensionFactories: [createMcpExtension({
+				loadConfig: () => ({ errors: [], autoEnableCodemode: false, servers: [{
+					name: "ts_oht", source: "disabled-fixture", scope: "global",
+					config: { url: "https://disabled-mcp.invalid/mcp", enabled: false },
+				}] }),
+			}), (pi) => {
 				pi.on("session_start", (event) => { lifecycle.push(`start:${event.reason}`); });
 				pi.on("session_shutdown", (event) => { lifecycle.push(`shutdown:${event.reason}`); });
 			}],
 		});
 		await loader.reload();
 		assert.deepEqual(loader.getExtensions().errors, []);
-		assert.equal(loader.getExtensions().extensions.length, 2, "Only project entry and lifecycle observer");
+		assert.equal(loader.getExtensions().extensions.length, 3, "Only project entry, MCP fixture and lifecycle observer");
 		assert.ok(loader.getExtensions().extensions.some((extension) => extension.path === entry));
 		assert.equal(sandbox.catalogCalls, 0, "No stored credential: static startup must not fetch");
 		const runtime = await ModelRuntime.create({
@@ -105,7 +110,7 @@ test("Pi 1.1 SDK: source loading, catalog refresh, commands, request hooks and r
 		assert.equal(runtime.getModel(PROVIDER_ID, "deepseek-v4-flash"), undefined);
 		assert.equal(runtime.getModel(PROVIDER_ID, "gpt-5.6-sol"), undefined);
 		const names = session.extensionRunner.getRegisteredCommands().map((command) => command.name).sort();
-		assert.deepEqual(names, ["tsgw", "tsgw-refresh", "tsgw-search"]);
+		assert.deepEqual(names, ["mcp", "tsgw", "tsgw-refresh", "tsgw-search"]);
 		await runtime.setRuntimeApiKey(PROVIDER_ID, TEST_KEY);
 		const model = runtime.getModel(PROVIDER_ID, "gpt-6.1-sol");
 		assert.ok(model);

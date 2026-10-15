@@ -71,6 +71,7 @@ export class FakeContext {
 export class FakePi {
 	readonly providers: Array<{ name: string; config: unknown }> = [];
 	readonly tools: unknown[] = [];
+	readonly mcpServers: Array<{ name: string; config: Parameters<ExtensionAPI["registerMcpServer"]>[1] }> = [];
 	readonly commands = new Map<string, unknown>();
 	private readonly handlers = new Map<HookName, unknown[]>();
 
@@ -92,7 +93,9 @@ export class FakePi {
 	};
 	registerToolRenderer: ExtensionAPI["registerToolRenderer"] = () => {};
 	getSettings: ExtensionAPI["getSettings"] = () => ({});
-	registerMcpServer: ExtensionAPI["registerMcpServer"] = () => {};
+	registerMcpServer: ExtensionAPI["registerMcpServer"] = (name, config) => {
+		this.mcpServers.push({ name, config });
+	};
 	unregisterMcpServer: ExtensionAPI["unregisterMcpServer"] = () => {};
 	getMcpServers: ExtensionAPI["getMcpServers"] = () => [];
 	registerVirtualModel: ExtensionAPI["registerVirtualModel"] = () => {};

@@ -28,6 +28,8 @@ import {
 	type CatalogStatus,
 } from "./status.ts";
 import type { ThinkingLevel, WebSearchMode } from "./models/_tools.ts";
+import { registerUploadTool } from "./upload/index.ts";
+import { registerTsgwMcp } from "./mcp.ts";
 
 /**
  * The data needed by provider hooks, copied while the lifecycle context is
@@ -55,6 +57,7 @@ interface RequestModel {
  */
 interface TsgwSettings {
 	baseUrl?: string;
+	mcpUrl?: string;
 	tsSearch?: string;
 	traceHeaders?: boolean;
 	includeModels?: string[];
@@ -195,7 +198,9 @@ async function resolveEffectiveModels(
 }
 
 export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
+	registerUploadTool(pi);
 	const settings = readTsgwSettings();
+	registerTsgwMcp(pi, settings.mcpUrl);
 	const root = rootForRuntime(settings.baseUrl);
 	const defaultSearchMode: WebSearchMode =
 		settings.tsSearch === "cached" || settings.tsSearch === "live"

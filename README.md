@@ -37,6 +37,7 @@ Example:
 {
   "tsgw": {
     "baseUrl": "https://aih.example.net",
+    "mcpUrl": "https://xn--oht.cc/mcp",
     "tsSearch": "live",
     "traceHeaders": false,
     "excludeModels": ["gpt-*", "claude-*"],
@@ -69,6 +70,7 @@ catalog may fall back to static models until Pi refreshes it.
 | Setting (`settings.json` `tsgw.*`) | Default | Meaning |
 | --- | --- | --- |
 | `baseUrl` | placeholder | Gateway root (the `/v1` suffix is normalized away) |
+| `mcpUrl` | `https://xn--oht.cc/mcp` | Optional `ts_oht` HTTP(S) endpoint override; independent of the model gateway |
 | `tsSearch` | `live` | GPT: `cached` or `live`; unset, legacy `off`, and invalid values fall back to `live`. Supported Grok models always use live search. |
 | `traceHeaders` | `false` | Adds `AH-Thread-Id` / `AH-Trace-Id` headers for gateway-side tracing |
 | `includeModels` | unset | Re-include override: matching model ids are kept even when also matched by `excludeModels` (exact id or `prefix-*` glob) |
@@ -199,6 +201,40 @@ Loading only `extensions/index.ts` does not load package skills. A host-provided
 subagent tool with model selection and available `tsgw` models is required; this
 package does not supply that tool or change dispatch settings, user rules, or
 permissions.
+
+## Default MCP registration
+
+The plugin registers `ts_oht` at `https://xn--oht.cc/mcp` with `codemode`
+exposure on each load. No MCP configuration is required to use this default.
+An optional `tsgw.mcpUrl` in the user-level settings changes the plugin's endpoint;
+it is independent of `tsgw.baseUrl` and is read once at initialization. Invalid
+explicit URLs skip this registration with a safe warning, rather than silently
+connecting to the default. Older hosts without `registerMcpServer` skip it.
+
+Pi manages connections, OAuth sign-in and credentials. Use `/mcp login ts_oht`
+inside a session if sign-in is required. The plugin does not read or write
+`mcp.json` or `mcp-auth.json`, and does not carry credentials. Keep the same
+server name and exact URL to reuse the host's existing OAuth scope.
+
+A same-name `ts_oht` in the effective global/project `mcp.json` takes precedence
+over the plugin registration, including `enabled: false`; the plugin does not
+create a second connection or bypass that choice. Use a complete same-name
+file configuration to override the URL, exposure, timeout, auth, or enabled state.
+Changes to a plugin-provided server apply only to the current session; they are
+not saved. Shell `pi mcp` commands do not load plugins and cannot see servers
+provided only by this registration. Reload or restart after configuration changes.
+
+## Local file upload
+
+The `upload_local_file` tool uploads an authorized file from the Pi host directly
+to S3 using the already-connected `ts_oht` MCP for signing. It supports single
+PUTs and streaming multipart uploads, explicit recovery, custom download expiry
+and inline/attachment links. It uses the host-managed connection and stores no credentials.
+
+Upload support requires a host with `ctx.executeTool` (tested with Pi 1.1.0) and
+callable `ts_oht` upload tools. File access uses host OS permissions, not a
+sandbox. See [upload usage and safety boundaries](extensions/upload/README.md)
+before enabling it in an environment with sensitive files.
 
 ## Development
 
