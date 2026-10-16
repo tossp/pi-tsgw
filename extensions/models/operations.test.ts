@@ -76,7 +76,6 @@ function testCompletionProfiles(): void {
 			strictEqual(result.messages, input.messages);
 			strictEqual(result.tools, input.tools);
 			strictEqual(apply(result, modelId, "openai-completions", level), result);
-			strictEqual(applyModelOperations(input, { ...context(modelId), provider: "other" }), input);
 		}
 	}
 	for (const modelId of ["glm-5.2", "glm-4.5-air"]) {

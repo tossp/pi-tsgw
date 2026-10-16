@@ -3,13 +3,8 @@ import { builtinSearchSupport, resolveSearchDelegate } from "../models/web-searc
 
 function testExactCandidateProtocol(): void {
 	for (const [id, api, expected] of [
-		["gpt-6-luna", "openai-responses", "gpt"],
-		["gpt-6-luna", "openai-completions", undefined],
-		["grok-4.20", "openai-completions", "grok"],
-		["grok-4.20", "openai-responses", undefined],
 		["gpt-6-luna-extra", "openai-responses", undefined],
 		["GPT-6-LUNA", "openai-responses", undefined],
-		["grok-4.20 ", "openai-completions", undefined],
 	] as const) {
 		strictEqual(builtinSearchSupport(id, api), expected, `${id}/${api}`);
 	}

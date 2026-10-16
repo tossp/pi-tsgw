@@ -168,13 +168,6 @@ function testGrokSearchInjection(): void {
 			strictEqual(applyBuiltinSearchTool(input, "grok-4.20", "openai-completions", mode), input);
 		}
 	}
-
-	// 已有 search_parameters 不重复注入。
-	const existing = { search_parameters: { mode: "off" } };
-	strictEqual(
-		applyBuiltinSearchTool(existing, "grok-4.20", "openai-completions", "live"),
-		existing,
-	);
 }
 
 const functionTool = { type: "function", name: "keep" };

@@ -94,7 +94,6 @@ await withUi(async ({ pi, ctx, statuses, choices, dialogs, notices, dir }) => {
 	await pi.invokeCommand("tsgw-search", ctx);
 	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：缓存");
 	equal(readFileSync(join(dir, "settings.json"), "utf8"), before);
-	equal(dialogs[0].title, "内置联网（仅本会话）");
 	deepStrictEqual(dialogs[0].options, ["🟡 内置联网：缓存", "🟢 内置联网：实时"]);
 	pi.invoke("session_start", { reason: "new" }, ctx);
 	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：实时");

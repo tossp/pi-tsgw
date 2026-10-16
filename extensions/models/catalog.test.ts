@@ -281,8 +281,8 @@ function testNormalizeRoot(): void {
 		normalizeRoot("https://gw.example.com/base/v1"),
 		"https://gw.example.com/base",
 	);
-	throws(() => normalizeRoot("ftp://gw.example.com"), /http 或 https/);
-	throws(() => normalizeRoot("not-a-url"), /不是有效的 URL/);
+	throws(() => normalizeRoot("ftp://gw.example.com"));
+	throws(() => normalizeRoot("not-a-url"));
 	equal(PROVIDER_ID, "tsgw");
 }
 

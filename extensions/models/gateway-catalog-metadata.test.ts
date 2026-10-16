@@ -8,6 +8,7 @@ import {
 	DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL,
 	getGatewayModelIds,
 	gatewayModelCacheScope,
+	loadGatewayModelCache,
 	saveGatewayModelCache,
 	type GatewayFetch,
 } from "./gateway-catalog.ts";
@@ -58,6 +59,10 @@ test("网络请求成功时返回的时间戳与持久化到磁盘的完全一�
 		scope: gatewayModelCacheScope(baseUrl, "key"),
 		ids: ["network-model"],
 		storedAt,
+	});
+	deepStrictEqual(loadGatewayModelCache(cacheFilePath, gatewayModelCacheScope(baseUrl, "key"), storedAt), {
+		ids: ["network-model"],
+		fresh: true,
 	});
 });
 

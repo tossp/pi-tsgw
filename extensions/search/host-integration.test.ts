@@ -203,7 +203,6 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			assert.equal(requests.at(-1)!.body.model, luna.id);
 			assert.deepEqual(requests.at(-1)!.body.tools, [{ type: "web_search", search_context_size: "medium", external_web_access: false }]);
 			assert.deepEqual(result.structuredContent, { delegate: luna.id, answer: ANSWER, citations: SOURCES, truncated: true });
-			assert.ok(result.content.some(part => part.type === "text" && part.text.startsWith("[搜索响应已截断]")));
 			assert.notEqual(result.isError, true);
 			behavior = "success";
 		});

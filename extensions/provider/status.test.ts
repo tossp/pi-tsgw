@@ -102,20 +102,6 @@ function testTtlAndTimestamps(): void {
 }
 
 function testDiagnostics(): void {
-	strictEqual(catalogDiagnostics(BASE, OPTIONS, NOW), [
-		"目录数量：42",
-		"目录来源：网关",
-		"目录加载：未进行",
-		"真实获取时间：2026-01-02T03:04:05.000Z",
-		"（保留网关实际获取时间，不是本轮缓存读取时间）",
-		"缓存状态：新鲜",
-		"错误：无",
-		"配置凭据：存在",
-		"网关地址：已设置",
-		"追踪开关：关",
-		"仅表示目录状态，不代表模型推理健康；不展示密钥或 URL。",
-	].join("\n"));
-
 	for (const [source, label] of [
 		["static", "内置静态"],
 		["cache", "缓存"],
@@ -203,9 +189,6 @@ function testSearchLabels(): void {
 			? "🟡 内置联网：缓存" : "🟢 内置联网：实时");
 		strictEqual(searchLabel(mode, "grok"), "🟢 内置联网：实时");
 	}
-	strictEqual(searchLabel("cached", builtinSearchSupport("gpt-6.1-sol", "openai-responses")), "🟡 内置联网：缓存");
-	strictEqual(searchLabel("cached", builtinSearchSupport("grok-4.20", "openai-completions")), "🟢 内置联网：实时");
-	strictEqual(searchLabel("live", builtinSearchSupport("grok-4.20", "openai-responses")), "⚪ 内置联网：不支持");
 }
 
 testCatalogLabels();

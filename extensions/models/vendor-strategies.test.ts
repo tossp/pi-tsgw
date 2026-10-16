@@ -66,17 +66,23 @@ const glmCases = {
 };
 const glm53Ids = ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx"];
 coverage([...glm53Ids, ...Object.keys(glmCases)], glmThinking, glmModels(root));
+// 每 ID 保留七档主映射；stream 与遗留 effort 独立取样，不做笛卡尔积。
 for (const id of glm53Ids) {
 	for (const level of levels) {
-		for (const stream of [true, false, undefined]) {
-			for (const staleEffort of [undefined, "none", "medium", "max"]) {
-				const result = apply(glmThinking, id, level, { ...base(), stream, reasoning_effort: staleEffort, thinking: { type: "disabled", retained: true } });
-				deepStrictEqual(result.thinking, { type: "enabled", retained: true, ...(["high", "xhigh", "max"].includes(level) ? { clear_thinking: false } : {}) });
-				equal(result.reasoning_effort, ["off", "minimal", "low"].includes(level) ? "low" : ["medium", "high"].includes(level) ? "high" : "max", `${id}/${level}`);
-				equal(result.tool_stream, stream === true ? true : undefined);
-				strictEqual(apply(glmThinking, id, level, result), result);
-			}
-		}
+		const result = apply(glmThinking, id, level, { ...base(), stream: true, thinking: { type: "disabled", retained: true } });
+		deepStrictEqual(result.thinking, { type: "enabled", retained: true, ...(["high", "xhigh", "max"].includes(level) ? { clear_thinking: false } : {}) });
+		equal(result.reasoning_effort, ["off", "minimal", "low"].includes(level) ? "low" : ["medium", "high"].includes(level) ? "high" : "max", `${id}/${level}`);
+		equal(result.tool_stream, true);
+		strictEqual(apply(glmThinking, id, level, result), result);
+	}
+	for (const stream of [false, undefined]) {
+		const result = apply(glmThinking, id, "high", { ...base(), stream });
+		equal(result.tool_stream, undefined);
+		equal(result.stream, stream);
+	}
+	for (const staleEffort of [undefined, "none", "max"]) {
+		const result = apply(glmThinking, id, "off", { ...base(), reasoning_effort: staleEffort });
+		equal(result.reasoning_effort, "low");
 	}
 }
 for (const [id, support] of Object.entries(glmCases)) {
@@ -122,13 +128,15 @@ const minimaxIds = ["MiniMax-M3"];
 const minimax31Id = "MiniMax-M3.1-Flash-Preview";
 coverage([minimax31Id, ...minimaxIds], minimaxThinking, minimaxModels(root));
 for (const level of levels) {
-	for (const staleEffort of [undefined, "none", "max"]) {
-		const result = apply(minimaxThinking, minimax31Id, level, { ...base(), reasoning_effort: staleEffort, reasoning_split: false, thinking: { type: "disabled", retained: true } });
-		deepStrictEqual(result.thinking, { type: "adaptive", retained: true });
-		equal(result.reasoning_effort, ["off", "minimal"].includes(level) ? "low" : level);
-		equal(result.reasoning_split, true);
-		strictEqual(apply(minimaxThinking, minimax31Id, level, result), result);
-	}
+	const result = apply(minimaxThinking, minimax31Id, level, { ...base(), reasoning_split: false, thinking: { type: "disabled", retained: true } });
+	deepStrictEqual(result.thinking, { type: "adaptive", retained: true });
+	equal(result.reasoning_effort, ["off", "minimal"].includes(level) ? "low" : level);
+	equal(result.reasoning_split, true);
+	strictEqual(apply(minimaxThinking, minimax31Id, level, result), result);
+}
+for (const staleEffort of [undefined, "none", "max"]) {
+	const result = apply(minimaxThinking, minimax31Id, "off", { ...base(), reasoning_effort: staleEffort });
+	equal(result.reasoning_effort, "low");
 }
 for (const id of minimaxIds) {
 	for (const level of levels) {
@@ -152,13 +160,15 @@ for (const model of kimiModels(root)) {
 	equal(model.contextWindow, model.id === "kimi-k3" ? 1000000 : 262144);
 	equal(model.name, model.id === "kimi-k3" ? "Kimi K3" : "Kimi K3 (256K)");
 	for (const level of levels) {
-		// 两个变体都必须纠正遗留 off/none，且不回退到 max。
-		for (const effort of [undefined, "max", "none"]) {
-			const result = apply(kimiThinking, model.id, level, { ...base(), reasoning_effort: effort, thinking: { type: "disabled" } });
-			equal(Object.hasOwn(result, "thinking"), false);
-			equal(result.reasoning_effort, ["off", "minimal", "low"].includes(level) ? "low" : level === "max" ? "max" : "high", `${model.id}/${level}`);
-			strictEqual(apply(kimiThinking, model.id, level, result), result);
-		}
+		const result = apply(kimiThinking, model.id, level, { ...base(), thinking: { type: "disabled" } });
+		equal(Object.hasOwn(result, "thinking"), false);
+		equal(result.reasoning_effort, ["off", "minimal", "low"].includes(level) ? "low" : level === "max" ? "max" : "high", `${model.id}/${level}`);
+		strictEqual(apply(kimiThinking, model.id, level, result), result);
+	}
+	// 两个变体都必须纠正遗留 off/none，且不回退到 max。
+	for (const staleEffort of [undefined, "max", "none"]) {
+		const result = apply(kimiThinking, model.id, "off", { ...base(), reasoning_effort: staleEffort });
+		equal(result.reasoning_effort, "low");
 	}
 }
 

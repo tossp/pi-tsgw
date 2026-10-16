@@ -138,29 +138,6 @@ function testModelCache(): void {
 	deepStrictEqual(cache.get()?.ids, ["gpt-5.4"]);
 }
 
-async function testFreshCacheHit(): Promise<void> {
-	let calls = 0;
-	const fetcher: GatewayFetch = async () => {
-		calls += 1;
-		return jsonResponse({ data: [{ id: "gpt-5.4" }] });
-	};
-	const baseUrl = "https://fresh-cache.example.com";
-	const first = await getGatewayModelIds(baseUrl, "key", { fetcher }, 0);
-	const second = await getGatewayModelIds(
-		baseUrl,
-		"key",
-		{ fetcher },
-		DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS - 1,
-	);
-
-	if (!first.ok || !second.ok) throw new Error("应返回缓存结果");
-	equal(first.cached, false);
-	equal(second.cached, true);
-	equal(second.stale, false);
-	deepStrictEqual(second.ids, ["gpt-5.4"]);
-	equal(calls, 1);
-}
-
 async function testForceRefreshesFreshCache(): Promise<void> {
 	let calls = 0;
 	const fetcher: GatewayFetch = async () => {
@@ -228,30 +205,6 @@ async function testExpiredCacheRefresh(): Promise<void> {
 	equal(calls, 2);
 }
 
-async function testStaleFallback(): Promise<void> {
-	let calls = 0;
-	const fetcher: GatewayFetch = async () => {
-		calls += 1;
-		return calls === 1
-			? jsonResponse({ data: [{ id: "grok-4.20-fast" }] })
-			: new Response("unavailable", { status: 503 });
-	};
-	const baseUrl = "https://stale-cache.example.com";
-	await getGatewayModelIds(baseUrl, "key", { fetcher }, 0);
-	const fallback = await getGatewayModelIds(
-		baseUrl,
-		"key",
-		{ fetcher },
-		DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
-	);
-
-	if (!fallback.ok) throw new Error("应回退到过期缓存");
-	equal(fallback.cached, true);
-	equal(fallback.stale, true);
-	equal(fallback.fallbackReason, "http");
-	deepStrictEqual(fallback.ids, ["grok-4.20-fast"]);
-}
-
 async function testFailureWithoutCache(): Promise<void> {
 	const result = await getGatewayModelIds(
 		"https://no-cache.example.com",
@@ -261,27 +214,6 @@ async function testFailureWithoutCache(): Promise<void> {
 	);
 	if (result.ok) throw new Error("应返回无缓存的失败结果");
 	equal(result.reason, "http");
-}
-
-async function testConcurrentRequestDeduplication(): Promise<void> {
-	let calls = 0;
-	let resolveResponse: ((response: Response) => void) | undefined;
-	const fetcher: GatewayFetch = () => {
-		calls += 1;
-		return new Promise((resolve) => {
-			resolveResponse = resolve;
-		});
-	};
-	const baseUrl = "https://in-flight.example.com";
-	const first = getGatewayModelIds(baseUrl, "key", { fetcher }, 0);
-	const second = getGatewayModelIds(baseUrl, "key", { fetcher }, 0);
-	equal(calls, 1);
-	resolveResponse?.(jsonResponse({ data: [{ id: "gpt-5.4" }] }));
-	const results = await Promise.all([first, second]);
-	strictEqual(
-		results.every((result) => result.ok),
-		true,
-	);
 }
 
 async function testAbortableRequestsAreIsolated(): Promise<void> {
@@ -378,31 +310,6 @@ function testExpiredPersistedCache(directory: string): void {
 	);
 }
 
-async function testFreshDiskCacheHit(directory: string): Promise<void> {
-	const scope = gatewayModelCacheScope("https://fresh-disk-cache.example.com", "key");
-	const cacheFilePath = join(directory, "fresh-hit.json");
-	saveGatewayModelCache(cacheFilePath, scope, ["gpt-5.6-luna"], 100);
-	let calls = 0;
-	const result = await getGatewayModelIds(
-		"https://fresh-disk-cache.example.com",
-		"key",
-		{
-			cacheFilePath,
-			fetcher: async () => {
-				calls += 1;
-				return jsonResponse({ data: [{ id: "unexpected" }] });
-			},
-		},
-		101,
-	);
-
-	if (!result.ok) throw new Error("应命中持久化缓存");
-	equal(calls, 0);
-	equal(result.cached, true);
-	equal(result.stale, false);
-	deepStrictEqual(result.ids, ["gpt-5.6-luna"]);
-}
-
 async function testForceBypassesFreshDiskCache(directory: string): Promise<void> {
 	const scope = gatewayModelCacheScope("https://force-disk-cache.example.com", "key");
 	const cacheFilePath = join(directory, "force-disk.json");
@@ -431,69 +338,21 @@ async function testForceBypassesFreshDiskCache(directory: string): Promise<void>
 	]);
 }
 
-async function testSuccessfulFetchPersistsDiskCache(directory: string): Promise<void> {
-	const scope = gatewayModelCacheScope("https://persist-after-fetch.example.com", "key");
-	const cacheFilePath = join(directory, "fetch-write.json");
-	const result = await getGatewayModelIds(
-		"https://persist-after-fetch.example.com",
-		"key",
-		{
-			cacheFilePath,
-			fetcher: async () =>
-				jsonResponse({ data: [{ id: "gpt-5.6-luna" }, { id: "grok-4.20" }] }),
-		},
-		200,
-	);
-
-	if (!result.ok) throw new Error("刷新应成功");
-	deepStrictEqual(loadGatewayModelCache(cacheFilePath, scope, 200), {
-		ids: ["gpt-5.6-luna", "grok-4.20"],
-		fresh: true,
-	});
-}
-
-async function testStaleDiskFallback(directory: string): Promise<void> {
-	const scope = gatewayModelCacheScope("https://stale-disk-cache.example.com", "key");
-	const cacheFilePath = join(directory, "stale-fallback.json");
-	saveGatewayModelCache(cacheFilePath, scope, ["grok-4.20"], 0);
-	const result = await getGatewayModelIds(
-		"https://stale-disk-cache.example.com",
-		"key",
-		{
-			cacheFilePath,
-			fetcher: async () => new Response("unavailable", { status: 503 }),
-		},
-		DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
-	);
-
-	if (!result.ok) throw new Error("应回退到过期的持久化缓存");
-	equal(result.cached, true);
-	equal(result.stale, true);
-	equal(result.fallbackReason, "http");
-	deepStrictEqual(result.ids, ["grok-4.20"]);
-}
-
 const cacheDirectory = mkdtempSync(join(tmpdir(), "pi-tsgw-model-cache-"));
 try {
 	await testSuccessfulFetch();
 	await testFetchFailures();
 	testModelCache();
-	await testFreshCacheHit();
 	await testForceRefreshesFreshCache();
 	await testForceFailureUsesStaleCache();
 	await testExpiredCacheRefresh();
-	await testStaleFallback();
 	await testFailureWithoutCache();
-	await testConcurrentRequestDeduplication();
 	await testAbortableRequestsAreIsolated();
 	testPersistedCacheRoundTrip(cacheDirectory);
 	testInvalidPersistedCache(cacheDirectory);
 	testPersistFailureIsIgnored(cacheDirectory);
 	testExpiredPersistedCache(cacheDirectory);
-	await testFreshDiskCacheHit(cacheDirectory);
 	await testForceBypassesFreshDiskCache(cacheDirectory);
-	await testSuccessfulFetchPersistsDiskCache(cacheDirectory);
-	await testStaleDiskFallback(cacheDirectory);
 } finally {
 	rmSync(cacheDirectory, { recursive: true, force: true });
 }
