@@ -1,6 +1,6 @@
 {
   "name": "pi-tsgw",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "description": "面向 TOSSP AIH gateway 的 Pi 扩展：按厂商维护模型目录与思考策略，支持 openai-completions、openai-responses、anthropic-messages 和 google-generative-ai 协议。",
   "type": "module",
   "keywords": [
@@ -24,7 +24,7 @@
     ]
   },
   "scripts": {
-    "test": "tsc -p tsconfig.test.json && node dist/extensions/index.test.js && node dist/extensions/status.test.js && node dist/extensions/search.test.js && node dist/extensions/search-proxy.test.js && node dist/extensions/search-host-integration.test.js && node dist/extensions/status-integration.test.js && node dist/extensions/models/gateway-catalog-metadata.test.js && node dist/extensions/models/operations.test.js && node dist/extensions/models/catalog.test.js && node dist/extensions/models/web-search.test.js && node dist/extensions/models/gateway-catalog.test.js && node dist/extensions/models/gateway-catalog-isolation.test.js && node dist/extensions/models/vendor-strategies.test.js && node dist/extensions/host-integration.test.js && node dist/extensions/mcp.test.js && node dist/extensions/mcp-host-integration.test.js && node dist/extensions/skills.test.js && node dist/extensions/skill-resources.test.js && node dist/extensions/upload/protocol.test.js && node dist/extensions/upload/schema.test.js && node dist/extensions/upload/uploader.test.js && node dist/extensions/upload/transport.test.js && node dist/extensions/upload/host-integration.test.js && node dist/extensions/upload/readiness-host.test.js",
+    "test": "tsc -p tsconfig.test.json && node dist/extensions/index.test.js && node dist/extensions/memory.test.js && node dist/extensions/status.test.js && node dist/extensions/search.test.js && node dist/extensions/search-proxy.test.js && node dist/extensions/search-host-integration.test.js && node dist/extensions/status-integration.test.js && node dist/extensions/models/gateway-catalog-metadata.test.js && node dist/extensions/models/operations.test.js && node dist/extensions/models/catalog.test.js && node dist/extensions/models/web-search.test.js && node dist/extensions/models/gateway-catalog.test.js && node dist/extensions/models/gateway-catalog-isolation.test.js && node dist/extensions/models/vendor-strategies.test.js && node dist/extensions/host-integration.test.js && node dist/extensions/mcp.test.js && node dist/extensions/mcp-host-integration.test.js && node dist/extensions/skills.test.js && node dist/extensions/skill-resources.test.js && node dist/extensions/upload/protocol.test.js && node dist/extensions/upload/schema.test.js && node dist/extensions/upload/uploader.test.js && node dist/extensions/upload/transport.test.js && node dist/extensions/upload/host-integration.test.js && node dist/extensions/upload/readiness-host.test.js",
     "test:upload:live": "tsc -p tsconfig.test.json && node dist/extensions/upload/live.test.js"
   },
   "peerDependencies": {

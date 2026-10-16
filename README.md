@@ -174,6 +174,7 @@ Pi Web 可能要等会话运行时启动后才显示扩展状态。
 | [tsgw-github](skills/tsgw-github/SKILL.md) | 使用 gh 查询与维护 issue、PR、CI，安全发布正文并核验 Actions 升级。 |
 | [tsgw-mk-docs](skills/tsgw-mk-docs/SKILL.md) | 需求、设计、执行计划、术语和状态证据的文档治理，含参考清单与模板，不依赖审阅插件。 |
 | [tsgw-programmer-go](skills/tsgw-programmer-go/SKILL.md) | Go 编码与审查；自产 JSON 使用 PascalCase、零值省略优先 omitzero，真实变更中同步迁移相关旧标签。 |
+| [tsgw-smemo](skills/tsgw-smemo/SKILL.md) | Blinko 共享知识的检索、沉淀与维护，含原有维护授权和操作参考。 |
 
 技能从本地维护的工作流整理并适配 Pi，按本项目 MIT 许可证提供；不包含第三方 gitmoji 数据集。
 项目规则和用户授权优先，不安装 Git hook，不自动推送或发布。已有同类用户级技能时，建议择一启用，避免重复指导。
@@ -195,7 +196,15 @@ GLM 指导使用 5.3，并以 Flash 和 FlashX 为备选。思考级别使用 Pi
 或用 `skills: ["!skills/tsgw-git-commit/**"]` 排除该技能；由宿主处理，不是 `tsgw` 配置项。
 
 只有模型选型技能需要宿主提供支持模型选择的子代理工具及可用的 `tsgw` 模型；通用开发技能不绑定模型 provider。
-本包不提供子代理工具，也不改变调度设置、用户规则或权限。
+本包不提供子代理工具，也不改变调度设置、用户规则文件或宿主权限。
+
+### 记忆规则注入
+
+插件在 `before_agent_start` 中注入原用户规则中的记忆体系与既有条目维护授权，
+不绑定当前模型 provider，不新增配置，不改写用户规则文件。
+详细流程保留在 `tsgw-smemo` 技能及其参考资料中；`ctx_memory` 仍称为“系统记忆”，
+smemo／Blinko 仍称为“记忆系统”。技能迁移不操作 Blinko 数据或改变宿主认证与权限。
+从本地 `smemo` 迁入时，确认新版本插件与随包技能加载生效后，再移除原技能和用户规则中的重复内容。
 
 ## 默认 MCP 注册
 

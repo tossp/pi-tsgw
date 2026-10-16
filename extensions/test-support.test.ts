@@ -9,6 +9,7 @@ type HookName =
 	| "session_start"
 	| "session_shutdown"
 	| "agent_start"
+	| "before_agent_start"
 	| "model_select"
 	| "thinking_level_select"
 	| "before_provider_request"
@@ -170,6 +171,7 @@ export class FakePi {
 			event === "session_start" ||
 			event === "session_shutdown" ||
 			event === "agent_start" ||
+			event === "before_agent_start" ||
 			event === "model_select" ||
 			event === "thinking_level_select" ||
 			event === "before_provider_request" ||

@@ -4,7 +4,7 @@
 
 ## 项目与维护入口
 
-`pi-tsgw` 是公开的 MIT Pi 扩展，为 TOSSP AIH gateway 注册 `tsgw` provider。负责对话模型目录、厂商请求改写、内置联网、追踪与会话状态；响应解析复用 Pi；非原生联网模型通过受控的 `tsgw_search` 代理调用支持模型。
+`pi-tsgw` 是以自用为目标、公开发布的 MIT Pi 扩展，为 TOSSP AIH gateway 注册 `tsgw` provider。负责对话模型目录、厂商请求改写、内置联网、追踪与会话状态；响应解析复用 Pi；非原生联网模型通过受控的 `tsgw_search` 代理调用支持模型。
 
 | 改什么 | 从哪里看 |
 | --- | --- |
@@ -12,6 +12,7 @@
 | 配置、provider 注册、生命周期、命令、追踪 | `extensions/index.ts` |
 | 模型规格、价格、thinking 策略 | `extensions/models/vendors/*.ts` |
 | 随包技能、模型选型与资源验证 | `skills/`、`extensions/skills.test.ts`、`extensions/skill-resources.test.ts` |
+| 记忆规则注入与原有维护授权 | `extensions/memory.ts`、`skills/tsgw-smemo/` |
 | 目录拼接、过滤与请求调度 | `extensions/models/catalog.ts`、`operations.ts` |
 | 网络目录与缓存 | `extensions/models/gateway-catalog.ts` 及缓存辅助模块 |
 | 内置联网与状态 | `extensions/models/web-search.ts`、`extensions/search.ts`、`extensions/search-proxy.ts`、`extensions/status.ts` |
@@ -21,6 +22,7 @@
 
 ## 开发边界
 
+- 本插件用于自用，功能、随包技能与工作流以用户自身环境、需求和明确授权为设计依据；公开仓库与 npm 发布不代表面向通用用户设计。不得仅因公开发布就要求将个人工作流通用化、拆出既有授权或增加多用户兼容层；仍须遵守既有授权范围、凭据保护与宿主权限边界。
 - Pi 运行时集成集中在入口；模型模块只使用 Pi 类型。目录拼接、过滤、请求改写、状态格式化保持纯逻辑；网络/磁盘缓存独立，不自行读取 Pi 配置。
 - 厂商策略写在对应 vendor 分片；`operations.ts` 只汇总调度，不新增模型族 switch。共享工具在 `_tools.ts`；公共 compat 在 `vendors/_protocols.ts`，厂商特例留在分片。
 - 复用宿主的 Completions、Responses、Anthropic、Google adapter；不复制 stream/response 实现，不引入通用 JSON Patch、消息历史或 token-limit 改写。

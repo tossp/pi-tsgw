@@ -30,6 +30,7 @@ import {
 import type { ThinkingLevel, WebSearchMode } from "./models/_tools.ts";
 import { registerUploadTool } from "./upload/index.ts";
 import { registerTsgwMcp } from "./mcp.ts";
+import { registerMemoryRules } from "./memory.ts";
 
 /**
  * 在生命周期上下文仍有效时，复制供应商钩子所需的数据。
@@ -199,6 +200,7 @@ async function resolveEffectiveModels(
 
 export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 	registerUploadTool(pi);
+	registerMemoryRules(pi);
 	const settings = readTsgwSettings();
 	registerTsgwMcp(pi, settings.mcpUrl);
 	const root = rootForRuntime(settings.baseUrl);

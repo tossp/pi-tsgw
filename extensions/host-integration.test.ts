@@ -3,8 +3,9 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, BuildSystemPromptOptions, ExtensionError } from "@earendil-works/pi-coding-agent";
 import { modelsForRoot, PROVIDER_ID } from "./models/catalog.ts";
+import { MEMORY_RULES } from "./memory.ts";
 import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "./host-test-support.test.ts";
 
 // 同时兼容源码执行与 tsc 的 dist/extensions 输出，不依赖 cwd 或机器特定路径。
@@ -39,7 +40,7 @@ function trace(request: CapturedRequest): { thread: string; turn: string } {
 
 // 在独立 Node 进程中运行：环境与网络防护有意作用于整个进程。
 // 不使用 FakePi、模拟 SDK 方法、凭据或真实服务器。
-test("Pi 1.1 SDK：源码加载、目录刷新、命令、请求钩子与重载", { timeout: 60_000 }, async () => {
+test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆规则与重载", { timeout: 60_000 }, async () => {
 	const entry = sourceEntry();
 	const originalEnv = { ...process.env };
 	const originalCwd = process.cwd();
@@ -121,6 +122,27 @@ test("Pi 1.1 SDK：源码加载、目录刷新、命令、请求钩子与重载"
 		assert.equal(lifecycle.length, 1);
 		assert.match(lifecycle[0]!, /^start:/);
 
+		// 不依赖模型 provider 或技能主动加载；通过真实运行器确认结构化分区。
+		const basePrompt = {
+			cwd: sandbox.cwd, customPrompt: "保留宿主前缀",
+			appendSystemPrompt: "保留用户追加提示词", sections: { fixture: "保留其他扩展分区" },
+		};
+		for (const trigger of [
+			{ messageType: "user" as const, prompt: "注入测试" },
+			{ messageType: "custom" as const, message: {
+				role: "custom" as const, customType: "fixture", content: "自定义启动测试",
+				display: false, timestamp: 0,
+			} },
+		]) {
+			const result: { systemPromptOptions: BuildSystemPromptOptions } =
+				await session.extensionRunner.emitBeforeAgentStart(trigger, basePrompt);
+			assert.deepEqual(result.systemPromptOptions.sections,
+				{ fixture: "保留其他扩展分区", tsgw_memory: MEMORY_RULES });
+			assert.equal(result.systemPromptOptions.customPrompt, basePrompt.customPrompt);
+			assert.equal(result.systemPromptOptions.appendSystemPrompt, basePrompt.appendSystemPrompt);
+			assert.equal(result.systemPromptOptions.forceSystemPrompt, undefined);
+		}
+
 		// 真实斜杠命令分发，包括无 UI 时的诊断防护。
 		await session.prompt("/tsgw");
 		assert.equal(sandbox.requests.length, 0);
@@ -169,6 +191,13 @@ test("Pi 1.1 SDK：源码加载、目录刷新、命令、请求钩子与重载"
 		assert.equal(sandbox.requests.length, 3);
 		assert.equal(searchTool(sandbox.requests[2]!).external_web_access, true);
 		assert.notEqual(trace(sandbox.requests[2]!).thread, firstTrace.thread);
+		for (const request of sandbox.requests) {
+			const body = JSON.stringify(request.body);
+			const encodedRules = JSON.stringify(MEMORY_RULES).slice(1, -1);
+			assert.equal(body.split(encodedRules).length - 1, 1,
+				"每次请求必须包含一份完整记忆规则，连续运行与重载不得累加");
+			assert.match(body, /简短回答。这是隔离的宿主回归测试。/);
+		}
 		assert.deepEqual(errors, [], "真实扩展运行器不得吞掉生命周期或钩子错误");
 		assert.deepEqual(sandbox.blocked, [], "不得出现意外网络访问，即使错误被 Pi 捕获");
 	} finally {

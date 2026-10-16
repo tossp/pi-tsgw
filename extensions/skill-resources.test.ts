@@ -40,6 +40,29 @@ test("随包技能声明、资源链接及本机环境隔离完整", () => {
 	}
 });
 
+test("smemo 随包技能保留参考资料与核心职责／授权边界", () => {
+	const directory = join(skillsRoot, "tsgw-smemo");
+	const body = readFileSync(join(directory, "SKILL.md"), "utf8");
+	const guidePath = join(directory, "references", "blinko-guide.md");
+	const guide = readFileSync(guidePath, "utf8");
+	assert.match(body, /^name: tsgw-smemo$/m);
+	assert.match(body, /\[Blinko 操作指南\]\(\.\/references\/blinko-guide\.md\)/);
+	for (const text of [
+		"个人倾向性信息", "具体现场事实", "当前执行步骤", "密钥、凭据",
+		"持续维护授权包含删除", "无须逐条确认", "不强制先标记 `#待删除`、归档或备份",
+		"维护授权不扩展到文件、Git、服务、凭据、访问权限或定时任务",
+		"明确外部调研仍须历史查询、当前核验与自动沉淀",
+	]) assert.ok(body.includes(text), `smemo 技能缺少职责／授权边界：${text}`);
+	for (const text of [
+		"不新增个人倾向、现场事实、项目专有状态或敏感信息",
+		"删除（含永久删除）均可自主执行并事后回报",
+		"定时任务、其他文件／服务和凭据权限不包含在条目维护授权内",
+		"不因 MCP 故障推定已获直接 API 认证授权",
+		"普通列表无命中时检查当前工具的归档／回收站过滤能力",
+	]) assert.ok(guide.includes(text), `Blinko 指南缺少边界：${text}`);
+	assert.ok(existsSync(guidePath), "Blinko 操作指南必须随技能打包");
+});
+
 test("Go 技能保留 JSON 最佳实践和真实变更迁移规则", () => {
 	const body = readFileSync(join(skillsRoot, "tsgw-programmer-go", "SKILL.md"), "utf8");
 	for (const text of ["属于**本技能约定**，必须执行", "PascalCase", "omitzero", "omitempty",

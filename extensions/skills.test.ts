@@ -117,6 +117,10 @@ test("Pi SDK 通过包清单发现随包技能并遵守过滤规则", { timeout:
 		const expectedNames = readdirSync(join(root, "skills"), { withFileTypes: true })
 			.filter(entry => entry.isDirectory() && existsSync(join(root, "skills", entry.name, "SKILL.md")))
 			.map(entry => entry.name).sort();
+		assert.deepEqual(expectedNames, [
+			"tsgw-delegate-model-selection", "tsgw-git-commit", "tsgw-github", "tsgw-mk-docs",
+			"tsgw-programmer-go", "tsgw-smemo",
+		]);
 		const loader = makeLoader();
 		await loader.reload();
 		assert.deepEqual(loader.getSkills().diagnostics, []);
@@ -143,6 +147,24 @@ test("Pi SDK 通过包清单发现随包技能并遵守过滤规则", { timeout:
 		const body = readFileSync(skill.filePath, "utf8");
 		assert.match(body, /^\| 任务等级 \| 模型 \| 思考深度 \| 评分 \| 输入价 \| 输出价 \|$/m,
 			"加载的技能必须包含选型表");
+		const smemoLoader = makeLoader(["skills/tsgw-smemo"]);
+		await smemoLoader.reload();
+		assert.deepEqual(smemoLoader.getSkills().diagnostics, []);
+		assert.deepEqual(smemoLoader.getSkills().skills.map(skill => skill.name), ["tsgw-smemo"]);
+		const smemo = smemoLoader.getSkills().skills[0]!;
+		assert.equal(smemo.filePath, join(root, "skills", "tsgw-smemo", "SKILL.md"));
+		assert.equal(smemo.baseDir, join(root, "skills", "tsgw-smemo"));
+		assert.equal(smemo.sourceInfo.origin, "package");
+		assert.equal(smemo.disableModelInvocation, false);
+		assert.match(smemo.description, /Blinko/);
+		assert.match(formatSkillsForPrompt([smemo]), /<name>tsgw-smemo<\/name>/);
+		const smemoBody = readFileSync(smemo.filePath, "utf8");
+		for (const boundary of [
+			"个人倾向性信息", "具体现场事实", "密钥、凭据", "永久删除",
+			"维护授权不扩展到文件、Git、服务、凭据、访问权限或定时任务",
+			"明确外部调研仍须历史查询、当前核验与自动沉淀",
+		]) assert.ok(smemoBody.includes(boundary), `smemo 技能缺少职责／授权边界：${boundary}`);
+		assert.match(smemoBody, /\[Blinko 操作指南\]\(\.\/references\/blinko-guide\.md\)/);
 		await loader.reload();
 		assert.deepEqual(loader.getSkills().diagnostics, []);
 		assert.deepEqual(loader.getSkills().skills.map(skill => skill.name).sort(), expectedNames, "重载不得重复加载技能");
