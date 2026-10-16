@@ -73,7 +73,6 @@ export class FakePi {
 	readonly providers: Array<{ name: string; config: unknown }> = [];
 	readonly tools: unknown[] = [];
 	activeTools: string[] = ["other_tool"];
-	readonly mcpServers: Array<{ name: string; config: Parameters<ExtensionAPI["registerMcpServer"]>[1] }> = [];
 	readonly commands = new Map<string, unknown>();
 	private readonly handlers = new Map<HookName, unknown[]>();
 
@@ -95,8 +94,8 @@ export class FakePi {
 	};
 	registerToolRenderer: ExtensionAPI["registerToolRenderer"] = () => {};
 	getSettings: ExtensionAPI["getSettings"] = () => ({});
-	registerMcpServer: ExtensionAPI["registerMcpServer"] = (name, config) => {
-		this.mcpServers.push({ name, config });
+	registerMcpServer: ExtensionAPI["registerMcpServer"] = () => {
+		throw new Error("插件不得登记 MCP 服务");
 	};
 	unregisterMcpServer: ExtensionAPI["unregisterMcpServer"] = () => {};
 	getMcpServers: ExtensionAPI["getMcpServers"] = () => [];

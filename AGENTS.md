@@ -19,7 +19,7 @@
 | 网络目录与缓存 | `extensions/models/gateway-catalog.ts` 及缓存辅助模块 |
 | 内置联网 | `extensions/models/web-search.ts`、`extensions/search/`（`index.ts`、`proxy.ts` 及相邻测试） |
 | provider 状态与测试 | `extensions/provider/status.ts`、`extensions/provider/` 中 provider 单测、状态单测和状态集成测试 |
-| MCP 默认登记与覆盖 | `extensions/mcp.ts`、对应单测和宿主集成测试 |
+| MCP 配置与宿主认证边界 | `README.md` 的 MCP 服务配置、`extensions/upload/README.md` |
 | 宿主集成总测试 | 根 `index.test.ts`；其他共享测试夹具仍在 `extensions/` |
 | 本地上传、分片恢复与直传安全 | `extensions/upload/`、其中的 `README.md` |
 | 编译、打包、发布 | `tsconfig*.json`、`.npmignore`、`.github/workflows/publish.yml` |
@@ -65,8 +65,8 @@
 
 ## 本地上传
 
-- 插件默认经 `pi.registerMcpServer` 登记 `ts_oht` 与 `ts_tool`，均为 codemode；用户级 `tsgw.mcpUrl` 仅覆盖前者，无效时也只跳过前者。`ts_tool` 默认公开端点为 `https://mcp.tossp.com/mm/ts/mcp`。全局/项目同名 MCP 文件配置分别优先（包括禁用），由宿主负责；不另建合并、连接或认证机制，不读取/改写 MCP 配置和凭据。
-- `upload_local_file` 只经宿主 `ctx.executeTool` 使用已连接且可调用的 `ts_oht`，不另建 MCP 客户端/服务、不读取或保存其凭据。`reachesTools` 只声明两个上传/链接工具，Pi 1.2+ 的发现/重连等待交给宿主；不能据此绕过权限、禁用或登录，也不把宿主执行前等待算入插件 330 秒 MCP deadline。宿主接口依据见 Blinko `871`、`930`；运行时能力检查与模型 provider 的最低兼容版本分开。
+- 插件不自动登记 MCP 服务、不自动写配置。用户需自行在用户级 `~/.pi/agent/mcp.json` 配置原名原 URL 的 `ts_oht`（`https://xn--oht.cc/mcp`）和 `ts_tool`（`https://mcp.tossp.com/mm/ts/mcp`），均为 codemode；示例见 README。OAuth 与凭据由宿主管理。插件不自建客户端或认证，不读写 MCP 配置和凭据。
+- `upload_local_file` 只经宿主 `ctx.executeTool` 使用用户配置并由宿主连接的 `ts_oht`，不另建 MCP 客户端/服务、不读取或保存其凭据。`reachesTools` 只声明两个上传/链接工具，Pi 1.2+ 的发现/重连等待交给宿主；不能据此绕过权限、禁用或登录，也不把宿主执行前等待算入插件 330 秒 MCP deadline。宿主接口依据见 Blinko `871`、`930`；运行时能力检查与模型 provider 的最低兼容版本分开。
 - 只支持当前 `mode`/`uploads[]` 契约，不恢复 `uploadUrl` 旧格式。单次 PUT 与 multipart 分开确认；上传成功不因链接签发失败降级，未知结果不自动重试。
 - `resume` 是不含凭据的恢复记录，不是新建授权；先检查旧 key，只有明确 not-found 才恢复未完成分片，核对文件身份及原 key/uid 后仅发送缺失分片。进程内锁不是跨客户端锁。
 - 外传权限由上传工具整体及宿主钩子控制，直接文件读取不等于内置 read 的路径审批或沙箱。签名 URL/原始错误不得进入普通日志；公开 HTTPS 目标校验、禁止重定向、并发排空和失败阶段信息不能省略。

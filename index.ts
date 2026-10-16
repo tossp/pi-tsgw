@@ -1,5 +1,4 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { registerTsgwMcp } from "./extensions/mcp.ts";
 import { registerPrompts } from "./extensions/prompts.ts";
 import { readTsgwSettings } from "./extensions/provider/config.ts";
 import { registerTsgwProvider } from "./extensions/provider/index.ts";
@@ -10,6 +9,5 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 	registerUploadTool(pi);
 	registerPrompts(pi);
 	const settings = readTsgwSettings();
-	registerTsgwMcp(pi, settings.mcpUrl);
 	await registerTsgwProvider(pi, settings);
 }

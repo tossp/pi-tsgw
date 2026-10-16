@@ -48,7 +48,6 @@ pi install npm:pi-tsgw
 {
   "tsgw": {
     "baseUrl": "https://aih.example.net",
-    "mcpUrl": "https://xn--oht.cc/mcp",
     "tsSearch": "live",
     "traceHeaders": false,
     "excludeModels": ["gpt-*", "claude-*"],
@@ -78,7 +77,6 @@ pi install npm:pi-tsgw
 | 设置（`settings.json` 中的 `tsgw.*`） | 默认值 | 含义 |
 | --- | --- | --- |
 | `baseUrl` | 占位地址 | 网关根地址（规范化时去掉 `/v1` 后缀） |
-| `mcpUrl` | `https://xn--oht.cc/mcp` | 可选的 `ts_oht` HTTP(S) 端点覆盖值；独立于模型网关 |
 | `tsSearch` | `live` | GPT：`cached` 或 `live`；未设置、旧值 `off` 和无效值均回退到 `live`。受支持的 Grok 模型始终使用实时搜索。 |
 | `traceHeaders` | `false` | 添加 `AH-Thread-Id` / `AH-Trace-Id` 请求头，用于网关侧追踪 |
 | `includeModels` | 未设置 | 重新纳入的覆盖规则：匹配的模型 ID 即使也被 `excludeModels` 匹配，仍会保留（精确 ID 或 `prefix-*` 通配模式） |
@@ -225,30 +223,32 @@ GLM 指导使用 5.3，并以 Flash 和 FlashX 为备选。思考级别使用 Pi
 smemo／Blinko 仍称为“记忆系统”。技能迁移不操作 Blinko 数据或改变宿主认证与权限。
 从本地 `smemo` 迁入时，确认新版本插件与随包技能加载生效后，再移除原技能和用户规则中的重复内容。
 
-## 默认 MCP 注册
+## MCP 服务配置
 
-插件每次加载时都会向宿主登记以下会话默认值，暴露方式均为 `codemode`：
+插件不再自动登记 `ts_oht` 或 `ts_tool`，也不会自动写入任何配置。需要使用时，请由用户自行在
+`~/.pi/agent/mcp.json` 配置；以下示例保留服务原名、原 URL，并以 `codemode` 暴露：
 
-| 服务器名称 | 默认端点 |
-| --- | --- |
-| `ts_oht` | `https://xn--oht.cc/mcp` |
-| `ts_tool` | `https://mcp.tossp.com/mm/ts/mcp` |
+```json
+{
+  "mcpServers": {
+    "ts_oht": {
+      "url": "https://xn--oht.cc/mcp",
+      "exposure": "codemode"
+    },
+    "ts_tool": {
+      "url": "https://mcp.tossp.com/mm/ts/mcp",
+      "exposure": "codemode"
+    }
+  }
+}
+```
 
-使用这些默认值无需手工配置 MCP。用户级设置中可选的 `tsgw.mcpUrl` 仅覆盖 `ts_oht`，
-独立于 `tsgw.baseUrl`，且仅在初始化时读取一次；`ts_tool` 的覆盖交给宿主同名文件配置，
-没有额外的插件配置项。显式 `mcpUrl` 无效时，安全警告并仅跳过 `ts_oht`，
-不静默回退，也不影响 `ts_tool`。单个登记失败不阻断另一服务或模型提供方；
-不支持 `registerMcpServer` 的旧宿主会跳过两者注册。
-
-Pi 管理连接、OAuth 登录和凭据。需要登录时，在会话内对相应服务使用 `/mcp login ts_oht` 或 `/mcp login ts_tool`。
-插件不读写 `mcp.json` 或 `mcp-auth.json`，也不携带凭据。
-保持相同的服务器名称和完全一致的 URL，才能复用宿主现有的 OAuth 作用域。
-
-有效的全局/项目 `mcp.json` 中同名的 `ts_oht`、`ts_tool` 分别优先于插件注册，包括 `enabled: false`；
-插件不会创建第二条连接，也不会绕过该选择。要覆盖 URL、暴露方式、超时、认证或启用状态，
-请在文件中使用完整的同名配置。对插件提供的服务器所做的更改仅作用于当前会话，不会保存。
-Shell 中的 `pi mcp` 命令不加载插件，无法看到仅由此注册提供的服务器。
-配置变更后请重新加载或重启。
+Pi 宿主管理 MCP 连接、OAuth 登录和凭据；可通过设置页或 `pi mcp login ts_oht` /
+`pi mcp login ts_tool` 完成登录。迁移时保持相同名称和精确 URL 可复用已有认证记录；
+记录失效时仍需重新授权。旧的 `tsgw.mcpUrl` 已移除，不再生效。配置变更后请重新加载或重启。
+插件不自建 MCP
+客户端或认证逻辑，不读写 `mcp.json` / `mcp-auth.json`，也不携带凭据。
+上传工具仍复用宿主已连接且可调用的 `ts_oht`，不会自行连接或绕过禁用、权限及认证状态。
 
 ## 本地文件上传
 

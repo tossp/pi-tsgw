@@ -9,7 +9,6 @@ import { join } from "node:path";
  */
 export interface TsgwSettings {
 	baseUrl?: string;
-	mcpUrl?: string;
 	tsSearch?: string;
 	traceHeaders?: boolean;
 	includeModels?: string[];

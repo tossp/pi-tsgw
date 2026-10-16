@@ -49,10 +49,10 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 	let session: AgentSession | undefined;
 	try {
 		// 必须动态导入：SDK 必须在沙箱内初始化。
-		const { createAgentSession, createMcpExtension, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } =
+		const { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } =
 			await import("@earendil-works/pi-coding-agent");
 		writeFileSync(join(sandbox.agentDir, "settings.json"), JSON.stringify({
-			tsgw: { baseUrl: TEST_ROOT, tsSearch: "live", traceHeaders: true },
+			tsgw: { baseUrl: TEST_ROOT, tsSearch: "live", traceHeaders: true, mcpUrl: "https://obsolete-mcp.invalid/mcp" },
 		}));
 		const manifest = JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8"));
 		assert.deepEqual(manifest.pi.extensions, ["./index.ts"], "包清单只登记根插件入口");
@@ -69,21 +69,17 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 			// 通过包清单发现根入口，防止能力模块被当作独立扩展重复加载。
 			noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 			systemPrompt: "简短回答。这是隔离的宿主回归测试。",
-			extensionFactories: [createMcpExtension({
-				loadConfig: () => ({ errors: [], autoEnableCodemode: false,
-					servers: ["ts_oht", "ts_tool"].map(name => ({
-						name, source: "disabled-fixture", scope: "global" as const,
-						config: { url: "https://disabled-mcp.invalid/mcp", enabled: false },
-					})),
-				}),
-			}), (pi) => {
-				pi.on("session_start", (event) => { lifecycle.push(`start:${event.reason}`); });
+			extensionFactories: [(pi) => {
+				pi.on("session_start", (event) => {
+					assert.deepEqual(pi.getMcpServers(), [], "插件不得登记 MCP；旧 mcpUrl 也不生效");
+					lifecycle.push(`start:${event.reason}`);
+				});
 				pi.on("session_shutdown", (event) => { lifecycle.push(`shutdown:${event.reason}`); });
 			}],
 		});
 		await loader.reload();
 		assert.deepEqual(loader.getExtensions().errors, []);
-		assert.equal(loader.getExtensions().extensions.length, 3, "仅加载项目入口、MCP 测试夹具和生命周期观察器");
+		assert.equal(loader.getExtensions().extensions.length, 2, "仅加载项目入口和生命周期观察器");
 		assert.ok(loader.getExtensions().extensions.some((extension) => extension.path === entry));
 		assert.equal(sandbox.catalogCalls, 0, "无已存储凭据：静态启动不得发起请求");
 		const runtime = await ModelRuntime.create({
@@ -107,7 +103,7 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		assert.equal(runtime.getModelsOfType("image", PROVIDER_ID).length, 0);
 		assert.equal(runtime.getModelsOfType("classifier", PROVIDER_ID).length, 0);
 		const names = session.extensionRunner.getRegisteredCommands().map((command) => command.name).sort();
-		assert.deepEqual(names, ["mcp", "tsgw", "tsgw-refresh", "tsgw-search"]);
+		assert.deepEqual(names, ["tsgw", "tsgw-refresh", "tsgw-search"]);
 		await runtime.setRuntimeApiKey(PROVIDER_ID, TEST_KEY);
 		const model = runtime.getModel(PROVIDER_ID, "gpt-6.1-sol");
 		assert.ok(model);
