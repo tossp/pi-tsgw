@@ -7,7 +7,6 @@ import {
 	getAgentDir,
 	readStoredCredential,
 } from "@earendil-works/pi-coding-agent";
-import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
@@ -17,20 +16,18 @@ import {
 	modelsForRoot,
 	normalizeRoot,
 	type ModelFilter,
-} from "./models/catalog.ts";
-import { getGatewayModelIds } from "./models/gateway-catalog.ts";
-import { applyModelOperations } from "./models/operations.ts";
-import { registerSearch } from "./search.ts";
+} from "../models/catalog.ts";
+import { getGatewayModelIds } from "../models/gateway-catalog.ts";
+import { applyModelOperations } from "../models/operations.ts";
+import { registerSearch } from "../search/index.ts";
 import {
 	catalogLabel,
 	catalogDiagnostics,
 	searchLabel,
 	type CatalogStatus,
 } from "./status.ts";
-import type { ThinkingLevel, WebSearchMode } from "./models/_tools.ts";
-import { registerUploadTool } from "./upload/index.ts";
-import { registerTsgwMcp } from "./mcp.ts";
-import { registerMemoryRules } from "./memory.ts";
+import type { ThinkingLevel, WebSearchMode } from "../models/_tools.ts";
+import type { TsgwSettings } from "./config.ts";
 
 /**
  * 在生命周期上下文仍有效时，复制供应商钩子所需的数据。
@@ -49,36 +46,6 @@ interface RequestModel {
 	id: string;
 	api: string;
 	baseUrl: string;
-}
-
-/**
- * 扩展配置来自 Pi 设置文件（settings.json）的 `tsgw` 命名空间。
- * 所有插件配置均放在此处；插件不读取环境变量
- * （密钥仅由 Pi 自身的凭据解析机制处理）。
- */
-interface TsgwSettings {
-	baseUrl?: string;
-	mcpUrl?: string;
-	tsSearch?: string;
-	traceHeaders?: boolean;
-	includeModels?: string[];
-	excludeModels?: string[];
-}
-
-function readTsgwSettings(): TsgwSettings {
-	try {
-		const raw: unknown = JSON.parse(
-			readFileSync(join(getAgentDir(), "settings.json"), "utf8"),
-		);
-		if (raw === null || typeof raw !== "object" || Array.isArray(raw))
-			return {};
-		const tsgw = (raw as { tsgw?: unknown }).tsgw;
-		if (tsgw === null || typeof tsgw !== "object" || Array.isArray(tsgw))
-			return {};
-		return tsgw as TsgwSettings;
-	} catch {
-		return {};
-	}
 }
 
 function rootForRuntime(configured: string | undefined): string {
@@ -198,11 +165,9 @@ async function resolveEffectiveModels(
 	return { models, gatewayIds, catalog: { ...catalog, count: models.length } };
 }
 
-export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
-	registerUploadTool(pi);
-	registerMemoryRules(pi);
-	const settings = readTsgwSettings();
-	registerTsgwMcp(pi, settings.mcpUrl);
+export async function registerTsgwProvider(
+	pi: ExtensionAPI, settings: TsgwSettings,
+): Promise<void> {
 	const root = rootForRuntime(settings.baseUrl);
 	const defaultSearchMode: WebSearchMode =
 		settings.tsSearch === "cached" || settings.tsSearch === "live"

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
-import registerTsgw from "./index.ts";
+import registerTsgw from "../index.ts";
 
 type HookName =
 	| "session_start"

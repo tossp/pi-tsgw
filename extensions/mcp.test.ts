@@ -1,6 +1,6 @@
 import { deepStrictEqual, equal, match } from "node:assert/strict";
 import { test } from "node:test";
-import registerTsgw from "./index.ts";
+import registerTsgw from "../index.ts";
 import { TS_OHT_NAME, TS_OHT_URL, TS_TOOL_NAME, TS_TOOL_URL } from "./mcp.ts";
 import { createPi, FakePi, withAgentDir } from "./test-support.test.ts";
 

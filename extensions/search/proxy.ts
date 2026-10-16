@@ -1,9 +1,9 @@
 /** 搜索代理复用 Pi 的注册表、身份认证与协议适配器。 */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { isPlainObject, type WebSearchMode } from "./models/_tools.ts";
-import { applyModelOperations } from "./models/operations.ts";
-import { builtinSearchSupport, type SearchDelegate } from "./models/web-search.ts";
+import { isPlainObject, type WebSearchMode } from "../models/_tools.ts";
+import { applyModelOperations } from "../models/operations.ts";
+import { builtinSearchSupport, type SearchDelegate } from "../models/web-search.ts";
 
 export const SEARCH_PROXY_TOOL = "tsgw_search";
 interface SearchProxyOptions {

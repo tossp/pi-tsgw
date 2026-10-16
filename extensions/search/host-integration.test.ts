@@ -4,15 +4,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-agent";
-import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "./host-test-support.test.ts";
+import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "../host-test-support.test.ts";
 
-// 通过真实 Pi/jiti 加载器加载源码，包括本测试在 dist/ 中运行时。
+// 通过真实 Pi/jiti 加载器加载根入口源码，包括本测试在 dist/ 中运行时。
 function sourceEntry(): string {
 	let dir = dirname(fileURLToPath(import.meta.url));
 	while (true) {
 		const manifest = join(dir, "package.json");
 		if (existsSync(manifest) && JSON.parse(readFileSync(manifest, "utf8")).name === "pi-tsgw")
-			return join(dir, "extensions", "index.ts");
+			return join(dir, "index.ts");
 		const parent = dirname(dir);
 		assert.notEqual(parent, dir, "无法定位 pi-tsgw 源码入口");
 		dir = parent;
@@ -64,7 +64,7 @@ function completionsSse(): Response {
 	});
 }
 
-// 与 host-integration.test.ts 一样使用独立 Node 进程：沙箱接管环境、cwd 与网络。
+// 与根 index.test.ts 一样使用独立 Node 进程：沙箱接管环境、cwd 与网络。
 test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Responses 适配器", { timeout: 60_000 }, async t => {
 	const entry = sourceEntry();
 	const originalEnv = { ...process.env };

@@ -1,5 +1,5 @@
 import { deepStrictEqual, strictEqual } from "node:assert/strict";
-import { builtinSearchSupport, resolveSearchDelegate } from "./models/web-search.ts";
+import { builtinSearchSupport, resolveSearchDelegate } from "../models/web-search.ts";
 
 function testExactCandidateProtocol(): void {
 	for (const [id, api, expected] of [
@@ -37,4 +37,4 @@ function testLunaPriorityAndCandidateFiltering(): void {
 
 testExactCandidateProtocol();
 testLunaPriorityAndCandidateFiltering();
-console.log("search.test.ts：全部断言通过");
+console.log("search/index.test.ts：全部断言通过");

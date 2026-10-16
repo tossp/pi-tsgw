@@ -4,18 +4,18 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { AgentSession, BuildSystemPromptOptions, ExtensionError } from "@earendil-works/pi-coding-agent";
-import { modelsForRoot, PROVIDER_ID } from "./models/catalog.ts";
-import { MEMORY_RULES } from "./memory.ts";
-import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "./host-test-support.test.ts";
+import { modelsForRoot, PROVIDER_ID } from "./extensions/models/catalog.ts";
+import { MEMORY_RULES } from "./prompts/memory.ts";
+import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "./extensions/host-test-support.test.ts";
 
-// 同时兼容源码执行与 tsc 的 dist/extensions 输出，不依赖 cwd 或机器特定路径。
+// 同时兼容源码执行与 tsc 的 dist 输出，不依赖 cwd 或机器特定路径。
 // 始终通过 Pi/jiti 加载源码入口。
 function sourceEntry(): string {
 	let dir = dirname(fileURLToPath(import.meta.url));
 	while (true) {
 		const manifest = join(dir, "package.json");
 		if (existsSync(manifest) && JSON.parse(readFileSync(manifest, "utf8")).name === "pi-tsgw")
-			return join(dir, "extensions", "index.ts");
+			return join(dir, "index.ts");
 		const parent = dirname(dir);
 		assert.notEqual(parent, dir, "无法定位 pi-tsgw 包根目录");
 		dir = parent;
@@ -54,8 +54,10 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		writeFileSync(join(sandbox.agentDir, "settings.json"), JSON.stringify({
 			tsgw: { baseUrl: TEST_ROOT, tsSearch: "live", traceHeaders: true },
 		}));
+		const manifest = JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8"));
+		assert.deepEqual(manifest.pi.extensions, ["./index.ts"], "包清单只登记根插件入口");
 		const settings = SettingsManager.inMemory({
-			packages: [], extensions: [],
+			packages: [{ source: dirname(entry), skills: [], prompts: [], themes: [] }], extensions: [],
 			compaction: { enabled: false }, retry: { enabled: false, provider: { maxRetries: 0 } },
 			cacheWarming: "off",
 			transport: "sse",
@@ -64,7 +66,7 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		const errors: ExtensionError[] = [];
 		const loader = new DefaultResourceLoader({
 			cwd: sandbox.cwd, agentDir: sandbox.agentDir, settingsManager: settings,
-			noExtensions: true, additionalExtensionPaths: [entry],
+			// 通过包清单发现根入口，防止能力模块被当作独立扩展重复加载。
 			noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 			systemPrompt: "简短回答。这是隔离的宿主回归测试。",
 			extensionFactories: [createMcpExtension({

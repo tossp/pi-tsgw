@@ -12,7 +12,7 @@ function sourceEntry(): string {
 	while (true) {
 		const manifest = join(dir, "package.json");
 		if (existsSync(manifest) && JSON.parse(readFileSync(manifest, "utf8")).name === "pi-tsgw")
-			return join(dir, "extensions", "index.ts");
+			return join(dir, "index.ts");
 		const parent = dirname(dir);
 		assert.notEqual(parent, dir, "无法定位 pi-tsgw 包根目录");
 		dir = parent;

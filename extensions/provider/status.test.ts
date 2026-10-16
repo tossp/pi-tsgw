@@ -5,8 +5,8 @@ import {
 	searchLabel,
 	type CatalogStatus,
 } from "./status.ts";
-import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "./models/gateway-catalog.ts";
-import { applyBuiltinSearchTool, builtinSearchSupport } from "./models/web-search.ts";
+import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "../models/gateway-catalog.ts";
+import { applyBuiltinSearchTool, builtinSearchSupport } from "../models/web-search.ts";
 
 const STORED_AT = Date.parse("2026-01-02T03:04:05.000Z");
 const NOW = STORED_AT + 1_000;

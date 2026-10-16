@@ -1,8 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { builtinSearchSupport, resolveSearchDelegate } from "./models/web-search.ts";
-import type { WebSearchMode } from "./models/_tools.ts";
-import { searchLabel, type SearchSupport } from "./status.ts";
-import { registerSearchProxyTool, SEARCH_PROXY_TOOL } from "./search-proxy.ts";
+import { builtinSearchSupport, resolveSearchDelegate } from "../models/web-search.ts";
+import type { WebSearchMode } from "../models/_tools.ts";
+import { searchLabel, type SearchSupport } from "../provider/status.ts";
+import { registerSearchProxyTool, SEARCH_PROXY_TOOL } from "./proxy.ts";
 
 interface SearchOptions {
 	defaultMode: WebSearchMode;

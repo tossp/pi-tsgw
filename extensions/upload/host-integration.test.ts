@@ -56,7 +56,7 @@ function success(data: Record<string, unknown>): CallToolResult {
 	return { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: data, isError: false };
 }
 
-// 与 ../host-integration.test.ts 一样在独立进程中运行：沙箱会更改
+// 与根 index.test.ts 一样在独立进程中运行：沙箱会更改
 // 进程级全局状态。仅模拟模型 HTTP 和字节 PUT 边界；
 // Pi 会话、嵌套调用流水线、MCP 包装器及客户端和 JSON-RPC 均为真实实现。
 test("Pi SDK 上传：真实 MCP 嵌套执行、权限、校验及脱敏", { timeout: 60_000 }, async (t) => {

@@ -7,6 +7,22 @@
 本项目不包含私有 API 密钥或网关端点。静态目录包含模型元数据和公开价格估算；
 这些价格并非你的网关计费费率。
 
+## 项目结构
+
+包清单的 `pi.extensions` 指向根 `./index.ts`，作为约 15 行的总入口；provider 注册与生命周期位于 `extensions/provider/`，模型模块位于 `extensions/models/`。搜索模块及相邻测试位于 `extensions/search/`，提示词由 `extensions/prompts.ts` 的 `registerPrompts` 统一注册，正文位于 `prompts/`。宿主集成总测试为根 `index.test.ts`；provider 和搜索测试与对应模块相邻，共享测试夹具仍位于 `extensions/`。技能及其测试路径保持在 `skills/` 和 `extensions/`。
+
+```text
+index.ts                    # 包总入口
+index.test.ts               # 宿主集成总测试
+extensions/provider/         # provider 注册、配置、状态及其测试
+extensions/models/           # 模型目录、策略与联网支持
+extensions/search/           # 搜索注册、代理与相邻测试
+extensions/prompts.ts        # registerPrompts
+prompts/memory.ts            # 记忆提示词正文
+extensions/upload/           # 本地上传及安全说明
+skills/                      # 随包技能
+```
+
 ## 安装
 
 ```bash
@@ -191,7 +207,7 @@ GLM 指导使用 5.3，并以 Flash 和 FlashX 为备选。思考级别使用 Pi
 与其其他非 off 级别一样，映射为 adaptive。
 
 安装并执行 `/reload` 后，Pi 会通过包清单发现随包技能，除非宿主/包设置禁用或过滤了技能。
-可以使用 `/skill:tsgw-git-commit` 等命令显式加载；仅加载 `extensions/index.ts` 不会加载包内技能。
+可以使用 `/skill:tsgw-git-commit` 等命令显式加载；仅加载根 `index.ts` 不会加载包内技能。
 包设置中的 `skills: []` 可禁用全部技能，`skills: ["skills/tsgw-git-commit"]` 可仅加载指定技能，
 或用 `skills: ["!skills/tsgw-git-commit/**"]` 排除该技能；由宿主处理，不是 `tsgw` 配置项。
 
@@ -199,6 +215,9 @@ GLM 指导使用 5.3，并以 Flash 和 FlashX 为备选。思考级别使用 Pi
 本包不提供子代理工具，也不改变调度设置、用户规则文件或宿主权限。
 
 ### 记忆规则注入
+
+常驻提示词正文集中在 `prompts/`，与扩展注册入口分开维护。提示词由 `extensions/prompts.ts` 的
+`registerPrompts` 统一注册；记忆提示词正文位于 `prompts/memory.ts`。
 
 插件在 `before_agent_start` 中注入原用户规则中的记忆体系与既有条目维护授权，
 不绑定当前模型 provider，不新增配置，不改写用户规则文件。
@@ -264,7 +283,8 @@ Pi AI/MCP 是明确仅用于测试的开发依赖；运行时依赖和提供商�
 - [厂商配置](https://github.com/tossp/pi-tsgw/tree/main/extensions/models/vendors)：模型元数据、兼容性标志和思考映射。
 - [请求操作](https://github.com/tossp/pi-tsgw/blob/main/extensions/models/operations.ts)：写时复制分派；DeepSeek/Claude 响应仍由 Pi 的适配器处理。
 - [内置搜索](https://github.com/tossp/pi-tsgw/blob/main/extensions/models/web-search.ts)：精确的模型/协议支持范围和仅追加注入。
-- [宿主集成](https://github.com/tossp/pi-tsgw/blob/main/extensions/index.ts)：配置、刷新、命令和生命周期快照。延迟执行的请求回调不得访问过期的会话上下文。
+- [扩展总入口](https://github.com/tossp/pi-tsgw/blob/main/index.ts)：包加载入口；[provider 集成](https://github.com/tossp/pi-tsgw/tree/main/extensions/provider)：注册、配置、刷新、命令和生命周期快照。延迟执行的请求回调不得访问过期的会话上下文。
+- [提示词注册](https://github.com/tossp/pi-tsgw/blob/main/extensions/prompts.ts)：`registerPrompts` 统一入口；记忆正文位于 `prompts/memory.ts`。
 
 这些源码链接描述仓库当前的 main 分支；已安装的发行版可能有所不同。
 `AGENTS.md` 中的开发规则仅用于仓库，不属于 npm 包。

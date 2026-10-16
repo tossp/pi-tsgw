@@ -1,9 +1,9 @@
 import { deepStrictEqual, equal, match, rejects } from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import registerTsgw from "./index.ts";
-import { gatewayModelCacheScope, saveGatewayModelCache, DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "./models/gateway-catalog.ts";
-import { FakePi, TSGW_SOL, withAgentDir, providerRequest } from "./test-support.test.ts";
+import registerTsgw from "../../index.ts";
+import { gatewayModelCacheScope, saveGatewayModelCache, DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "../models/gateway-catalog.ts";
+import { FakePi, TSGW_SOL, withAgentDir, providerRequest } from "../test-support.test.ts";
 
 type Refresh = (context: {
 	allowNetwork: boolean;

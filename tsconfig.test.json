@@ -3,6 +3,6 @@
   "compilerOptions": {
     "noEmitOnError": false
   },
-  "include": ["extensions", "extensions/**/*.test.ts"],
+  "include": ["index.ts", "index.test.ts", "extensions", "prompts"],
   "exclude": []
 }

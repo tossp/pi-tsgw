@@ -5,9 +5,9 @@ import {
 	rejects,
 	strictEqual,
 } from "node:assert";
-import registerTsgw from "./index.ts";
-import { PROVIDER_ID } from "./models/catalog.ts";
-import { FakeContext, FakePi, createPi, sessionStart, agentStart, providerRequest, providerHeaders, withAgentDir, STALE_ERROR, TEST_ROOT, TSGW_SOL, TSGW_DEEPSEEK, TSGW_GLM } from "./test-support.test.ts";
+import registerTsgw from "../../index.ts";
+import { PROVIDER_ID } from "../models/catalog.ts";
+import { FakeContext, FakePi, createPi, sessionStart, agentStart, providerRequest, providerHeaders, withAgentDir, STALE_ERROR, TEST_ROOT, TSGW_SOL, TSGW_DEEPSEEK, TSGW_GLM } from "../test-support.test.ts";
 
 function assertUuid(value: string | null | undefined): void {
 	match(

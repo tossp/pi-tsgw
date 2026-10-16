@@ -1,5 +1,3 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-
 /** 从用户规则迁入的记忆体系与既有维护授权。 */
 export const MEMORY_RULES = `## 记忆体系
 
@@ -19,14 +17,3 @@ export const MEMORY_RULES = `## 记忆体系
 - 工具细则以实时提示和技能为准；规则与技能在获准范围内跨端统一维护，单端修改不代表已经同步。
 
 - smemo 条目内容维护（含永久删除）的持续授权见 \`skill:tsgw-smemo\`，不由此放宽文件、Git、服务、凭据或权限操作边界。`;
-
-export function registerMemoryRules(pi: ExtensionAPI): void {
-	pi.on("before_agent_start", (event) => {
-		if (event.systemPromptOptions) {
-			event.systemPromptOptions.sections.tsgw_memory = MEMORY_RULES;
-			return;
-		}
-		// 保留已声明支持的旧宿主提示词接口。
-		return { systemPrompt: `${event.systemPrompt}\n\n${MEMORY_RULES}` };
-	});
-}

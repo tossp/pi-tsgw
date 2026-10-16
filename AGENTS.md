@@ -9,21 +9,25 @@
 | 改什么 | 从哪里看 |
 | --- | --- |
 | 依赖、测试命令、包版本 | `package.json`、`package-lock.json` |
-| 配置、provider 注册、生命周期、命令、追踪 | `extensions/index.ts` |
+| 扩展总入口与包清单 | 根 `index.ts`（`package.json` 的 `pi.extensions` 指向 `./index.ts`） |
+| provider 注册、生命周期、命令、追踪 | `extensions/provider/index.ts`；配置读取 `extensions/provider/config.ts`，状态 `extensions/provider/status.ts` |
 | 模型规格、价格、thinking 策略 | `extensions/models/vendors/*.ts` |
 | 随包技能、模型选型与资源验证 | `skills/`、`extensions/skills.test.ts`、`extensions/skill-resources.test.ts` |
-| 记忆规则注入与原有维护授权 | `extensions/memory.ts`、`skills/tsgw-smemo/` |
+| 提示词注册与正文 | `extensions/prompts.ts`（`registerPrompts`）、`prompts/memory.ts`（含原有维护授权） |
+| 记忆规则注入与详细维护流程 | `extensions/prompts.ts`、`skills/tsgw-smemo/` |
 | 目录拼接、过滤与请求调度 | `extensions/models/catalog.ts`、`operations.ts` |
 | 网络目录与缓存 | `extensions/models/gateway-catalog.ts` 及缓存辅助模块 |
-| 内置联网与状态 | `extensions/models/web-search.ts`、`extensions/search.ts`、`extensions/search-proxy.ts`、`extensions/status.ts` |
+| 内置联网 | `extensions/models/web-search.ts`、`extensions/search/`（`index.ts`、`proxy.ts` 及相邻测试） |
+| provider 状态与测试 | `extensions/provider/status.ts`、`extensions/provider/` 中 provider 单测、状态单测和状态集成测试 |
 | MCP 默认登记与覆盖 | `extensions/mcp.ts`、对应单测和宿主集成测试 |
+| 宿主集成总测试 | 根 `index.test.ts`；其他共享测试夹具仍在 `extensions/` |
 | 本地上传、分片恢复与直传安全 | `extensions/upload/`、其中的 `README.md` |
 | 编译、打包、发布 | `tsconfig*.json`、`.npmignore`、`.github/workflows/publish.yml` |
 
 ## 开发边界
 
 - 本插件用于自用，功能、随包技能与工作流以用户自身环境、需求和明确授权为设计依据；公开仓库与 npm 发布不代表面向通用用户设计。不得仅因公开发布就要求将个人工作流通用化、拆出既有授权或增加多用户兼容层；仍须遵守既有授权范围、凭据保护与宿主权限边界。
-- Pi 运行时集成集中在入口；模型模块只使用 Pi 类型。目录拼接、过滤、请求改写、状态格式化保持纯逻辑；网络/磁盘缓存独立，不自行读取 Pi 配置。
+- 扩展总入口是根 `index.ts`；provider 的 Pi 运行时注册、生命周期、命令、追踪集中在 `extensions/provider/index.ts`，配置读取与状态分别由 `config.ts`、`status.ts` 承载。模型模块只使用 Pi 类型。目录拼接、过滤、请求改写、状态格式化保持纯逻辑；网络/磁盘缓存独立，不自行读取 Pi 配置。
 - 厂商策略写在对应 vendor 分片；`operations.ts` 只汇总调度，不新增模型族 switch。共享工具在 `_tools.ts`；公共 compat 在 `vendors/_protocols.ts`，厂商特例留在分片。
 - 复用宿主的 Completions、Responses、Anthropic、Google adapter；不复制 stream/response 实现，不引入通用 JSON Patch、消息历史或 token-limit 改写。
 - 新增运行时依赖、协议或公共接口前先确认必要性。新能力以 Pi 架构为基础，能力模块可独立复用，MCP 只是可能的调用接口。
@@ -53,7 +57,7 @@
 ## 生命周期与联网
 
 - 请求体/请求头钩子只读实例私有快照，不访问失效 context；会话退出断开 UI sink，但保留快照供迟到请求。跨 await 的命令和并发刷新保留 revision 防护，不因宿主升级就删除。
-- 状态只描述目录新鲜度与登记数，不代表推理健康；诊断不发健康探测请求、不显示敏感值。非 UI 模式不得依赖状态渲染。Pi 核心兼容性和 Pi Web 展示分开验证。
+- 状态只描述目录新鲜度与登记数，不代表推理健康；诊断不发健康探测请求、不显示敏感值。非 UI 模式不得依赖状态渲染。Pi 核心兼容性和 Pi Web 展示分开验证。provider 状态单测和状态集成测试放在 `extensions/provider/`；共享测试夹具仍放 `extensions/`。
 - GPT 内置联网仅 cached/live，默认 live；未配置、旧 off、非法值回退 live，已有 cached 保留。Grok 支持名单内固定实时，不修改 GPT 会话模式。会话控制不写 settings 或历史。
 - 内置联网支持由 `builtinSearchSupport` 的精确 ID 与协议共同判断。不覆盖已有搜索工具/字段，不控制 Qwen 策略或外部工具，不宣传成全局联网开关。不恢复旧 `ts_search`；仅 tsgw 非原生联网模型激活 `tsgw_search`，从生效目录优先选 GPT 6 Luna。代理复用宿主 registry 的认证和 adapter，不复制 HTTP/stream/usage 解析；只发送搜索问题，不传会话历史或本地工具，不切换主模型，不因推理失败自动改用更贵模型。代理凭据不使用 `readStoredCredential()`；原生与代理联网都不能仅凭参数注入或 HTTP 200 声称已完成搜索验证。
 - GPT reasoning 留给 adapter；Astra/6.1 Sol 的 off/minimal 用显式 null 禁用，不以省略代替。具体映射以 vendor 与测试为准，不把单个带工具请求失败推广到无工具能力。

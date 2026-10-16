@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { MEMORY_RULES } from "./memory.ts";
+import { MEMORY_RULES } from "../prompts/memory.ts";
 import { createPi } from "./test-support.test.ts";
 
 test("记忆规则：入口注册、保留其他分区且重复注入不累加", async () => {
