@@ -47,7 +47,7 @@ export async function openLocalFile(path: string, cwd: string, contentType?: str
 		if (Buffer.byteLength(filename) > 255 || filename.trim() !== filename || /[\u0000-\u001f\u007f-\u009f\\%?#:<>"|*]/.test(filename))
 			throw new UploadError("invalid-filename", "上传服务不支持此文件名。");
 		const mime = contentType ?? MIME[extname(filename).toLowerCase()] ?? "application/octet-stream";
-		if (mime.length > 127 || !CONTENT_TYPE_PATTERN.test(mime))
+		if (mime.length > 127 || CONTENT_TYPE_PATTERN.exec(mime)?.[0] !== mime)
 			throw new UploadError("invalid-content-type", "contentType 必须是不带参数的 MIME 类型。");
 		const metadata: FileMetadata = { filename, contentType: mime.toLowerCase(), size,
 			mtimeMs: Number(initial.mtimeNs) / 1e6, ctimeMs: Number(initial.ctimeNs) / 1e6 };

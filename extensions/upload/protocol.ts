@@ -4,9 +4,9 @@ export const SINGLE_LIMIT = 32 * 1024 ** 2;
 export const MAX_BYTES = 5 * 1024 ** 4;
 export const UPLOAD_TOOL = "mcp__ts_oht__upload_file";
 export const URL_TOOL = "mcp__ts_oht__get_file_url";
-// 绝对结尾断言：JavaScript 单独使用 `$` 也会接受末尾换行。
-export const CONTENT_TYPE_PATTERN = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$(?![\s\S])/;
-export const RESUME_PATTERN = /^[A-Za-z0-9_-]+$(?![\s\S])/;
+// 对外 schema 不使用 lookaround；执行层额外比较完整匹配，拒绝 JavaScript `$` 可接受的末尾换行。
+export const CONTENT_TYPE_PATTERN = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/;
+export const RESUME_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 export interface FileMetadata {
 	filename: string;
@@ -162,7 +162,7 @@ export function encodeReceipt(receipt: Receipt): string {
 }
 export function decodeReceipt(token: string): Receipt {
 	try {
-		if (!token || token.length > 8192 || !RESUME_PATTERN.test(token)) invalidResponse();
+		if (!token || token.length > 8192 || RESUME_PATTERN.exec(token)?.[0] !== token) invalidResponse();
 		const data = object(JSON.parse(Buffer.from(token, "base64url").toString("utf8")));
 		const meta = object(data.metadata);
 		if (data.version !== 1 || !["single", "multipart"].includes(String(data.mode)) ||

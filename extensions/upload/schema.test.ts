@@ -21,6 +21,19 @@ const receipt: Receipt = {
 	metadata: { filename: "report.txt", contentType: "text/plain", size: 3, mtimeMs: 1, ctimeMs: 1 },
 };
 
+test("上传工具暴露的输入与输出 schema 均不包含 lookaround", () => {
+	const check = (value: unknown): void => {
+		if (!value || typeof value !== "object") return;
+		for (const [key, child] of Object.entries(value)) {
+			if (key === "pattern" && typeof child === "string")
+				assert.doesNotMatch(child, /\(\?(?:[=!]|<[=!])/);
+			check(child);
+		}
+	};
+	check(tool.parameters);
+	check(tool.outputSchema);
+});
+
 // 将原始 schema 校验与 Pi 会进行类型转换的输入流水线分开测试。
 test("上传输入 schema 约束 MIME、凭条字符集及长度和有效期范围", () => {
 	const valid = { path: "report.txt", contentType: "Text/Plain", resume: encodeReceipt(receipt), expiresIn: 3600 };
@@ -28,9 +41,9 @@ test("上传输入 schema 约束 MIME、凭条字符集及长度和有效期范�
 	assert.deepEqual(validate(valid), valid);
 	for (const patch of [
 		{ path: "" }, { contentType: "bad" }, { contentType: "text/plain; charset=utf-8" },
-		{ contentType: "text/\r\nsecret" }, { contentType: "text/plain\n" }, { contentType: "text/plain\u2028" },
+		{ contentType: "text/\r\nsecret" },
 		{ contentType: "a/" + "a".repeat(126) },
-		{ resume: "" }, { resume: encodeReceipt(receipt) + "\n" }, { resume: "a=" }, { resume: "a/b" }, { resume: "a b" }, { resume: "a".repeat(8193) },
+		{ resume: "" }, { resume: "a=" }, { resume: "a/b" }, { resume: "a b" }, { resume: "a".repeat(8193) },
 		{ expiresIn: 0 }, { expiresIn: 604801 }, { expiresIn: 1.5 }, { expiresIn: "3600" },
 	]) assert.equal(Value.Check(tool.parameters, { ...valid, ...patch }), false, JSON.stringify(patch));
 	for (const patch of [{ contentType: "bad" }, { resume: "a=" }, { expiresIn: 0 }, { expiresIn: 604801 }] as JsonObject[])
@@ -64,9 +77,11 @@ test("实际上传成功、安全失败、PUT 结果未知、链接失败和恢�
 	assert.equal(success.uploaded, true); check(success);
 	const invalid = await uploadLocalFile({ path: "report.txt", expiresIn: 1.5 }, cwd, signal(), deps);
 	assert.equal(invalid.error?.code, "invalid-options"); check(invalid);
-	for (const mime of ["text/plain\n", "text/plain\r\n", "text/plain\u2028"])
+	// schema 的 `$` 在不同正则引擎中语义不同；执行层必须拒绝所有末尾行终止符。
+	for (const mime of ["text/plain\n", "text/plain\r", "text/plain\r\n", "text/plain\u2028", "text/plain\u2029"])
 		await assert.rejects(openLocalFile("report.txt", cwd, mime), /MIME 类型/);
-	assert.throws(() => decodeReceipt(encodeReceipt(receipt) + "\n"), /恢复凭条无效/);
+	for (const suffix of ["\n", "\r", "\r\n", "\u2028", "\u2029"])
+		assert.throws(() => decodeReceipt(encodeReceipt(receipt) + suffix), /恢复凭条无效/);
 	// 字符集和长度提示不等于凭条认证，也不等于 JSON 或内容校验。
 	const malformed = await uploadLocalFile({ path: "missing.txt", resume: "bm90LWpzb24" }, cwd, signal(), {
 		call: async () => assert.fail("畸形凭条不得联系 MCP"),
