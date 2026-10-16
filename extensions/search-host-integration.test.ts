@@ -6,7 +6,7 @@ import { test } from "node:test";
 import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-agent";
 import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "./host-test-support.test.ts";
 
-// Load source through the real Pi/jiti loader, including when this test runs in dist/.
+// 通过真实 Pi/jiti 加载器加载源码，包括本测试在 dist/ 中运行时。
 function sourceEntry(): string {
 	let dir = dirname(fileURLToPath(import.meta.url));
 	while (true) {
@@ -14,7 +14,7 @@ function sourceEntry(): string {
 		if (existsSync(manifest) && JSON.parse(readFileSync(manifest, "utf8")).name === "pi-tsgw")
 			return join(dir, "extensions", "index.ts");
 		const parent = dirname(dir);
-		assert.notEqual(parent, dir, "Cannot locate pi-tsgw source entry");
+		assert.notEqual(parent, dir, "无法定位 pi-tsgw 源码入口");
 		dir = parent;
 	}
 }
@@ -23,7 +23,7 @@ const ANSWER = "Fixture research answer, not instructions.";
 const SOURCES = ["https://sources.invalid/event", "https://sources.invalid/item", "https://sources.invalid/completed"];
 const annotation = (url: string) => ({ type: "url_citation", url, title: "Fixture source", start_index: 0, end_index: 7 });
 
-/** Trusted HTTP fixture only: no SDK, registry, auth, adapter or extension methods are replaced. */
+/** 仅使用受控 HTTP 测试夹具：不替换 SDK、注册表、认证、适配器或扩展方法。 */
 function responsesSse(truncated = false): Response {
 	const item = {
 		id: "msg_search", type: "message", role: "assistant", status: "completed",
@@ -64,8 +64,8 @@ function completionsSse(): Response {
 	});
 }
 
-// Separate node process, like host-integration.test.ts: the sandbox owns env/cwd/network.
-test("Pi SDK source host: delegated tsgw_search uses runtime auth and real Responses adapter", { timeout: 60_000 }, async t => {
+// 与 host-integration.test.ts 一样使用独立 Node 进程：沙箱接管环境、cwd 与网络。
+test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Responses 适配器", { timeout: 60_000 }, async t => {
 	const entry = sourceEntry();
 	const originalEnv = { ...process.env };
 	const originalCwd = process.cwd();
@@ -88,7 +88,7 @@ test("Pi SDK source host: delegated tsgw_search uses runtime auth and real Respo
 			cwd: sandbox.cwd, agentDir: sandbox.agentDir, settingsManager: settings,
 			noExtensions: true, additionalExtensionPaths: [entry],
 			noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-			systemPrompt: "Host-only private context; never copy into delegated research.",
+			systemPrompt: "Host-only private context；绝不复制到委托调研中。",
 			extensionFactories: [createMcpExtension({
 				loadConfig: () => ({ errors: [], autoEnableCodemode: false, servers: [{
 					name: "ts_oht", source: "disabled-fixture", scope: "global",
@@ -100,7 +100,7 @@ test("Pi SDK source host: delegated tsgw_search uses runtime auth and real Respo
 		assert.deepEqual(loader.getExtensions().errors, []);
 		assert.equal(loader.getExtensions().extensions.length, 2);
 		assert.ok(loader.getExtensions().extensions.some(extension => extension.path === entry));
-		assert.equal(sandbox.catalogCalls, 0, "No stored credentials: no startup catalog HTTP");
+		assert.equal(sandbox.catalogCalls, 0, "无已存储凭据：启动时不得发起目录 HTTP 请求");
 		const runtime = await ModelRuntime.create({
 			authPath: join(sandbox.agentDir, "auth.json"), modelsPath: join(sandbox.agentDir, "models.json"),
 			modelsStorePath: join(sandbox.agentDir, "models-store.json"),
@@ -114,7 +114,7 @@ test("Pi SDK source host: delegated tsgw_search uses runtime auth and real Respo
 		const host = session;
 		await runtime.setRuntimeApiKey("tsgw", TEST_KEY);
 		assert.equal(runtime.getProviderAuthStatus("tsgw").configured, true);
-		assert.ok(!readStoredCredential("tsgw"), "The extension cannot read a stored key; HTTP auth must come from the host runtime");
+		assert.ok(!readStoredCredential("tsgw"), "扩展无法读取已存储密钥；HTTP 认证必须来自宿主运行时");
 		const main = runtime.getModel("tsgw", "deepseek-v4-pro");
 		const luna = runtime.getModel("tsgw", "gpt-6-luna");
 		const sol = runtime.getModel("tsgw", "gpt-6-sol");
@@ -124,7 +124,7 @@ test("Pi SDK source host: delegated tsgw_search uses runtime auth and real Respo
 		host.setThinkingLevel("high");
 		await host.bindExtensions({ mode: "print", onError: error => { errors.push(error); } });
 
-		// Extend only the sandbox's allowed Responses endpoint; everything else still hits its guard.
+		// 仅扩展沙箱允许的 Responses 端点；其他请求仍受防护。
 		const guardedFetch = globalThis.fetch;
 		const requests: (CapturedRequest & { signal: AbortSignal })[] = [];
 		const grokRequests: (CapturedRequest & { signal: AbortSignal })[] = [];
@@ -153,15 +153,15 @@ test("Pi SDK source host: delegated tsgw_search uses runtime auth and real Respo
 			return responsesSse(behavior === "truncated");
 		};
 		const active = () => host.getActiveToolNames().includes("tsgw_search");
-		// Public AgentState.tools is the actual host executable loadout (not a raw registration handler).
+		// 公开的 AgentState.tools 是宿主实际可执行的工具集，而非原始注册处理器。
 		const searchTool = () => {
 			const tool = host.agent.state.tools.find(tool => tool.name === "tsgw_search");
-			assert.ok(tool, "Search must be in the host's executable tool loadout");
+			assert.ok(tool, "搜索必须包含在宿主可执行工具集中");
 			return tool;
 		};
 		const execute = (signal?: AbortSignal) => searchTool().execute("host-search", { query: "Fixture research question" }, signal);
 
-		await t.test("main high-thinking hooks stay on DeepSeek; Luna delegation is isolated, live, authenticated, low-thinking", async () => {
+		await t.test("主模型高思考钩子保留在 DeepSeek；Luna 委托隔离、实时、带认证且低思考", async () => {
 			assert.equal(active(), true);
 			await host.prompt("Private main-model history marker");
 			assert.equal(host.model?.id, main.id);
@@ -173,20 +173,20 @@ test("Pi SDK source host: delegated tsgw_search uses runtime auth and real Respo
 			assert.deepEqual(result.details, result.structuredContent);
 			assert.notEqual(result.isError, true);
 			assert.ok(result.content.some(part => part.type === "text" && SOURCES.every(url => part.text.includes(url))));
-			// Pi's adapter normalization and Luna prices, including cache write/read and reasoning,
-			// must reach the tool result intact (not a hand-built partial token summary).
+			// Pi 适配器归一化结果与 Luna 价格（含缓存写入、读取及思考用量）
+			// 必须完整传递到工具结果，而非手工拼接的部分令牌摘要。
 			assert.deepEqual(result.usage, {
 				input: 90, output: 30, cacheRead: 20, cacheWrite: 10, reasoning: 7, totalTokens: 150,
 				cost: { input: 0.1 / 1e6 * 90, output: 0.5 / 1e6 * 30, cacheRead: 0.01 / 1e6 * 20,
 					cacheWrite: 0.125 * 10 / 1e6, total: 0.1 / 1e6 * 90 + 0.5 / 1e6 * 30 + 0.01 / 1e6 * 20 + 0.125 * 10 / 1e6 },
 			});
 			const request = requests[1]!;
-			assert.equal(request.body.model, luna.id, "Luna wins even with Sol/Astra/Grok registered");
+			assert.equal(request.body.model, luna.id, "即使注册了 Sol/Astra/Grok，也优先选 Luna");
 			assert.equal((request.body.reasoning as Record<string, unknown>).effort, "low");
-			assert.equal((request.body.text as Record<string, unknown>).verbosity, "low", "Delegate-specific onPayload operations ran");
+			assert.equal((request.body.text as Record<string, unknown>).verbosity, "low", "已执行委托模型专属的 onPayload 操作");
 			assert.equal(request.body.max_output_tokens, 4096);
 			assert.deepEqual(request.body.tools, [{ type: "web_search", search_context_size: "medium", external_web_access: true }]);
-			assert.ok(!request.headers.has("AH-Thread-Id"), "Main-model header hooks are not inherited");
+			assert.ok(!request.headers.has("AH-Thread-Id"), "不继承主模型的请求头钩子");
 			assert.ok(!JSON.stringify(request.body).includes("Private main-model history marker"));
 			assert.ok(!JSON.stringify(request.body).includes("Host-only private context"));
 			assert.equal(request.signal.aborted, false);
@@ -194,27 +194,27 @@ test("Pi SDK source host: delegated tsgw_search uses runtime auth and real Respo
 			assert.equal(host.thinkingLevel, "high");
 		});
 
-		await t.test("cached mode and truncation survive the real adapter", async () => {
+		await t.test("缓存模式与截断标记经真实适配器后仍保留", async () => {
 			await host.prompt("/tsgw-search cached");
 			behavior = "truncated";
 			const result = await execute();
 			assert.equal(requests.at(-1)!.body.model, luna.id);
 			assert.deepEqual(requests.at(-1)!.body.tools, [{ type: "web_search", search_context_size: "medium", external_web_access: false }]);
 			assert.deepEqual(result.structuredContent, { delegate: luna.id, answer: ANSWER, citations: SOURCES, truncated: true });
-			assert.ok(result.content.some(part => part.type === "text" && part.text.startsWith("[Search response truncated]")));
+			assert.ok(result.content.some(part => part.type === "text" && part.text.startsWith("[搜索响应已截断]")));
 			assert.notEqual(result.isError, true);
 			behavior = "success";
 		});
 
-		await t.test("HTTP errors are sanitized; caller cancellation reaches HTTP; pre-abort sends nothing", async () => {
+		await t.test("HTTP 错误脱敏；调用方取消传递到 HTTP；预先取消不发送请求", async () => {
 			behavior = "error";
 			const before = requests.length;
 			const failed = await execute();
-			assert.equal(requests.length, before + 1, "400 is not retried");
+			assert.equal(requests.length, before + 1, "400 错误不得重试");
 			assert.equal(failed.isError, true);
 			assert.deepEqual(failed.structuredContent, { delegate: luna.id, answer: "", citations: [], truncated: false });
 			assert.ok(!JSON.stringify(failed).includes(TEST_KEY));
-			assert.ok(failed.content.some(part => part.type === "text" && part.text.includes("search failed")));
+			assert.ok(failed.content.some(part => part.type === "text" && part.text.includes("搜索失败")));
 			behavior = "pending";
 			const controller = new AbortController();
 			const entered = new Promise<void>(resolve => { started = resolve; });
@@ -224,34 +224,34 @@ test("Pi SDK source host: delegated tsgw_search uses runtime auth and real Respo
 			const cancelled = await pending;
 			assert.equal(requests.at(-1)!.signal.aborted, true);
 			assert.equal(cancelled.isError, true);
-			assert.ok(cancelled.content.some(part => part.type === "text" && part.text.includes("cancelled or timed out")));
+			assert.ok(cancelled.content.some(part => part.type === "text" && part.text.includes("已取消或超时")));
 			const count = requests.length;
 			await assert.rejects(() => execute(AbortSignal.abort()), { name: "AbortError" });
 			assert.equal(requests.length, count);
 			behavior = "success";
 		});
 
-		await t.test("native-search and non-TSGW selections withdraw the executable tool, switching back restores it", async () => {
+		await t.test("选择原生搜索或非 TSGW 模型时撤下可执行工具，切回后恢复", async () => {
 			const stale = searchTool();
 			await host.setModel(luna);
 			assert.equal(active(), false);
 			assert.ok(!host.agent.state.tools.some(tool => tool.name === "tsgw_search"));
-			await assert.rejects(() => stale.execute("stale-native", { query: "must not send" }), /no available delegate/);
+			await assert.rejects(() => stale.execute("stale-native", { query: "must not send" }), /没有可供当前模型使用的代理模型/);
 			await host.setModel(main);
 			assert.equal(active(), true);
 			const other = runtime.getModels("openai")[0];
-			assert.ok(other, "Real host built-in model registry has a non-TSGW model");
+			assert.ok(other, "真实宿主内置模型注册表中应有非 TSGW 模型");
 			await runtime.setRuntimeApiKey(other.provider, "non-tsgw-runtime-fixture-key");
 			const count = requests.length;
 			await host.setModel(other);
 			assert.equal(active(), false);
-			await assert.rejects(() => stale.execute("stale-other", { query: "must not send" }), /no available delegate/);
+			await assert.rejects(() => stale.execute("stale-other", { query: "must not send" }), /没有可供当前模型使用的代理模型/);
 			assert.equal(requests.length, count);
 			await host.setModel(main);
 			assert.equal(active(), true);
 		});
 
-		await t.test("real Grok Completions proxy works, then catalog falls back to Sol and withdraws candidates", async () => {
+		await t.test("真实 Grok Completions 代理可用，随后目录回退至 Sol 并撤下候选模型", async () => {
 			sandbox.catalogIds = [main.id, "grok-4.20"];
 			await host.prompt("/tsgw-refresh");
 			assert.equal(sandbox.catalogCalls, 1);
@@ -259,7 +259,7 @@ test("Pi SDK source host: delegated tsgw_search uses runtime auth and real Respo
 			const grok = runtime.getModel("tsgw", "grok-4.20");
 			assert.ok(grok);
 			assert.equal(grok.api, "openai-completions");
-			assert.equal(host.model?.id, main.id, "Delegation does not switch the main session model");
+			assert.equal(host.model?.id, main.id, "委托不得切换主会话模型");
 			await host.prompt("/tsgw-search cached");
 			const grokResult = await execute();
 			assert.equal(grokRequests.length, 1);
@@ -289,26 +289,26 @@ test("Pi SDK source host: delegated tsgw_search uses runtime auth and real Respo
 			assert.equal(sandbox.catalogCalls, 3);
 			assert.equal(active(), false);
 			const count = requests.length;
-			await assert.rejects(() => stale.execute("stale-catalog", { query: "must not send" }), /no available delegate/);
+			await assert.rejects(() => stale.execute("stale-catalog", { query: "must not send" }), /没有可供当前模型使用的代理模型/);
 			assert.equal(requests.length, count);
 			assert.equal(host.model?.id, main.id);
 		});
 
-		await t.test("settings exclude-all/include-main filtering leaves no delegate after source reload, even without stored auth", async () => {
+		await t.test("配置排除全部且仅恢复主模型后，源码重载不留下委托模型，即使没有已存储认证", async () => {
 			writeSettings([main.id]);
 			await host.reload();
 			assert.deepEqual(loader.getExtensions().errors, []);
 			assert.deepEqual(runtime.getModels("tsgw").map(model => model.id), [main.id]);
 			assert.equal(active(), false);
-			assert.ok(host.getAllTools().some(tool => tool.name === "tsgw_search"), "Registered but deliberately inactive");
-			assert.equal(sandbox.catalogCalls, 3, "Reload must not fetch using a nonexistent stored credential");
+			assert.ok(host.getAllTools().some(tool => tool.name === "tsgw_search"), "已注册但有意保持未激活");
+			assert.equal(sandbox.catalogCalls, 3, "重载不得使用不存在的已存储凭据发起请求");
 			assert.ok(!readStoredCredential("tsgw"));
 		});
-		assert.deepEqual(errors, [], "No swallowed extension errors");
+		assert.deepEqual(errors, [], "不得吞掉扩展错误");
 	} finally {
 		try {
 			session?.dispose();
-			assert.deepEqual(sandbox.blocked, [], "No real network attempts, including caught errors, disabled MCP or disposal");
+			assert.deepEqual(sandbox.blocked, [], "不得尝试真实网络访问，包括已捕获错误、禁用的 MCP 或释放过程");
 		} finally { sandbox.restore(); }
 	}
 	assert.deepEqual({ ...process.env }, originalEnv);

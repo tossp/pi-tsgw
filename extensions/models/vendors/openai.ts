@@ -5,10 +5,10 @@ import { type PayloadWriter, type ThinkingApplier } from "../_tools.ts";
  * OpenAI GPT 系列（Responses 协议）。
  * 官方文档：https://platform.openai.com/docs/models
  * GPT-6.1 Sol：https://developers.openai.com/api/docs/models/gpt-6.1-sol
- * Standard ≤272K：$2 input / $0.1 cached / $2.5 cache write / $10 output（2026-09-30）。
+ * 标准档 ≤272K：输入 $2 / 缓存命中 $0.1 / 缓存写入 $2.5 / 输出 $10（2026-09-30）。
  * GPT-6 Sol：https://developers.openai.com/api/docs/models/gpt-6-sol
  * GPT-6 Luna：https://developers.openai.com/api/docs/models/gpt-6-luna
- * 两款价格为 Standard ≤272K 输入费率（2026-09-23 核验）。
+ * 两款价格为标准档 ≤272K 输入费率（2026-09-23 核验）。
  */
 export function openaiModels(root: string): ProviderModelConfig[] {
 	const v1 = `${root}/v1`;
@@ -20,7 +20,7 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			baseUrl: v1,
 			reasoning: true,
 			thinkingLevelMap: {
-				// Pi treats omitted lower levels as supported; disable them explicitly.
+				// Pi 会将省略的较低档位视为受支持；需显式禁用。
 				off: null,
 				minimal: null,
 				low: "low",
@@ -41,7 +41,7 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			baseUrl: v1,
 			reasoning: true,
 			thinkingLevelMap: {
-				// Keep the lowest available level at low, including automatic titles.
+				// 将最低可用档位保持为 low，自动生成标题时也如此。
 				off: null,
 				minimal: null,
 				low: "low",
@@ -99,8 +99,8 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 }
 
 // GPT Responses 思维链：保留 Pi 的 `reasoning`，文本 verbosity 固定为 low。
-// 不写 service_tier：flex 为 beta 有限支持（受模型/账号限制），会被 OpenAI upstream 以
-// 400 "Unsupported service_tier: flex" 拒绝，让请求走项目默认 tier。
+// 不写 service_tier：flex 仅在测试阶段有限支持（受模型/账号限制），会被 OpenAI 上游以
+// 400 "Unsupported service_tier: flex" 拒绝，让请求走项目默认服务档位。
 function applyOpenAIResponses(writer: PayloadWriter): void {
 	writer.setTextVerbosity("low");
 }

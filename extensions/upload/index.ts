@@ -1,27 +1,27 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { UploadError } from "./errors.ts";
-import { object, UPLOAD_TOOL, URL_TOOL } from "./protocol.ts";
+import { CONTENT_TYPE_PATTERN, RESUME_PATTERN, object, UPLOAD_TOOL, URL_TOOL } from "./protocol.ts";
 import { uploadLocalFile, type UploadDependencies } from "./uploader.ts";
 
 const linkSchema = Type.Object({ key: Type.String(), url: Type.String(), expiresAt: Type.String(), expiresIn: Type.Integer() });
 
-/** No MCP registration or credential/configuration access: use the caller's live tools. */
+/** 不注册 MCP，也不访问凭据或配置：使用调用方当前可用的工具。 */
 export function registerUploadTool(pi: ExtensionAPI, dependencies: Pick<UploadDependencies, "put" | "remoteTimeoutMs"> = {}): void {
 	pi.registerTool({
 		name: "upload_local_file",
-		label: "Upload local file",
-		description: "Upload an explicitly authorized local file from the Pi host to private S3 via the connected ts_oht MCP. " +
-			"Reads OS-accessible files; not a browser upload or sandbox. Up to 32 MiB uses one PUT; larger files use streaming multipart with 3 workers. " +
-			"Returns a temporary bearer download URL (default 24h inline; HTML may execute). Storage is cleaned after about 7 days. " +
-			"No automatic retries. On failure/unknown outcome preserve key and resume receipt; only resume explicitly with the returned receipt, " +
-			"never start a fresh upload blindly. Stop other clients uploading this same file before resuming. Do not log presigned URLs.",
+		label: "上传本地文件",
+		description: "通过已连接的 ts_oht MCP，将明确授权的本地文件从 Pi 主机上传到私有 S3。" +
+			"读取操作系统允许访问的文件；这不是浏览器上传，也不是沙箱。文件不超过 32 MiB 时使用一次 PUT；更大的文件使用 3 个并发工作单元进行流式分片上传。" +
+			"返回持有者即可使用的临时下载 URL（默认有效期 24 小时，inline 展示；HTML 可能执行）。存储内容约 7 天后清理。" +
+			"不会自动重试。失败或结果未知时，请保留 key 和 resume 恢复凭条；仅在明确要求恢复时使用返回的凭条，" +
+			"切勿盲目发起全新上传。恢复前，请停止其他客户端对同一文件的上传。不要记录预签名 URL。",
 		parameters: Type.Object({
-			path: Type.String({ minLength: 1, description: "Path in the plugin environment; relative to the session cwd. Only regular files." }),
-			contentType: Type.Optional(Type.String({ description: "MIME type without charset; inferred from extension or application/octet-stream." })),
-			expiresIn: Type.Optional(Type.Integer({ minimum: 1, maximum: 604800, description: "Download URL lifetime in seconds; default 86400. Does not extend storage retention." })),
+			path: Type.String({ minLength: 1, description: "插件运行环境中的路径；相对路径以会话 cwd 为基准。仅支持普通文件。" }),
+			contentType: Type.Optional(Type.String({ minLength: 3, maxLength: 127, pattern: CONTENT_TYPE_PATTERN.source, description: "不带 charset 的 MIME 类型；默认根据扩展名推断，无法推断时使用 application/octet-stream。" })),
+			expiresIn: Type.Optional(Type.Integer({ minimum: 1, maximum: 604800, description: "下载 URL 的有效期，单位为秒；默认 86400。不会延长存储保留时间。" })),
 			disposition: Type.Optional(Type.Union([Type.Literal("inline"), Type.Literal("attachment")])),
-			resume: Type.Optional(Type.String({ minLength: 1, maxLength: 8192, description: "Unmodified recovery receipt from a previous failed call; checks the old object before resuming. No credentials." })),
+			resume: Type.Optional(Type.String({ minLength: 1, maxLength: 8192, pattern: RESUME_PATTERN.source, description: "上次失败调用返回的原样恢复凭条；恢复前会检查旧对象。不含凭据。" })),
 		}),
 		outputSchema: Type.Object({
 			uploaded: Type.Union([Type.Boolean(), Type.Null()]),
@@ -34,25 +34,26 @@ export function registerUploadTool(pi: ExtensionAPI, dependencies: Pick<UploadDe
 			fallback: Type.Optional(linkSchema), resume: Type.Optional(Type.String()),
 			error: Type.Optional(Type.Object({ code: Type.String(), message: Type.String() })),
 		}),
+		reachesTools: () => [UPLOAD_TOOL, URL_TOOL],
 		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
 		async execute(_id, params, signal, onUpdate, ctx) {
 			const result = await uploadLocalFile(params, ctx.cwd, signal ?? ctx.signal ?? new AbortController().signal, {
 				...dependencies,
 				async call(name, args, operationSignal) {
 					if (typeof ctx.executeTool !== "function" || !Array.isArray(ctx.tools))
-						throw new UploadError("unsupported-host", "This upload tool needs a Pi host with ctx.executeTool (tested with 1.1.0).");
+						throw new UploadError("unsupported-host", "此上传工具需要支持 ctx.executeTool 的 Pi 主机（已使用 1.1.0 测试）。");
 					if (![UPLOAD_TOOL, URL_TOOL].includes(name) || !ctx.tools.some(tool => tool.name === name))
-						throw new UploadError("mcp-unavailable", "The required ts_oht tool is not connected or callable. Enable it in the host; no connection was created.");
+						throw new UploadError("mcp-unavailable", "所需的 ts_oht 工具尚未连接或不可调用。请在主机中启用它；本工具未创建连接。");
 					const outcome = await ctx.executeTool(name, args, { signal: operationSignal });
-					// Pi wraps the raw MCP CallToolResult in result.structuredContent.
-					// Never bypass host redaction by recovering an absent structured result from text.
+					// Pi 将原始 MCP CallToolResult 包装在 result.structuredContent 中。
+					// 结构化结果缺失时，绝不能从文本中恢复它以绕过主机脱敏。
 					if (outcome.result.structuredContent === undefined)
-						throw new UploadError("mcp-unavailable", "The host blocked the call or withheld its structured MCP result.");
+						throw new UploadError("mcp-unavailable", "主机阻止了调用，或未提供结构化 MCP 结果。");
 					const raw = object(outcome.result.structuredContent);
 					return outcome.isError ? { ...raw, isError: true } : raw;
 				},
 				onProgress(progress) {
-					onUpdate?.({ content: [{ type: "text", text: `Upload: ${progress.phase} (${progress.completedParts}/${progress.totalParts} parts)` }], details: progress });
+					onUpdate?.({ content: [{ type: "text", text: `上传：${({ local: "本地检查", prepare: "准备", upload: "上传", complete: "完成确认", link: "获取链接" })[progress.phase]}（${progress.completedParts}/${progress.totalParts} 个分片）` }], details: progress });
 				},
 			});
 			return { content: [{ type: "text", text: JSON.stringify(result) }], details: result,

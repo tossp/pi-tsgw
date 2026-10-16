@@ -1,5 +1,5 @@
 /**
- * 内置查询注入（Built-in web search tool injection）。
+ * 内置网页搜索工具注入。
  *
  * 对原生支持内置查询的模型（GPT Responses / Grok），在请求改写阶段把
  * 搜索参数追加进请求。属于模型请求改写的一部分，与思维链策略一起在
@@ -40,7 +40,7 @@ const GROK_SEARCH_MODELS = new Set([
 	"grok-4.20-fast",
 ]);
 
-/** Exact model/protocol support, shared by request injection and display code. */
+/** 精确判定模型/协议支持性，由请求注入与展示代码共用。 */
 export function builtinSearchSupport(
 	modelId: string,
 	api: string,
@@ -55,7 +55,7 @@ export function builtinSearchSupport(
 /** 内置联网搜索代理：主模型不支持原生联网时的代理执行模型。 */
 export interface SearchDelegate {
 	modelId: string;
-	/** 代理协议族；请求和响应处理复用宿主 adapter。 */
+	/** 代理协议族；请求和响应处理复用宿主适配器。 */
 	kind: "gpt" | "grok";
 }
 
@@ -74,10 +74,10 @@ const DELEGATE_PREFERENCE = [
 ] as const;
 
 /**
- * Resolve the search-proxy model from the effective (three-layer filtered)
- * catalog, with Luna first and a fixed fallback preference order. Delegates still have to
- * pass `builtinSearchSupport`, so the exact-ID + protocol contract stays the
- * single source of truth. Returns undefined when no supporting model remains.
+ * 从生效目录（三层过滤后）中选择搜索代理模型，优先使用 Luna，
+ * 其余候选按固定优先级回退。代理模型仍须通过 `builtinSearchSupport` 检查，
+ * 因此精确 ID 与协议契约仍是唯一判定依据。
+ * 没有剩余的支持模型时返回 undefined。
  */
 export function resolveSearchDelegate(
 	models: ReadonlyArray<{ id: string; api?: string }>,
@@ -126,11 +126,11 @@ function applyGrokSearch(writer: PayloadWriter): void {
 }
 
 /**
- * Append-only built-in search injection for models with native search.
- * Non-plain payloads and unsupported models are returned
- * unchanged. Existing function tools, `tool_choice`, and `include` are
- * preserved. Sources are not requested: this conservative policy originated
- * with Pi 0.82.0; source rendering on newer hosts needs separate validation.
+ * 对支持原生搜索的模型，仅以追加方式注入内置搜索。
+ * 非普通对象的请求体与不受支持的模型均原样返回。
+ * 保留现有函数工具、`tool_choice` 和 `include`。
+ * 不请求来源：这一保守策略始于 Pi 0.82.0；
+ * 较新宿主上的来源渲染需要单独验证。
  */
 export function applyBuiltinSearchTool<T>(
 	payload: T,

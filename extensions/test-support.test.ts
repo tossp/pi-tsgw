@@ -1,4 +1,4 @@
-// Shared fake host for integration tests; excluded from production builds.
+// 集成测试共享的模拟宿主；不纳入生产构建。
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -115,7 +115,7 @@ export class FakePi {
 	getSessionName: ExtensionAPI["getSessionName"] = () => undefined;
 	setLabel: ExtensionAPI["setLabel"] = () => {};
 	exec: ExtensionAPI["exec"] = async () => {
-		throw new Error("FakePi.exec is not used by this test");
+		throw new Error("本测试不使用 FakePi.exec");
 	};
 	getActiveTools: ExtensionAPI["getActiveTools"] = () => [...this.activeTools];
 	getAllTools: ExtensionAPI["getAllTools"] = () => this.tools as ReturnType<ExtensionAPI["getAllTools"]>;
@@ -125,13 +125,13 @@ export class FakePi {
 	getCommands: ExtensionAPI["getCommands"] = () => [];
 	setModel: ExtensionAPI["setModel"] = async () => false;
 	getThinkingLevel: ExtensionAPI["getThinkingLevel"] = () => {
-		throw new Error("legacy getThinkingLevel must not be called");
+		throw new Error("不得调用旧版 getThinkingLevel");
 	};
 	setThinkingLevel: ExtensionAPI["setThinkingLevel"] = () => {};
 	unregisterProvider: ExtensionAPI["unregisterProvider"] = () => {};
 
 	get events(): ExtensionAPI["events"] {
-		throw new Error("FakePi.events is not used by this test");
+		throw new Error("本测试不使用 FakePi.events");
 	}
 
 	registerProvider(_provider: unknown): void;
@@ -147,11 +147,11 @@ export class FakePi {
 
 	invoke(event: HookName, payload: unknown, ctx?: unknown): unknown {
 		const handlers = this.handlers.get(event);
-		if (!handlers?.length) throw new Error(`missing ${event} handler`);
+		if (!handlers?.length) throw new Error(`缺少 ${event} 处理器`);
 		let result: unknown;
 		for (const handler of handlers) {
 			if (typeof handler !== "function")
-				throw new Error(`invalid ${event} handler`);
+				throw new Error(`${event} 处理器无效`);
 			result = handler(payload, ctx);
 		}
 		return result;
@@ -161,7 +161,7 @@ export class FakePi {
 		const command = this.commands.get(name) as
 			| { handler?: (args: string, ctx: unknown) => void | Promise<void> }
 			| undefined;
-		if (!command?.handler) throw new Error(`missing ${name} command`);
+		if (!command?.handler) throw new Error(`缺少 ${name} 命令`);
 		await command.handler(args, ctx);
 	}
 
@@ -216,9 +216,8 @@ export function providerHeaders(
 }
 
 /**
- * Isolate the extension from the real Pi config directory: point
- * PI_CODING_AGENT_DIR at a throwaway directory that may contain a
- * settings.json with a `tsgw` namespace.
+ * 将扩展与真实 Pi 配置目录隔离：把 PI_CODING_AGENT_DIR 指向临时目录，
+ * 其中可包含带有 `tsgw` 命名空间的 settings.json。
  */
 export function withAgentDir(
 	settings: unknown,

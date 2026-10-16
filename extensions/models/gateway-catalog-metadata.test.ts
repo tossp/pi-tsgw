@@ -28,17 +28,17 @@ function success(ids: string[]): GatewayFetch {
 		});
 }
 
-// Every request injects a fetcher; no test can reach the real network.
+// 每个请求均注入 fetcher；所有测试均无法访问真实网络。
 function cacheOnly() {
 	let calls = 0;
 	const fetcher: GatewayFetch = async () => {
 		calls += 1;
-		throw new Error("unexpected fetch on cache hit");
+		throw new Error("缓存命中时意外发起请求");
 	};
 	return { fetcher, calls: () => calls };
 }
 
-test("network success returns exactly the timestamp persisted to disk", async (t) => {
+test("网络请求成功时返回的时间戳与持久化到磁盘的完全一致", async (t) => {
 	const { baseUrl, cacheFilePath } = fixture(t);
 	const storedAt = 0;
 	const result = await getGatewayModelIds(
@@ -61,7 +61,7 @@ test("network success returns exactly the timestamp persisted to disk", async (t
 	});
 });
 
-test("memory hit keeps the network storage time rather than the lookup time", async (t) => {
+test("内存命中保留网络存储时间，而非查询时间", async (t) => {
 	const { baseUrl } = fixture(t);
 	const storedAt = 123;
 	await getGatewayModelIds(
@@ -87,7 +87,7 @@ test("memory hit keeps the network storage time rather than the lookup time", as
 	equal(blocked.calls(), 0);
 });
 
-test("disk hit and subsequent memory hit both keep the disk storage time", async (t) => {
+test("磁盘命中与随后的内存命中均保留磁盘存储时间", async (t) => {
 	const { baseUrl, cacheFilePath } = fixture(t);
 	const storedAt = 456;
 	saveGatewayModelCache(cacheFilePath, gatewayModelCacheScope(baseUrl, "key"), ["disk-model"], storedAt);
@@ -118,12 +118,12 @@ test("disk hit and subsequent memory hit both keep the disk storage time", async
 });
 
 for (const scenario of [
-	{ name: "memory only", memoryAt: 100, diskAt: undefined },
-	{ name: "disk only", memoryAt: undefined, diskAt: 200 },
-	{ name: "newer memory", memoryAt: 300, diskAt: 200 },
-	{ name: "newer disk", memoryAt: 100, diskAt: 200 },
+	{ name: "仅内存", memoryAt: 100, diskAt: undefined },
+	{ name: "仅磁盘", memoryAt: undefined, diskAt: 200 },
+	{ name: "内存更新", memoryAt: 300, diskAt: 200 },
+	{ name: "磁盘更新", memoryAt: 100, diskAt: 200 },
 ]) {
-	test(`expired fallback preserves the original time: ${scenario.name}`, async (t) => {
+	test(`过期回退保留原始时间：${scenario.name}`, async (t) => {
 		const { baseUrl, cacheFilePath } = fixture(t);
 		const { memoryAt, diskAt } = scenario;
 		if (memoryAt !== undefined) {
@@ -147,7 +147,7 @@ for (const scenario of [
 			calls += 1;
 			return new Response("unavailable", { status: 503 });
 		};
-		// Repeated failures must not refresh either cache's storage time or TTL.
+		// 连续失败不得刷新任一缓存的存储时间或 TTL。
 		for (const now of [storedAt + TTL, storedAt + TTL + 1]) {
 			const result = await getGatewayModelIds(
 				baseUrl,

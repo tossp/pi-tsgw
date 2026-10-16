@@ -60,7 +60,7 @@ function fixture() {
 	};
 }
 
-test("proxy snapshots mode, injects into frozen payload and preserves Pi usage/citation URLs", async () => {
+test("代理保存模式快照、向冻结请求体注入参数并保留 Pi 用量与引用 URL", async () => {
 	const f = fixture();
 	assert.equal(f.tool.defaultActive, false);
 	f.mode("cached");
@@ -80,16 +80,16 @@ test("proxy snapshots mode, injects into frozen payload and preserves Pi usage/c
 	assert.equal(f.operation()?.aborted, true);
 });
 
-test("proxy validates current delegate and actual registry protocol before requesting", async () => {
+test("代理在请求前校验当前委托模型与注册表中的实际协议", async () => {
 	const f = fixture();
 	f.delegate(undefined);
-	await assert.rejects(f.run(), /no available delegate/);
+	await assert.rejects(f.run(), /没有可供当前模型使用的代理模型/);
 	f.delegate({ modelId: "gpt-6-luna", kind: "grok" });
-	await assert.rejects(f.run(), /supported protocol/);
+	await assert.rejects(f.run(), /受支持的协议/);
 	assert.equal(f.calls(), 0);
 });
 
-test("proxy preserves failure usage but never exposes raw provider errors or partial answer", async () => {
+test("代理保留失败用量但绝不暴露提供方原始错误或部分回答", async () => {
 	const f = fixture();
 	f.reply({ stopReason: "error", errorMessage: "secret-provider-error", content: [{ type: "text", text: "partial-private-response" }] });
 	const result = await f.run();
@@ -98,17 +98,17 @@ test("proxy preserves failure usage but never exposes raw provider errors or par
 	assert.doesNotMatch(JSON.stringify(result), /secret-provider-error|partial-private-response/);
 	f.throw();
 	await assert.rejects(f.run(), error => {
-		assert.match(String(error), /delegated search failed/);
+		assert.match(String(error), /代理搜索失败/);
 		assert.doesNotMatch(String(error), /private-provider-response-with-secret/);
 		return true;
 	});
 });
 
-test("proxy reports truncation and empty answer, and pre-abort never starts a request", async () => {
+test("代理报告截断与空回答，预先取消时绝不发起请求", async () => {
 	const f = fixture();
 	f.reply({ stopReason: "length" });
 	const truncated = await f.run();
-	assert.match(JSON.stringify(truncated.content), /truncated/);
+	assert.match(JSON.stringify(truncated.content), /已截断/);
 	f.reply({ content: [] });
 	assert.equal((await f.run()).isError, true);
 	const before = f.calls();

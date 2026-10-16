@@ -1,7 +1,7 @@
 import type { ChatModelConfig as ProviderModelConfig } from "../_tools.ts";
 
 /**
- * Wire 协议公共配置。
+ * 传输协议公共配置。
  *
  * 网关上的模型虽然很多，底层协议就这四类：openai-completions、
  * openai-responses、anthropic-messages、google-generative-ai。
@@ -11,12 +11,12 @@ import type { ChatModelConfig as ProviderModelConfig } from "../_tools.ts";
  * 有适配需要时再在此扩展。
  */
 
-/** openai-completions：网关接受 `system` role，但不接受 OpenAI 新的 `developer` role。 */
+/** openai-completions：网关接受 `system` 角色，但不接受 OpenAI 新的 `developer` 角色。 */
 export const OPENAI_COMPLETIONS_COMPAT: ProviderModelConfig["compat"] = {
 	supportsDeveloperRole: false,
 };
 
-/** anthropic-messages：Claude 系列使用 Pi 原生 adaptive thinking。 */
+/** anthropic-messages：Claude 系列使用 Pi 原生自适应思考。 */
 export const ANTHROPIC_COMPAT: ProviderModelConfig["compat"] = {
 	forceAdaptiveThinking: true,
 };

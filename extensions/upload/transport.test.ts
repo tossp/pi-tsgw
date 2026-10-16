@@ -54,7 +54,7 @@ async function expectCode(action: Promise<void>, code: string) {
 	});
 }
 
-// Raw bytes, preserved signature headers, bounded writes, DNS pin and TLS defaults.
+// 验证原始字节、签名请求头保留、有界写入、DNS 地址固定和 TLS 默认设置。
 {
 	const h = harness();
 	const bytes = Buffer.alloc(200_003);
@@ -155,7 +155,7 @@ for (const status of [301, 307, 308, 400, 503]) {
 	await expectCode(putBytesWithDeps({ ...target(), expiresAt: new Date(Date.now() + 50).toISOString() }, Buffer.alloc(3), signal(), h.deps), "timeout");
 	assert.equal(h.socket?.destroyed, true);
 }
-// Progress does not renew the total deadline; the producer is closed before rejection.
+// 进度不会延长总截止时间；拒绝前关闭数据生产者。
 {
 	const h = harness();
 	let closed = false;
@@ -172,7 +172,7 @@ for (const status of [301, 307, 308, 400, 503]) {
 	assert.ok(h.chunks.length < 100);
 	assert.equal(h.socket?.destroyed, true);
 }
-// The deadline also covers DNS, not just socket idleness.
+// 截止时间也覆盖 DNS，而不仅是套接字空闲时间。
 {
 	const h = harness();
 	let stopped = false;
@@ -223,4 +223,4 @@ for (const headers of [
 	h.deps.resolve = async () => [];
 	await expectCode(putBytesWithDeps(target(), Buffer.alloc(3), signal(), h.deps), "network-error");
 }
-console.log("upload transport tests passed");
+console.log("上传传输测试通过");

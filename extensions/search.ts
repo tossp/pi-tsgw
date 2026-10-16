@@ -22,7 +22,7 @@ interface SearchController {
 	stop(): void;
 }
 
-/** Session search control; no retained lifecycle context or credential handling. */
+/** 会话搜索控制；不保留生命周期上下文，也不处理凭据。 */
 export function registerSearch(pi: ExtensionAPI, options: SearchOptions): SearchController {
 	let mode = options.defaultMode;
 	let stopped = false;
@@ -49,7 +49,7 @@ export function registerSearch(pi: ExtensionAPI, options: SearchOptions): Search
 			: active.filter(name => name !== SEARCH_PROXY_TOOL));
 	};
 	pi.registerCommand("tsgw-search", {
-		description: "Change native or delegated built-in web search for this session only",
+		description: "更改原生或代理内置联网搜索设置，仅对当前会话生效",
 		handler: async (args, ctx) => {
 			const revision = options.revision();
 			await ctx.waitForIdle();

@@ -1,4 +1,4 @@
-/** Opt-in live acceptance. Not part of npm test; creates synthetic remote objects. */
+/** 显式启用的真实服务验收。不属于 npm test；会创建合成的远程对象。 */
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp, mkdir, open, rm, writeFile } from "node:fs/promises";
@@ -34,7 +34,7 @@ function modelResponse(args?: UploadParams): Response {
 }
 
 async function main(): Promise<void> {
-	if (process.env.TSGW_UPLOAD_LIVE !== "1") throw new Error("Set TSGW_UPLOAD_LIVE=1 only after authorizing synthetic uploads to the configured ts_oht server.");
+	if (process.env.TSGW_UPLOAD_LIVE !== "1") throw new Error("只有在授权向已配置的 ts_oht 服务器上传合成数据后，才能设置 TSGW_UPLOAD_LIVE=1。");
 	const root = await mkdtemp(join(tmpdir(), "pi-tsgw-upload-live-"));
 	const agentDir = join(root, "agent");
 	await mkdir(agentDir);
@@ -51,20 +51,20 @@ async function main(): Promise<void> {
 	const calls: string[] = [];
 	const failures: string[] = [];
 	try {
-		// Read the host's existing MCP configuration through its own loader, in memory.
-		// Only ts_oht is connected; no settings, credentials or URLs are copied to files.
+		// 通过主机自身的加载器在内存中读取其现有 MCP 配置。
+		// 仅连接 ts_oht；不将任何设置、凭据或 URL 复制到文件。
 		const configModule = await import(new URL("./extensions/mcp/config.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href);
 		const config = configModule.loadMcpConfig({ agentDir: getAgentDir(), cwd: root, projectTrusted: false });
-		assert.equal(config.errors.length, 0, "Host MCP configuration must load without errors");
+		assert.equal(config.errors.length, 0, "主机 MCP 配置必须无错误地加载");
 		config.servers = config.servers.filter((entry: { name: string }) => entry.name === "ts_oht");
-		assert.equal(config.servers.length, 1, "Expected an existing ts_oht configuration");
+		assert.equal(config.servers.length, 1, "应存在现有的 ts_oht 配置");
 		assert.notEqual(config.servers[0].config.enabled, false);
 		config.autoEnableCodemode = false;
 		const settings = SettingsManager.inMemory({ packages: [], extensions: [], cacheWarming: "off",
 			compaction: { enabled: false }, retry: { enabled: false, provider: { maxRetries: 0 } }, transport: "sse" });
 		const loader = new DefaultResourceLoader({ cwd: root, agentDir, settingsManager: settings,
 			noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-			systemPrompt: "Synthetic upload acceptance; all model responses are local fixtures.",
+			systemPrompt: "合成数据上传验收；所有模型响应均为本地测试数据。",
 			extensionFactories: [createMcpExtension({ loadConfig: () => config, logPath: join(root, "mcp.log") }), pi => {
 				pi.registerProvider("upload-fixture", { api: "openai-responses", baseUrl: `${MODEL_ROOT}/v1`, apiKey: "fixture-only",
 					models: [{ id: "fixture", name: "Fixture", reasoning: false, input: ["text"], contextWindow: 100000, maxTokens: 256,
@@ -72,8 +72,8 @@ async function main(): Promise<void> {
 				registerUploadTool(pi, { async put(target, body, signal) {
 					puts.push(target.size);
 					if (interrupt && target.size <= SINGLE_LIMIT) {
-						// First part is acknowledged before the injected interruption; no real retries.
-						if (puts.length > 1) { await firstPart; throw new UploadError("test-interruption", "Synthetic interrupted batch."); }
+						// 注入中断前先确认首个分片；不进行真实重试。
+						if (puts.length > 1) { await firstPart; throw new UploadError("test-interruption", "合成测试批次已中断。"); }
 						try { await putBytes(target, body, signal); } finally { firstDone?.(); }
 						return;
 					}
@@ -85,7 +85,7 @@ async function main(): Promise<void> {
 						const raw = event.structuredContent as { structuredContent?: { uploaded?: boolean } } | undefined;
 						if (raw?.structuredContent?.uploaded === true) {
 							loseCompletion = false;
-							return { isError: true, content: [{ type: "text", text: "Synthetic lost completion response" }] };
+							return { isError: true, content: [{ type: "text", text: "合成测试的完成响应丢失" }] };
 						}
 					}
 					if (event.toolName === "upload_local_file") result = event.structuredContent as unknown as UploadResult;
@@ -100,7 +100,7 @@ async function main(): Promise<void> {
 			return response;
 		};
 		await loader.reload();
-		assert.equal(loader.getExtensions().errors.length, 0, "Extension loading failed");
+		assert.equal(loader.getExtensions().errors.length, 0, "扩展加载失败");
 		const runtime = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"),
 			modelsStorePath: join(agentDir, "models-store.json"), allowModelNetwork: false, refreshOnCreate: false });
 		({ session } = await createAgentSession({ cwd: root, agentDir, modelRuntime: runtime, resourceLoader: loader,
@@ -109,18 +109,18 @@ async function main(): Promise<void> {
 		const model = runtime.getModel("upload-fixture", "fixture");
 		assert.ok(model);
 		await session.setModel(model);
-		await session.bindExtensions({ mode: "print", onError: () => failures.push("Host extension error") });
+		await session.bindExtensions({ mode: "print", onError: () => failures.push("主机扩展错误") });
 		for (let attempt = 0; attempt < 300 && !session.getAllTools().some(t => t.name === UPLOAD_TOOL); attempt++) await delay(100);
-		if (!session.getAllTools().some(t => t.name === UPLOAD_TOOL)) console.log(`Live MCP not ready; host errors: ${failures.length}; registered tools: ${session.getAllTools().length}`);
-		assert.ok(session.getAllTools().some(t => t.name === UPLOAD_TOOL), "ts_oht tools did not become ready");
+		if (!session.getAllTools().some(t => t.name === UPLOAD_TOOL)) console.log(`真实 MCP 尚未就绪；主机错误数：${failures.length}；已注册工具数：${session.getAllTools().length}`);
+		assert.ok(session.getAllTools().some(t => t.name === UPLOAD_TOOL), "ts_oht 工具未能就绪");
 		const invoke = async (input: UploadParams): Promise<UploadResult> => {
 			args = input; issued = false; result = undefined;
-			await session!.prompt("Execute the configured synthetic upload acceptance step.");
-			assert.ok(result, "No upload result received through the real host pipeline");
+			await session!.prompt("执行已配置的合成数据上传验收步骤。");
+			assert.ok(result, "未通过真实主机流水线收到上传结果");
 			return result;
 		};
 		const verify = async (value: UploadResult, expectedHash: string, disposition: string, seconds: number) => {
-			assert.equal(value.uploaded, true, value.error?.code ?? "Upload was not confirmed");
+			assert.equal(value.uploaded, true, value.error?.code ?? "上传未获确认");
 			assert.equal(value.linkStatus, "ready");
 			assert.equal(value.expiresIn, seconds);
 			assert.equal(value.disposition, disposition);
@@ -133,16 +133,16 @@ async function main(): Promise<void> {
 			assert.ok(response.body);
 			const hash = createHash("sha256");
 			for await (const chunk of response.body) hash.update(chunk);
-			assert.equal(hash.digest("hex"), expectedHash, "Downloaded bytes must match the synthetic source");
+			assert.equal(hash.digest("hex"), expectedHash, "下载字节必须与合成源数据一致");
 		};
 		const small = Buffer.from("pi-tsgw synthetic upload acceptance\n".repeat(4));
 		await writeFile(join(root, "inline.txt"), small);
 		const digest = createHash("sha256").update(small).digest("hex");
 		await verify(await invoke({ path: "inline.txt" }), digest, "inline", 86400);
-		console.log("PASS single PUT: raw bytes, SHA-256, inline, 86400 seconds");
+		console.log("通过：单次 PUT，原始字节、SHA-256、inline、86400 秒");
 		await writeFile(join(root, "attachment.txt"), small);
 		await verify(await invoke({ path: "attachment.txt", disposition: "attachment", expiresIn: 7200 }), digest, "attachment", 7200);
-		console.log("PASS single PUT: attachment, custom 7200 seconds");
+		console.log("通过：单次 PUT，attachment、自定义 7200 秒");
 
 		const largePath = join(root, "multipart.bin");
 		const handle = await open(largePath, "wx");
@@ -165,17 +165,17 @@ async function main(): Promise<void> {
 		assert.equal(uncertain.phase, "complete");
 		assert.equal(uncertain.key, interrupted.key);
 		assert.ok(uncertain.resume);
-		assert.equal(puts.length, 4, "Only the four missing parts are uploaded; the first part is not replayed");
+		assert.equal(puts.length, 4, "仅上传四个缺失分片；不重放首个分片");
 		const before = calls.length;
 		puts.length = 0;
 		const recovered = await invoke({ path: largePath, resume: uncertain.resume, disposition: "attachment", expiresIn: 3600 });
-		assert.deepEqual(calls.slice(before), [URL_TOOL], "Lost completion is recovered with HEAD/signing only");
+		assert.deepEqual(calls.slice(before), [URL_TOOL], "完成响应丢失后仅通过 HEAD 和签名恢复");
 		assert.equal(puts.length, 0);
 		assert.equal(recovered.key, interrupted.key);
 		await verify(recovered, largeHash.digest("hex"), "attachment", 3600);
-		console.log("PASS 33 MiB multipart: interruption, missing-part resume, lost completion recovery, SHA-256, attachment, 3600 seconds");
+		console.log("通过：33 MiB 分片上传，中断、缺失分片恢复、完成响应丢失恢复、SHA-256、attachment、3600 秒");
 		assert.deepEqual(failures, []);
-		console.log("PASS real Pi host + configured ts_oht; synthetic objects remain for normal server retention");
+		console.log("通过：真实 Pi 主机及已配置的 ts_oht；合成对象按服务器正常保留策略留存");
 	} finally {
 		try { await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }); }
 		finally {
@@ -187,11 +187,11 @@ async function main(): Promise<void> {
 }
 
 void main().catch((error: unknown) => {
-	// Only local stack locations, never assertion values, URLs or network errors.
-	console.error("Live upload acceptance failed. Sensitive diagnostics suppressed.");
+	// 仅输出本地堆栈位置，绝不输出断言值、URL 或网络错误。
+	console.error("真实上传验收失败。已隐藏敏感诊断信息。");
 	if (error instanceof Error) for (const line of error.stack?.split("\n") ?? []) {
 		const location = line.match(/\/extensions\/upload\/live\.test\.js:(\d+):(\d+)\)?$/);
-		if (location) console.error(`Location: live.test.js:${location[1]}:${location[2]}`);
+		if (location) console.error(`位置：live.test.js:${location[1]}:${location[2]}`);
 	}
 	process.exitCode = 1;
 });

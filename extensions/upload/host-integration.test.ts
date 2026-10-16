@@ -24,9 +24,12 @@ interface Scenario {
 	block?: string;
 	redact?: string;
 	remoteError?: string;
+	args?: Record<string, unknown>;
+	seconds?: number;
+	invalidInput?: boolean;
 }
 
-/** Genuine Responses events: the real adapter must parse and dispatch the tool call. */
+/** 真实的 Responses 事件：必须由真实适配器解析并分派工具调用。 */
 function responseSse(call: boolean, args: Record<string, unknown>): Response {
 	const item = call
 		? { id: "fc_fixture", type: "function_call", call_id: "call_upload", name: OUTER,
@@ -53,16 +56,16 @@ function success(data: Record<string, unknown>): CallToolResult {
 	return { content: [{ type: "text", text: JSON.stringify(data) }], structuredContent: data, isError: false };
 }
 
-// Run in its own process, like ../host-integration.test.ts: the sandbox changes
-// process-wide globals. Only model HTTP and the byte PUT boundary are faked;
-// Pi's session, nested call pipeline, MCP wrapper/client and JSON-RPC are real.
-test("Pi 1.1 SDK upload: real MCP nested execution, permissions and redaction", { timeout: 60_000 }, async (t) => {
+// 与 ../host-integration.test.ts 一样在独立进程中运行：沙箱会更改
+// 进程级全局状态。仅模拟模型 HTTP 和字节 PUT 边界；
+// Pi 会话、嵌套调用流水线、MCP 包装器及客户端和 JSON-RPC 均为真实实现。
+test("Pi SDK 上传：真实 MCP 嵌套执行、权限、校验及脱敏", { timeout: 60_000 }, async (t) => {
 	const originalEnv = { ...process.env };
 	const originalCwd = process.cwd();
 	const originalFetch = globalThis.fetch;
 	const sandbox = new HostSandbox();
 	try {
-		// SDK and production imports happen only after ambient configuration and sockets are isolated.
+		// 仅在环境配置和套接字隔离后，才导入 SDK 和生产代码。
 		const { createAgentSession, createMcpExtension, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } =
 			await import("@earendil-works/pi-coding-agent");
 		const { createInMemoryTransportPair } = await import("@earendil-works/pi-mcp/testing");
@@ -70,16 +73,21 @@ test("Pi 1.1 SDK upload: real MCP nested execution, permissions and redaction", 
 		writeFileSync(join(sandbox.cwd, "report.txt"), CONTENT);
 		const guardedFetch = globalThis.fetch;
 		const scenarios: Scenario[] = [
-			{ name: "default inline uses the plan link after one PUT" },
-			{ name: "custom attachment follows upload_file → PUT → get_file_url", custom: true },
-			{ name: "outer permission denial prevents all remote and byte operations", block: OUTER },
-			{ name: "nested prepare permission denial prevents PUT", block: UPLOAD },
-			{ name: "nested link permission denial preserves uploaded state", custom: true, block: LINK },
-			{ name: "prepare redaction drops structured MCP result and fails closed", redact: UPLOAD },
-			{ name: "link redaction drops structured MCP result and fails closed", custom: true, redact: LINK },
-			{ name: "raw MCP structured prepare error becomes a safe business error", remoteError: UPLOAD },
-			{ name: "raw MCP structured link error preserves uploaded state", custom: true, remoteError: LINK },
-			{ name: "missing MCP produces safe error without creating a connection", missing: true },
+			{ name: "默认 inline 在一次 PUT 后使用计划中的链接" },
+			{ name: "自定义 attachment 按 upload_file → PUT → get_file_url 顺序执行", custom: true },
+			{ name: "外层权限拒绝阻止所有远程操作和字节操作", block: OUTER },
+			{ name: "嵌套准备调用被拒绝时阻止 PUT", block: UPLOAD },
+			{ name: "嵌套链接调用被拒绝时保留已上传状态", custom: true, block: LINK },
+			{ name: "准备结果脱敏移除结构化 MCP 结果并安全拒绝继续", redact: UPLOAD },
+			{ name: "链接结果脱敏移除结构化 MCP 结果并安全拒绝继续", custom: true, redact: LINK },
+			{ name: "原始 MCP 结构化准备错误转换为安全业务错误", remoteError: UPLOAD },
+			{ name: "原始 MCP 结构化链接错误保留已上传状态", custom: true, remoteError: LINK },
+			{ name: "缺少 MCP 时返回安全错误而不创建连接", missing: true },
+			{ name: "主机在执行上传前将小数有效期转换为 1", custom: true, args: { expiresIn: 1.5 }, seconds: 1 },
+			{ name: "主机在执行上传前转换字符串有效期", custom: true, args: { expiresIn: "3600" } },
+			{ name: "主机移除可选 null 并使用默认链接", args: { expiresIn: null, resume: null, contentType: null } },
+			{ name: "主机在任何上传操作前拒绝无效 MIME", args: { contentType: "text/plain; charset=utf-8" }, invalidInput: true },
+			{ name: "主机在任何上传操作前拒绝凭条中的无效字符", args: { resume: "bad/receipt=" }, invalidInput: true },
 		];
 		for (const scenario of scenarios) await t.test(scenario.name, async () => {
 			const pair = createInMemoryTransportPair();
@@ -95,11 +103,12 @@ test("Pi 1.1 SDK upload: real MCP nested execution, permissions and redaction", 
 			let transportCreations = 0;
 			let putCount = 0;
 			let session: AgentSession | undefined;
-			const args = { path: "report.txt", ...(scenario.custom ? { expiresIn: 3600, disposition: "attachment" } : {}) };
+			const seconds = scenario.seconds ?? 3600;
+			const args = { path: "report.txt", ...(scenario.custom ? { expiresIn: seconds, disposition: "attachment" } : {}), ...scenario.args };
 			const plan = { key: KEY, url: DOWNLOAD, expiresAt: EXPIRES, expiresIn: 86400,
 				mode: "single", uploaded: false, uploads: [{ partNumber: 1, offset: 0, size: Buffer.byteLength(CONTENT),
 					url: PUT, method: "PUT", headers: {}, expiresAt: EXPIRES }] };
-			const link = { key: KEY, url: `${DOWNLOAD}&attachment=true`, expiresAt: EXPIRES, expiresIn: 3600 };
+			const link = { key: KEY, url: `${DOWNLOAD}&attachment=true`, expiresAt: EXPIRES, expiresIn: seconds };
 			const serve = async (message: JsonRpcMessage) => {
 				if (!("method" in message) || !("id" in message)) return;
 				let result: unknown;
@@ -119,19 +128,19 @@ test("Pi 1.1 SDK upload: real MCP nested execution, permissions and redaction", 
 						? { content: [{ type: "text", text: "Remote fixture rejected the request" }], isError: true,
 							structuredContent: { error: { code: "denied", message: SECRET } } }
 						: success(params.name === "upload_file" ? plan : link);
-				} else throw new Error(`Unexpected MCP method: ${message.method}`);
+				} else throw new Error(`意外的 MCP 方法：${message.method}`);
 				await pair.server.send({ jsonrpc: "2.0", id: message.id, result });
 			};
 			pair.server.onMessage(message => { void serve(message).catch(error => transportErrors.push(error)); });
 			await pair.server.start();
 			globalThis.fetch = async (input, init) => {
 				const request = new Request(input, init);
-				// All non-model requests still go through HostSandbox's deny/record guard.
+				// 所有非模型请求仍经过 HostSandbox 的拒绝及记录防护。
 				if (request.url !== `${TEST_ROOT}/v1/responses`) return guardedFetch(request);
 				assert.equal(request.method, "POST");
 				assert.equal(request.headers.get("authorization"), `Bearer ${TEST_KEY}`);
 				modelRequests.push(await request.json() as Record<string, unknown>);
-				assert.ok(modelRequests.length <= 2, "No unplanned model retries or tool loops");
+				assert.ok(modelRequests.length <= 2, "不得出现计划外的模型重试或工具循环");
 				return responseSse(modelRequests.length === 1, args);
 			};
 			try {
@@ -141,7 +150,7 @@ test("Pi 1.1 SDK upload: real MCP nested execution, permissions and redaction", 
 				const loader = new DefaultResourceLoader({
 					cwd: sandbox.cwd, agentDir: sandbox.agentDir, settingsManager: settings,
 					noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-					systemPrompt: "Execute only the explicitly requested isolated fixture upload.",
+					systemPrompt: "仅执行明确请求的隔离测试上传。",
 					extensionFactories: [
 						createMcpExtension({
 							loadConfig: () => ({ errors: [], autoEnableCodemode: false, servers: scenario.missing ? [] : [{
@@ -162,7 +171,7 @@ test("Pi 1.1 SDK upload: real MCP nested execution, permissions and redaction", 
 							registerUploadTool(pi, { put: async (target, body, signal) => {
 								assert.equal(signal.aborted, false);
 								assert.equal(target.url, PUT);
-								assert.ok(body instanceof Uint8Array, "Single upload must use a fixed snapshot");
+								assert.ok(body instanceof Uint8Array, "单次上传必须使用固定快照");
 								assert.equal(Buffer.from(body).toString(), CONTENT);
 								putCount++;
 								chain.push("PUT");
@@ -170,12 +179,12 @@ test("Pi 1.1 SDK upload: real MCP nested execution, permissions and redaction", 
 							pi.on("tool_call", event => {
 								calls.push(event);
 								hints.set(event.toolName, pi.getAllTools().find(tool => tool.name === event.toolName)?.annotations);
-								if (event.toolName === scenario.block) return { block: true, reason: "Fixture permission denied" };
+								if (event.toolName === scenario.block) return { block: true, reason: "测试权限被拒绝" };
 							});
 							pi.on("tool_result", event => {
 								results.push({ ...event });
-								// Even valid JSON text must not be recovered when the host removes the
-								// structured wrapper. Returning only content triggers Pi's redaction rule.
+								// 主机移除结构化包装后，即使文本为有效 JSON，也不得从中恢复结果。
+								// 仅返回 content 会触发 Pi 的脱敏规则。
 								if (event.toolName === scenario.redact) return { content: event.content };
 							});
 							pi.on("tool_result", event => {
@@ -197,16 +206,28 @@ test("Pi 1.1 SDK upload: real MCP nested execution, permissions and redaction", 
 				assert.ok(model);
 				await session.setModel(model);
 				await session.bindExtensions({ mode: "print", onError: error => errors.push(error) });
-				await session.prompt("I authorize uploading report.txt with the fixture options.");
+				await session.prompt("我授权使用测试选项上传 report.txt。");
 				assert.equal(session.getLastAssistantText(), "Upload fixture finished.");
 				assert.equal(modelRequests.length, 2);
 				assert.ok((modelRequests[0]!.tools as { name?: string }[]).some(tool => tool.name === OUTER));
-				assert.deepEqual(hints.get(OUTER), annotations, "Permission handlers observe public upload annotations");
+				if (scenario.invalidInput) {
+					const output = session.messages.find(message => message.role === "toolResult");
+					assert.equal(output?.role, "toolResult");
+					assert.equal(output.isError, true);
+					assert.match(JSON.stringify(output.content), /Validation failed/);
+					assert.equal(putCount, 0);
+					assert.deepEqual(remote, []);
+					assert.deepEqual(chain, []);
+					assert.deepEqual(errors, []);
+					assert.deepEqual(sandbox.blocked, []);
+					return;
+				}
+				assert.deepEqual(hints.get(OUTER), annotations, "权限处理器可观察公开的上传注解");
 				assert.equal(transportCreations, scenario.missing ? 0 : 1);
 				if (scenario.redact) {
 					assert.equal(redactedResults.length, 1);
-					assert.equal(redactedResults[0]!.structuredContent, undefined, "Real host redaction removes structured output");
-					assert.ok(redactedResults[0]!.content.some(block => block.type === "text"), "Text cannot bypass redaction");
+					assert.equal(redactedResults[0]!.structuredContent, undefined, "真实主机脱敏会移除结构化输出");
+					assert.ok(redactedResults[0]!.content.some(block => block.type === "text"), "文本不能绕过脱敏");
 				}
 				const outerCall = calls.find(call => call.toolName === OUTER)!;
 				assert.ok(outerCall);
@@ -214,16 +235,16 @@ test("Pi 1.1 SDK upload: real MCP nested execution, permissions and redaction", 
 				for (const nested of calls.filter(call => call.toolName !== OUTER)) {
 					assert.equal(nested.parentToolCallId, outerCall.toolCallId);
 					assert.ok(nested.toolCallId.startsWith(`${outerCall.toolCallId}/`));
-					assert.deepEqual(hints.get(nested.toolName), annotations, "MCP annotations survive the real wrapper");
+					assert.deepEqual(hints.get(nested.toolName), annotations, "MCP 注解经过真实包装器后仍保留");
 				}
 				const transcriptResults = session.messages.filter(message => message.role === "toolResult");
-				assert.equal(transcriptResults.length, 1, "Nested MCP result bodies must not become transcript entries");
+				assert.equal(transcriptResults.length, 1, "嵌套 MCP 结果正文不得成为会话记录条目");
 				const output = transcriptResults[0]!;
 				assert.equal(output.toolName, OUTER);
 				assert.equal(JSON.stringify(modelRequests).includes(SECRET), false);
 				if (scenario.block === OUTER) {
 					assert.equal(output.isError, true);
-					assert.match(JSON.stringify(output.content), /Fixture permission denied/);
+					assert.match(JSON.stringify(output.content), /测试权限被拒绝/);
 					assert.deepEqual(calls.map(call => call.toolName), [OUTER]);
 					assert.deepEqual(chain, []);
 					assert.equal(putCount, 0);
@@ -253,7 +274,7 @@ test("Pi 1.1 SDK upload: real MCP nested execution, permissions and redaction", 
 						assert.equal(output.isError, false, JSON.stringify({ business, calls, remote, errors, transportErrors }));
 						assert.deepEqual(business, { uploaded: true, uploadStatus: "uploaded", phase: "link", linkStatus: "ready",
 							key: KEY, url: scenario.custom ? link.url : DOWNLOAD, expiresAt: EXPIRES,
-							expiresIn: scenario.custom ? 3600 : 86400, disposition: scenario.custom ? "attachment" : "inline" });
+							expiresIn: scenario.custom ? seconds : 86400, disposition: scenario.custom ? "attachment" : "inline" });
 						assert.equal(putCount, 1);
 						assert.deepEqual(chain, scenario.custom ? ["upload_file", "PUT", "get_file_url"] : ["upload_file", "PUT"]);
 					}
@@ -261,8 +282,8 @@ test("Pi 1.1 SDK upload: real MCP nested execution, permissions and redaction", 
 					if (scenario.block === LINK) assert.deepEqual(chain, ["upload_file", "PUT"]);
 					for (const result of results.filter(result => result.toolName !== OUTER)) {
 						if (result.toolName === scenario.block) continue;
-						// This is the actual AgentToolCallOutcome.result.structuredContent:
-						// one complete raw MCP CallToolResult, not the inner business object.
+						// 这是实际的 AgentToolCallOutcome.result.structuredContent：
+						// 完整的原始 MCP CallToolResult，而非内部业务对象。
 						const raw = result.structuredContent as unknown as CallToolResult;
 						assert.ok(Array.isArray(raw.content));
 						if (result.toolName === scenario.remoteError) {
@@ -280,11 +301,11 @@ test("Pi 1.1 SDK upload: real MCP nested execution, permissions and redaction", 
 						assert.equal(typeof preparation.args.ctimeMs, "number");
 					}
 					const signing = remote.find(call => call.name === "get_file_url");
-					if (signing) assert.deepEqual(signing.args, { key: KEY, expiresIn: 3600, disposition: "attachment" });
+					if (signing) assert.deepEqual(signing.args, { key: KEY, expiresIn: seconds, disposition: "attachment" });
 				}
-				assert.deepEqual(errors, [], "No swallowed extension errors");
-				assert.deepEqual(transportErrors, [], "All JSON-RPC fixture requests were handled");
-				assert.deepEqual(sandbox.blocked, [], "No real network or unexpected HTTP attempts");
+				assert.deepEqual(errors, [], "不得吞掉扩展错误");
+				assert.deepEqual(transportErrors, [], "所有 JSON-RPC 测试请求均已处理");
+				assert.deepEqual(sandbox.blocked, [], "不得尝试真实网络访问或意外 HTTP 请求");
 			} finally {
 				try { await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }); }
 				finally {

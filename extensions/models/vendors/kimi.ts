@@ -45,7 +45,7 @@ export function kimiModels(root: string): ProviderModelConfig[] {
 // Kimi K3 思维链：移除 `thinking` 字段，改用 `reasoning_effort` 表达深度。
 function applyKimiK3(writer: PayloadWriter, level: ThinkingLevel): void {
 	writer.remove("thinking");
-	// K3 始终思考，省略 effort 默认 max；直接或迟到的 off 请求降至 low。
+	// K3 始终思考，省略思考深度设置时默认为 max；直接或迟到的 off 请求降至 low。
 	if (level === "off" || level === "minimal" || level === "low") {
 		writer.set("reasoning_effort", "low");
 		return;

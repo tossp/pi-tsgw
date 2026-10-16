@@ -32,8 +32,8 @@ import { registerUploadTool } from "./upload/index.ts";
 import { registerTsgwMcp } from "./mcp.ts";
 
 /**
- * The data needed by provider hooks, copied while the lifecycle context is
- * fresh. Keep this structural: stale runners may invoke those hooks later.
+ * 在生命周期上下文仍有效时，复制供应商钩子所需的数据。
+ * 保持结构化类型：过期的执行器可能稍后才调用这些钩子。
  */
 interface RequestState {
 	provider: string;
@@ -51,9 +51,9 @@ interface RequestModel {
 }
 
 /**
- * Extension configuration from the `tsgw` namespace of the Pi settings file
- * (settings.json). All plugin configuration lives here; the plugin reads no
- * environment variables (only Pi's own credential resolution handles keys).
+ * 扩展配置来自 Pi 设置文件（settings.json）的 `tsgw` 命名空间。
+ * 所有插件配置均放在此处；插件不读取环境变量
+ * （密钥仅由 Pi 自身的凭据解析机制处理）。
  */
 interface TsgwSettings {
 	baseUrl?: string;
@@ -84,7 +84,7 @@ function rootForRuntime(configured: string | undefined): string {
 	try {
 		return normalizeRoot(configured);
 	} catch {
-		console.error("TSGW: invalid baseUrl; using the default root.");
+		console.error("TSGW：baseUrl 无效；使用默认根地址。");
 		return DEFAULT_ROOT;
 	}
 }
@@ -115,8 +115,8 @@ function requestStateFor(
 function isTsgwTraceTarget(state: RequestState, root: string): boolean {
 	if (state.provider !== PROVIDER_ID) return false;
 	try {
-		// Only trace requests that target the configured gateway root, so a
-		// model whose baseUrl was overridden elsewhere never gets trace headers.
+		// 仅追踪发往已配置网关根地址的请求，避免为在其他位置
+		// 覆盖了 baseUrl 的模型添加追踪请求头。
 		return new URL(state.baseUrl).hostname === new URL(root).hostname;
 	} catch {
 		return false;
@@ -244,7 +244,7 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 		bindStatus: ctx => bindStatus(ctx),
 		publishStatus: () => publishStatus?.(),
 	});
-	// Retain only the UI sink, never a lifecycle context; disconnect on shutdown.
+	// 仅保留界面输出端，绝不保留生命周期上下文；关闭时断开。
 	const bindStatus = (ctx: ExtensionContext): void => {
 		if (!ctx.hasUI) {
 			publishStatus = undefined;
@@ -277,7 +277,7 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 				const credential = context.credential;
 				credentialConfigured = credential?.type === "api_key" && !!credential.key;
 				if (credential?.type !== "api_key" || !credential.key)
-					throw new Error("TSGW API key is unavailable for model refresh.");
+					throw new Error("刷新模型所需的 TSGW API 密钥不可用。");
 				const gateway = await getGatewayModelIds(root, credential.key, {
 					cacheFilePath,
 					force: context.force === true,
@@ -285,9 +285,9 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 				});
 				context.signal.throwIfAborted();
 				if (!gateway.ok)
-					throw new Error(`TSGW gateway model refresh failed (${gateway.reason}).`);
+					throw new Error(`TSGW 网关模型刷新失败（${gateway.reason}）。`);
 				if (gateway.stale)
-					throw new Error("TSGW refresh failed; keeping the last successful catalog.");
+					throw new Error("TSGW 刷新失败；保留上次成功获取的目录。");
 				if (revision === refreshRevision) {
 					latestModels = effectiveModelsForGateway(root, modelFilter, new Set(gateway.ids));
 					search.sync();
@@ -319,7 +319,7 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 		refreshPending = true;
 		const lifecycle = lifecycleRevision;
 		let revision = refreshRevision;
-		// Provider callbacks own their state; only diagnose failures before one starts.
+		// 供应商回调管理自身状态；仅诊断回调开始前的失败。
 		const recordFailure = (message: string): void => {
 			if (revision === refreshRevision && !catalog.loading) {
 				catalog.error = message;
@@ -331,14 +331,14 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 			if (lifecycle !== lifecycleRevision) return;
 			bindStatus(ctx);
 			if (!ctx.modelRegistry.getProviderAuthStatus(PROVIDER_ID).configured) {
-				ctx.ui.notify("TSGW model refresh skipped: configure an API key with /login first.", "warning");
+				ctx.ui.notify("已跳过 TSGW 模型刷新：请先通过 /login 配置 API 密钥。", "warning");
 				return;
 			}
 			const count = () => ctx.modelRegistry.getAvailable()
 				.filter((model) => model.provider === PROVIDER_ID).length;
 			const before = count();
 			revision = refreshRevision;
-			// Older Pi versions return void instead of cancellation/error metadata.
+			// 较旧的 Pi 版本返回 void，而非取消/错误元数据。
 			const result = (await ctx.modelRegistry.refresh({
 				providers: [PROVIDER_ID], force: true,
 			})) as { aborted?: boolean; errors?: ReadonlyMap<string, Error> } | undefined;
@@ -346,27 +346,27 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 			const after = count();
 			if (result?.aborted) {
 				recordFailure("刷新已取消，保留原目录");
-				ctx.ui.notify(`TSGW model refresh cancelled (${before} → ${after}).`, "warning");
+				ctx.ui.notify(`TSGW 模型刷新已取消（${before} → ${after}）。`, "warning");
 			} else if (result?.errors?.has(PROVIDER_ID)) {
 				recordFailure("刷新失败，保留原目录；请检查凭据、网关与网络");
-				ctx.ui.notify(`TSGW model refresh failed (${before} → ${after}).`, "error");
+				ctx.ui.notify(`TSGW 模型刷新失败（${before} → ${after}）。`, "error");
 			} else {
-				ctx.ui.notify(`TSGW models refreshed (${before} → ${after}).`, "info");
+				ctx.ui.notify(`TSGW 模型已刷新（${before} → ${after}）。`, "info");
 			}
 		} catch {
 			if (lifecycle !== lifecycleRevision) return;
 			recordFailure("刷新失败，保留原目录；请检查凭据、网关与网络");
-			ctx.ui.notify("TSGW model refresh failed; keeping the previous catalog.", "error");
+			ctx.ui.notify("TSGW 模型刷新失败；保留原目录。", "error");
 		} finally {
 			if (lifecycle === lifecycleRevision) refreshPending = false;
 		}
 	};
 	pi.registerCommand("tsgw-refresh", {
-		description: "Force-refresh the TSGW gateway model catalog",
+		description: "强制刷新 TSGW 网关模型目录",
 		handler: async (_args, ctx) => refreshCatalog(ctx),
 	});
 	pi.registerCommand("tsgw", {
-		description: "TSGW model catalog and configuration diagnostics",
+		description: "TSGW 模型目录与配置诊断",
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) return;
 			const lifecycle = lifecycleRevision;

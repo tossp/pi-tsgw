@@ -56,7 +56,7 @@ function deferred<T>() {
 	return { promise, resolve };
 }
 
-test("single PUT receives raw immutable snapshot and default URL without get", async t => {
+test("单次 PUT 接收原始不可变快照，无需获取链接即可返回默认 URL", async t => {
 	const f = await fixture(t);
 	const calls: string[] = [];
 	const result = await run(f, { call: async (tool, args) => {
@@ -65,12 +65,12 @@ test("single PUT receives raw immutable snapshot and default URL without get", a
 	}, put: async (target, data) => {
 		assert.equal(target.offset, 0); assert.equal(target.size, 3);
 		assert.ok(data instanceof Uint8Array); assert.equal(Buffer.from(data).toString(), "abc");
-	}, onProgress: () => { throw new Error("UI failure is harmless"); } });
+	}, onProgress: () => { throw new Error("界面失败不影响上传"); } });
 	assert.deepEqual(calls, [UPLOAD_TOOL]);
 	assert.equal(result.uploaded, true); assert.equal(result.url, link.url); assert.equal(result.linkStatus, "ready");
 });
 
-test("custom attachment link is requested only after PUT", async t => {
+test("仅在 PUT 后请求自定义 attachment 链接", async t => {
 	const f = await fixture(t); const order: string[] = [];
 	const result = await run(f, { call: async (tool, args) => {
 		order.push(tool);
@@ -81,7 +81,7 @@ test("custom attachment link is requested only after PUT", async t => {
 	assert.deepEqual(order, [UPLOAD_TOOL, "put", URL_TOOL]); assert.equal(result.disposition, "attachment");
 });
 
-test("multipart uses three workers, correct offsets and exactly one completion", async t => {
+test("分片上传使用三个并发工作单元、正确偏移量及恰好一次完成调用", async t => {
 	const f = await fixture(t, largeSize); let calls = 0; let running = 0; let peak = 0;
 	const seen: number[] = [];
 	const result = await run(f, { call: async tool => {
@@ -97,7 +97,7 @@ test("multipart uses three workers, correct offsets and exactly one completion",
 	assert.deepEqual(seen.sort(), [1, 2, 3, 4, 5]); assert.equal(running, 0);
 });
 
-test("resumed multipart checks key first and sends only missing parts", async t => {
+test("恢复分片上传先检查 key，且仅发送缺失分片", async t => {
 	const f = await fixture(t, largeSize); const resume = await receiptFor(f); const calls: string[] = []; const parts: number[] = [];
 	const result = await run(f, { call: async tool => {
 		calls.push(tool); if (tool === URL_TOOL) return missing();
@@ -106,13 +106,13 @@ test("resumed multipart checks key first and sends only missing parts", async t 
 	assert.deepEqual(calls, [URL_TOOL, UPLOAD_TOOL, UPLOAD_TOOL]); assert.deepEqual(parts, [2, 5]); assert.equal(result.uploaded, true);
 });
 
-test("already uploaded multipart needs no PUT or completion", async t => {
+test("已上传的分片任务无需 PUT 或完成调用", async t => {
 	const f = await fixture(t, largeSize); let calls = 0;
-	const result = await run(f, { call: async () => { calls++; return raw(prepared(f.size, [])); }, put: async () => assert.fail("no bytes") });
+	const result = await run(f, { call: async () => { calls++; return raw(prepared(f.size, [])); }, put: async () => assert.fail("不得发送字节") });
 	assert.equal(result.uploaded, true); assert.equal(calls, 1);
 });
 
-test("completion false returns incomplete, never loops or retries missing parts", async t => {
+test("完成结果为 false 时返回未完成状态，绝不循环或重试缺失分片", async t => {
 	const f = await fixture(t, largeSize); let calls = 0; let puts = 0;
 	const result = await run(f, { call: async () => { calls++; return raw(prepared(f.size, [5])); },
 		put: async (...args) => { puts++; await consume(...args); } });
@@ -121,7 +121,7 @@ test("completion false returns incomplete, never loops or retries missing parts"
 	assert.equal(decodeReceipt(result.resume!).phase, "upload");
 });
 
-test("part failure drains every in-flight PUT before returning, no completion", async t => {
+test("分片失败后等待所有进行中的 PUT 结束再返回，且不调用完成", async t => {
 	const f = await fixture(t, largeSize); let calls = 0; const started: number[] = []; const settled: number[] = [];
 	const result = await run(f, { call: async () => { calls++; return raw(prepared(f.size)); }, put: async (target, _data, abort) => {
 		started.push(target.partNumber);
@@ -134,15 +134,15 @@ test("part failure drains every in-flight PUT before returning, no completion", 
 	assert.doesNotMatch(Buffer.from(result.resume!, "base64url").toString(), /https:|signature|headers/i);
 });
 
-test("concurrent calls with identical metadata are busy", async t => {
+test("元数据相同的并发调用返回忙碌状态", async t => {
 	const f = await fixture(t); const entered = deferred<void>(); const release = deferred<unknown>();
 	const first = run(f, { call: async () => { entered.resolve(); return release.promise; }, put: consume });
 	await entered.promise;
-	const second = await run(f, { call: async () => assert.fail("busy cannot call MCP"), put: consume });
+	const second = await run(f, { call: async () => assert.fail("忙碌时不得调用 MCP"), put: consume });
 	assert.equal(second.error?.code, "busy"); release.resolve(raw(prepared(3))); assert.equal((await first).uploaded, true);
 });
 
-for (const kind of ["cancelled", "timeout"] as const) test(`${kind} during completion is unknown; late MCP promise retains lock`, async t => {
+for (const kind of ["cancelled", "timeout"] as const) test(`${kind === "cancelled" ? "取消" : "超时"}发生在完成阶段时结果未知；延迟的 MCP Promise 持续占锁`, async t => {
 	const f = await fixture(t, largeSize); const controller = new AbortController();
 	const entered = deferred<void>(); const late = deferred<unknown>(); let calls = 0;
 	const pending = run(f, { remoteTimeoutMs: 100, call: async () => {
@@ -151,28 +151,28 @@ for (const kind of ["cancelled", "timeout"] as const) test(`${kind} during compl
 	await entered.promise; if (kind === "cancelled") controller.abort();
 	const result = await pending;
 	assert.equal(result.error?.code, kind); assert.equal(result.uploaded, null); assert.equal(result.uploadStatus, "unknown"); assert.equal(calls, 2);
-	const blocked = await run(f, { call: async () => assert.fail("lock held"), put: consume });
+	const blocked = await run(f, { call: async () => assert.fail("锁仍被持有"), put: consume });
 	assert.equal(blocked.error?.code, "busy");
 	late.resolve(raw(prepared(f.size, []))); await delay(0);
 	const recovered = await run(f, { call: async (tool, args) => {
 		assert.equal(tool, URL_TOOL); assert.equal(args.key, link.key); return raw(link);
-	}, open: async () => assert.fail("HEAD success needs no local file"), put: async () => assert.fail("no replay") }, { resume: result.resume });
+	}, open: async () => assert.fail("HEAD 成功后无需本地文件"), put: async () => assert.fail("不得重放上传") }, { resume: result.resume });
 	assert.equal(recovered.uploaded, true); assert.equal(recovered.url, link.url);
 });
 
-test("single PUT cancellation leaves unknown and explicit resume never replays PUT", async t => {
+test("单次 PUT 取消后结果未知，显式恢复绝不重放 PUT", async t => {
 	const f = await fixture(t); const controller = new AbortController(); let puts = 0;
 	const result = await run(f, { call: async () => raw(prepared(3)), put: async () => {
-		puts++; controller.abort(); throw new UploadError("cancelled", "Upload cancelled.");
+		puts++; controller.abort(); throw new UploadError("cancelled", "上传已取消。");
 	} }, {}, controller.signal);
 	assert.equal(result.uploaded, null); assert.equal(result.error?.code, "cancelled"); assert.equal(puts, 1);
 	let calls = 0;
 	const resumed = await run(f, { call: async tool => { calls++; assert.equal(tool, URL_TOOL); return missing(); },
-		open: async () => assert.fail("single resume never opens"), put: async () => assert.fail("single resume never PUTs") }, { resume: result.resume });
+		open: async () => assert.fail("单次上传恢复绝不打开文件"), put: async () => assert.fail("单次上传恢复绝不执行 PUT") }, { resume: result.resume });
 	assert.equal(calls, 1); assert.equal(resumed.error?.code, "not-found");
 });
 
-test("link failure preserves uploaded true, key, valid fallback and safe receipt", async t => {
+test("链接失败时保留 uploaded 为 true、key、有效备用链接和安全凭条", async t => {
 	const f = await fixture(t);
 	const result = await run(f, { call: async tool => {
 		if (tool === UPLOAD_TOOL) return raw(prepared(3)); throw new Error("credential=SECRET");
@@ -182,7 +182,7 @@ test("link failure preserves uploaded true, key, valid fallback and safe receipt
 	assert.doesNotMatch(JSON.stringify(result), /credential|SECRET/);
 });
 
-test("expired default URL forces fresh get after successful PUT", async t => {
+test("默认 URL 过期时在 PUT 成功后重新获取链接", async t => {
 	const f = await fixture(t); const calls: string[] = [];
 	const result = await run(f, { call: async tool => { calls.push(tool);
 		return raw(tool === UPLOAD_TOOL ? { ...prepared(3), expiresAt: "2000-01-01T00:00:00Z" } : link);
@@ -190,54 +190,54 @@ test("expired default URL forces fresh get after successful PUT", async t => {
 	assert.deepEqual(calls, [UPLOAD_TOOL, URL_TOOL]); assert.equal(result.url, link.url);
 });
 
-test("changed file or metadata rejects multipart resume after not-found, before prepare", async t => {
+test("文件或元数据更改后，在 not-found 之后、准备之前拒绝分片恢复", async t => {
 	for (const changed of ["file", "metadata"] as const) {
 		const f = await fixture(t, largeSize); const resume = await receiptFor(f); let calls = 0;
 		if (changed === "file") { const h = await open(f.path, "r+"); try { await h.write(Buffer.from("z"), 0, 1, 0); } finally { await h.close(); } }
-		const result = await run(f, { call: async tool => { calls++; assert.equal(tool, URL_TOOL); return missing(); }, put: async () => assert.fail("changed file") },
+		const result = await run(f, { call: async tool => { calls++; assert.equal(tool, URL_TOOL); return missing(); }, put: async () => assert.fail("文件已更改，不得上传") },
 			{ resume, ...(changed === "metadata" ? { contentType: "application/json" } : {}) });
 		assert.equal(result.error?.code, "file-changed"); assert.equal(calls, 1);
 	}
 });
 
-test("resume not-found permits only matching multipart identity; new key sends no bytes", async t => {
+test("恢复遇到 not-found 时仅允许匹配的分片身份，不向新 key 发送字节", async t => {
 	for (const patch of [{ key: "different/key" }, { uid: "01900000-0000-7000-8000-000000000002" }]) {
 		const f = await fixture(t, largeSize); const resume = await receiptFor(f); const calls: string[] = [];
 		const result = await run(f, { call: async tool => { calls.push(tool); return tool === URL_TOOL ? missing() : raw({ ...prepared(f.size), ...patch }); },
-			put: async () => assert.fail("identity mismatch") }, { resume });
+			put: async () => assert.fail("身份不匹配") }, { resume });
 		assert.deepEqual(calls, [URL_TOOL, UPLOAD_TOOL]); assert.equal(result.error?.code, "key" in patch ? "session-changed" : "invalid-response");
 	}
 });
 
-test("resume does not prepare on generic HEAD errors or completed receipt not-found", async t => {
+test("恢复遇到普通 HEAD 错误或已完成凭条的 not-found 时不执行准备", async t => {
 	const f = await fixture(t, largeSize);
 	for (const phase of ["upload", "link"] as const) {
 		const resume = await receiptFor(f, phase); let calls = 0;
 		const result = await run(f, { call: async tool => { calls++; assert.equal(tool, URL_TOOL);
 			return phase === "link" ? missing() : raw({ error: { code: "access-denied" } });
-		}, put: async () => assert.fail("no replay") }, { resume });
+		}, put: async () => assert.fail("不得重放上传") }, { resume });
 		assert.equal(calls, 1); assert.equal(result.error?.code, phase === "link" ? "not-found" : "mcp-error");
 	}
 });
 
-test("file changed while preparing cannot send a stale snapshot", async t => {
+test("准备期间文件更改后不得发送过时快照", async t => {
 	const f = await fixture(t); let calls = 0;
 	const result = await run(f, { call: async () => { calls++; await writeFile(f.path, "changed"); return raw(prepared(3)); },
-		put: async () => assert.fail("changed source must not be sent") });
+		put: async () => assert.fail("不得发送已更改的源文件") });
 	assert.equal(result.error?.code, "file-changed"); assert.equal(calls, 1);
 });
 
-test("malformed prepare never sends bytes", async t => {
+test("畸形准备结果绝不发送字节", async t => {
 	const f = await fixture(t);
 	for (const patch of [{ mode: "multipart" }, { uploads: [] }, { uploads: [{ ...prepared(3).uploads[0], offset: 1 }] }]) {
-		const result = await run(f, { call: async () => raw({ ...prepared(3), ...patch }), put: async () => assert.fail("invalid plan") });
+		const result = await run(f, { call: async () => raw({ ...prepared(3), ...patch }), put: async () => assert.fail("无效计划不得上传") });
 		assert.equal(result.error?.code, "invalid-response");
 	}
 });
 
-test("local failures and invalid options never call MCP", async t => {
+test("本地失败和无效选项绝不调用 MCP", async t => {
 	const f = await fixture(t, 0); const huge = await fixture(t, MAX_BYTES + 1);
-	const deps: UploadDependencies = { call: async () => assert.fail("local validation before network"), put: consume };
+	const deps: UploadDependencies = { call: async () => assert.fail("网络访问前必须完成本地校验"), put: consume };
 	for (const [path, code] of [[f.path, "invalid-size"], [huge.path, "invalid-size"], [f.cwd, "not-file"], [join(f.cwd, "missing"), "file-unavailable"]]) {
 		assert.equal((await run(f, deps, { path })).error?.code, code);
 	}
@@ -245,21 +245,21 @@ test("local failures and invalid options never call MCP", async t => {
 	assert.equal((await run(f, deps, { resume: "invalid!" })).error?.code, "invalid-resume");
 });
 
-test("empty explicit resume rejects before opening a file or contacting MCP", async t => {
+test("显式空恢复凭条在打开文件或联系 MCP 前被拒绝", async t => {
 	const f = await fixture(t);
-	const result = await run(f, { call: async () => assert.fail("no remote call"),
-		open: async () => assert.fail("no local open"), put: async () => assert.fail("no PUT") }, { resume: "" });
+	const result = await run(f, { call: async () => assert.fail("不得远程调用"),
+		open: async () => assert.fail("不得打开本地文件"), put: async () => assert.fail("不得执行 PUT") }, { resume: "" });
 	assert.equal(result.error?.code, "invalid-resume"); assert.equal(result.uploaded, false);
 });
 
-test("valid receipt preserves key and known status before cancellation or invalid options", async t => {
+test("有效凭条在取消或选项无效时保留 key 和已知状态", async t => {
 	const f = await fixture(t, largeSize);
 	for (const phase of ["upload", "complete", "link"] as const) {
 		const resume = await receiptFor(f, phase);
 		for (const reason of ["cancelled", "invalid-options"] as const) {
 			const controller = new AbortController(); if (reason === "cancelled") controller.abort();
-			const result = await run(f, { call: async () => assert.fail("no remote call"),
-				open: async () => assert.fail("no local open"), put: async () => assert.fail("no PUT") },
+			const result = await run(f, { call: async () => assert.fail("不得远程调用"),
+				open: async () => assert.fail("不得打开本地文件"), put: async () => assert.fail("不得执行 PUT") },
 				{ resume, ...(reason === "invalid-options" ? { expiresIn: 0 } : {}) }, controller.signal);
 			assert.equal(result.error?.code, reason); assert.equal(result.key, link.key); assert.equal(result.uid, uid);
 			assert.equal(result.uploaded, phase === "link" ? true : null);
@@ -269,11 +269,11 @@ test("valid receipt preserves key and known status before cancellation or invali
 	}
 });
 
-test("malformed prepare link keeps validated key and server uploaded status", async t => {
+test("畸形准备链接保留已校验 key 和服务端上传状态", async t => {
 	for (const uploaded of [false, true]) {
 		const f = await fixture(t, largeSize); let calls = 0;
 		const result = await run(f, { call: async () => { calls++; return raw({ ...prepared(f.size, uploaded ? [] : [5]), url: "http://invalid.example/SECRET" }); },
-			put: async () => assert.fail("malformed link cannot authorize PUT") });
+			put: async () => assert.fail("畸形链接不能授权 PUT") });
 		assert.equal(calls, 1); assert.equal(result.error?.code, "invalid-response"); assert.equal(result.key, link.key);
 		assert.equal(result.uploaded, uploaded ? true : null); assert.equal(result.uploadStatus, uploaded ? "uploaded" : "unknown");
 		assert.equal(decodeReceipt(result.resume!).phase, uploaded ? "link" : "upload");
@@ -281,7 +281,7 @@ test("malformed prepare link keeps validated key and server uploaded status", as
 	}
 });
 
-test("completion with invalid link preserves uploaded true and recovery receipt", async t => {
+test("完成结果包含无效链接时保留 uploaded 为 true 和恢复凭条", async t => {
 	const f = await fixture(t, largeSize); let calls = 0; let puts = 0;
 	const result = await run(f, { call: async () => {
 		calls++; return raw(calls === 1 ? prepared(f.size, [5]) : { ...prepared(f.size, []), expiresAt: "invalid" });
@@ -291,14 +291,14 @@ test("completion with invalid link preserves uploaded true and recovery receipt"
 	assert.equal(result.key, link.key); assert.equal(decodeReceipt(result.resume!).phase, "link"); assert.deepEqual(result.fallback, link);
 });
 
-test("already uploaded plan ignores source changes occurring during prepare", async t => {
+test("已上传计划忽略准备期间发生的源文件变化", async t => {
 	const f = await fixture(t, largeSize); let calls = 0;
 	const result = await run(f, { call: async () => { calls++; await writeFile(f.path, "changed"); return raw(prepared(f.size, [])); },
-		put: async () => assert.fail("already uploaded") });
+		put: async () => assert.fail("已上传，不得再次上传") });
 	assert.equal(calls, 1); assert.equal(result.uploaded, true); assert.equal(result.url, link.url); assert.equal(result.error, undefined);
 });
 
-test("expired get link fails once, retaining uploaded status and valid fallback", async t => {
+test("获取到过期链接时仅失败一次，并保留上传状态和有效备用链接", async t => {
 	const f = await fixture(t); const calls: string[] = [];
 	const result = await run(f, { call: async tool => {
 		calls.push(tool); return raw(tool === UPLOAD_TOOL ? prepared(3) : { ...link, expiresAt: "2000-01-01T00:00:00Z" });
@@ -308,12 +308,12 @@ test("expired get link fails once, retaining uploaded status and valid fallback"
 	assert.deepEqual(result.fallback, link); assert.equal(decodeReceipt(result.resume!).phase, "link");
 	const resumedCalls: string[] = [];
 	const resumed = await run(f, { call: async tool => { resumedCalls.push(tool); return raw({ ...link, expiresAt: "2000-01-01T00:00:00Z" }); },
-		open: async () => assert.fail("expired link is not not-found"), put: async () => assert.fail("no replay") }, { resume: result.resume });
+		open: async () => assert.fail("链接过期不等于 not-found"), put: async () => assert.fail("不得重放上传") }, { resume: result.resume });
 	assert.deepEqual(resumedCalls, [URL_TOOL]); assert.equal(resumed.error?.code, "expired-link");
 	assert.equal(resumed.uploaded, true); assert.equal(resumed.key, link.key); assert.equal(resumed.url, undefined);
 });
 
-test("local MIME inference, override, fallback, snapshot and changed-file detection", async t => {
+test("本地 MIME 推断、覆盖、回退、快照及文件变化检测", async t => {
 	for (const [name, override, expected] of [["image.PNG", undefined, "image/png"], ["data.unknown", undefined, "application/octet-stream"],
 		["sample.txt", "APPLICATION/JSON", "application/json"]] as const) {
 		const f = await fixture(t, 3, name); const file = await openLocalFile(name, f.cwd, override);

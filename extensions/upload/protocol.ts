@@ -4,6 +4,9 @@ export const SINGLE_LIMIT = 32 * 1024 ** 2;
 export const MAX_BYTES = 5 * 1024 ** 4;
 export const UPLOAD_TOOL = "mcp__ts_oht__upload_file";
 export const URL_TOOL = "mcp__ts_oht__get_file_url";
+// 绝对结尾断言：JavaScript 单独使用 `$` 也会接受末尾换行。
+export const CONTENT_TYPE_PATTERN = /^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$(?![\s\S])/;
+export const RESUME_PATTERN = /^[A-Za-z0-9_-]+$(?![\s\S])/;
 
 export interface FileMetadata {
 	filename: string;
@@ -76,24 +79,24 @@ function expiry(value: unknown): string {
 	return date;
 }
 
-/** The host adapter supplies the MCP CallToolResult, NOT AgentToolCallOutcome. */
+/** 主机适配器提供的是 MCP CallToolResult，而非 AgentToolCallOutcome。 */
 export function mcpData(value: unknown): Record<string, unknown> {
 	const result = object(value);
 	let data: unknown = result.structuredContent;
 	if (data === undefined && Array.isArray(result.content)) {
 		const blocks = result.content.filter(b => b && b.type === "text");
 		if (blocks.length === 1 && typeof blocks[0].text === "string" && blocks[0].text.length <= 4 * 1024 ** 2) {
-			try { data = JSON.parse(blocks[0].text); } catch { /* Reject non-JSON, never echo it. */ }
+			try { data = JSON.parse(blocks[0].text); } catch { /* 拒绝非 JSON 内容，绝不回显。 */ }
 		}
 	}
 	const body = object(data);
 	if (result.isError === true || body.error !== undefined) {
 		const error = body.error && typeof body.error === "object" ? body.error as Record<string, unknown> : {};
-		// Only a definite not-found allows multipart recovery to proceed.
+		// 只有明确的 not-found 才允许继续恢复分片上传。
 		const code = error.code === "not-found" ? "not-found" : "mcp-error";
 		throw new UploadError(code, code === "not-found"
-			? "The previous object does not exist."
-			: "The remote tool failed; its raw response was withheld to protect credentials.");
+			? "先前的对象不存在。"
+			: "远程工具调用失败；为保护凭据，未提供其原始响应。");
 	}
 	return body;
 }
@@ -112,7 +115,7 @@ export function planIdentity(value: unknown, size: number, previous?: Receipt): 
 	const data = object(value);
 	const key = validKey(data.key);
 	if (previous && key !== previous.key)
-		throw new UploadError("session-changed", "The old multipart task is no longer available. A different plan was refused; no bytes were sent to it.");
+		throw new UploadError("session-changed", "旧的分片上传任务已不可用。已拒绝不同的上传计划，未向其发送任何字节。");
 	const mode = size <= SINGLE_LIMIT ? "single" : "multipart";
 	if (data.mode !== mode || typeof data.uploaded !== "boolean" ||
 		!Array.isArray(data.uploads) || data.uploads.length > 1024) invalidResponse();
@@ -153,13 +156,13 @@ export function plan(value: unknown, size: number, previous?: Receipt): Plan {
 	return result;
 }
 
-/** No URLs, headers, S3 credentials or MCP secrets are included in a receipt. */
+/** 凭条不包含 URL、请求头、S3 凭据或 MCP 密钥。 */
 export function encodeReceipt(receipt: Receipt): string {
 	return Buffer.from(JSON.stringify(receipt)).toString("base64url");
 }
 export function decodeReceipt(token: string): Receipt {
 	try {
-		if (!token || token.length > 8192 || !/^[A-Za-z0-9_-]+$/.test(token)) invalidResponse();
+		if (!token || token.length > 8192 || !RESUME_PATTERN.test(token)) invalidResponse();
 		const data = object(JSON.parse(Buffer.from(token, "base64url").toString("utf8")));
 		const meta = object(data.metadata);
 		if (data.version !== 1 || !["single", "multipart"].includes(String(data.mode)) ||
@@ -173,5 +176,5 @@ export function decodeReceipt(token: string): Receipt {
 		if ((metadata.size <= SINGLE_LIMIT) !== (mode === "single")) invalidResponse();
 		return { version: 1, key: validKey(data.key), mode, phase: data.phase as Receipt["phase"],
 			uid: mode === "multipart" ? text(data.uid, 64) : undefined, fingerprint: data.fingerprint, metadata };
-	} catch { throw new UploadError("invalid-resume", "Invalid resume receipt. Do not replace it with a new upload attempt."); }
+	} catch { throw new UploadError("invalid-resume", "恢复凭条无效。不要以全新上传尝试代替恢复。"); }
 }

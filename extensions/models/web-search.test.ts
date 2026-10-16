@@ -15,7 +15,7 @@ function apply(
 		OPENAI_RESPONSES,
 		mode,
 	);
-	if (!isPlainObject(result)) throw new Error("expected a plain object result");
+	if (!isPlainObject(result)) throw new Error("结果应为普通对象");
 	return result;
 }
 
@@ -99,7 +99,7 @@ function testRemovedGptSearchNoOps(): void {
 				strictEqual(
 					applyBuiltinSearchTool(input, modelId, OPENAI_RESPONSES, mode),
 					input,
-					`${modelId} must not inject built-in search in ${mode} mode`,
+					`${modelId} 在 ${mode} 模式下不得注入内置搜索`,
 				);
 			}
 		}
@@ -155,7 +155,7 @@ function testGrokSearchInjection(): void {
 			"openai-completions",
 			"cached",
 		);
-		if (!isPlainObject(result)) throw new Error("expected plain object");
+		if (!isPlainObject(result)) throw new Error("应为普通对象");
 		deepStrictEqual((result as Payload).search_parameters, { mode: "on" });
 	}
 
@@ -184,4 +184,4 @@ testGpt6SearchInjection();
 testRemovedGptSearchNoOps();
 testNoOpsAndScope();
 testGrokSearchInjection();
-console.log("web-search.test.ts: all assertions passed");
+console.log("web-search.test.ts：全部断言通过");

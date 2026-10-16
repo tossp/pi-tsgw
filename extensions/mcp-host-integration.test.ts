@@ -6,7 +6,7 @@ import { test } from "node:test";
 import type { AgentSession, ExtensionError, McpTransportFactory } from "@earendil-works/pi-coding-agent";
 import { HostSandbox } from "./host-test-support.test.ts";
 
-// Always hand Pi/jiti the complete SOURCE entry, including from dist/extensions.
+// 始终向 Pi/jiti 传入完整源码入口，包括从 dist/extensions 执行时。
 function sourceEntry(): string {
 	let dir = dirname(fileURLToPath(import.meta.url));
 	while (true) {
@@ -14,7 +14,7 @@ function sourceEntry(): string {
 		if (existsSync(manifest) && JSON.parse(readFileSync(manifest, "utf8")).name === "pi-tsgw")
 			return join(dir, "extensions", "index.ts");
 		const parent = dirname(dir);
-		assert.notEqual(parent, dir, "Cannot locate pi-tsgw package root");
+		assert.notEqual(parent, dir, "无法定位 pi-tsgw 包根目录");
 		dir = parent;
 	}
 }
@@ -23,8 +23,8 @@ type Transport = ReturnType<McpTransportFactory>;
 type Message = Parameters<Transport["send"]>[0];
 type Entry = Parameters<McpTransportFactory>[0];
 
-// Only the transport is substituted: the real MCP client performs initialize,
-// notification exchange and discovery, and the real host registers its tools.
+// 仅替换传输层：真实 MCP 客户端执行初始化、通知交换与发现，
+// 由真实宿主注册工具。
 class MemoryServer implements Transport {
 	readonly messages: Message[] = [];
 	starts = 0;
@@ -51,14 +51,14 @@ class MemoryServer implements Transport {
 		return () => { this.closing.delete(listener); };
 	}
 	private receive(message: Message): void {
-		// Serialize like a wire transport rather than sharing response objects.
+		// 像真实传输一样序列化，而非共享响应对象。
 		const wire = JSON.stringify(message);
 		for (const listener of this.listeners) listener(JSON.parse(wire) as Message);
 	}
 	async send(message: Message): Promise<void> {
 		this.messages.push(message);
 		assert.equal(message.jsonrpc, "2.0");
-		if (!("method" in message)) return; // Response to our server-side ping.
+		if (!("method" in message)) return; // 对服务端 ping 的响应。
 		if (!("id" in message)) {
 			assert.equal(message.method, "notifications/initialized");
 			this.receive({ jsonrpc: "2.0", id: "server-ping", method: "ping" });
@@ -86,7 +86,7 @@ class MemoryServer implements Transport {
 			case "resources/list": result = { resources: [] }; break;
 			case "resources/templates/list": result = { resourceTemplates: [] }; break;
 			default:
-				throw new Error(`Unexpected fixture MCP request: ${message.method}`);
+				throw new Error(`测试夹具收到意外 MCP 请求：${message.method}`);
 		}
 		this.receive({ jsonrpc: "2.0", id: message.id, result });
 	}
@@ -96,15 +96,15 @@ function snapshot(paths: string[]): Array<[string, string | undefined]> {
 	return paths.map((path) => [path, existsSync(path) ? readFileSync(path, "utf8") : undefined]);
 }
 
-// Separate process, like host-integration: the sandbox guards the whole process.
-test("Pi SDK MCP: source defaults, settings URL, file precedence, disabled servers and cleanup", { timeout: 60_000 }, async (t) => {
+// 与宿主集成测试一样使用独立进程：沙箱防护覆盖整个进程。
+test("Pi SDK MCP：源码默认值、配置 URL、文件优先级、禁用服务器与清理", { timeout: 60_000 }, async (t) => {
 	const entry = sourceEntry();
 	const originalEnv = { ...process.env };
 	const originalCwd = process.cwd();
 	const originalFetch = globalThis.fetch;
 	const sandbox = new HostSandbox();
 	try {
-		// SDK initialization must happen AFTER HostSandbox installs its guards.
+		// SDK 必须在 HostSandbox 安装防护之后初始化。
 		const { createAgentSession, createCodemodeExtension, createMcpExtension,
 			DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } =
 			await import("@earendil-works/pi-coding-agent");
@@ -115,26 +115,26 @@ test("Pi SDK MCP: source defaults, settings URL, file precedence, disabled serve
 		const globalConfig = { url: "https://global-mcp.invalid/complete/mcp", exposure: "direct", timeout: 17 };
 		const projectConfig = { url: "https://project-mcp.invalid/complete/mcp", exposure: "direct", timeout: 23 };
 		const scenarios = [
-			{ name: "no configuration registers the fixed codemode default", expected: { url: TS_OHT_URL, exposure: "codemode" } },
-			{ name: "settings.tsgw.mcpUrl supplies the session default", configuredUrl: customUrl,
+			{ name: "无配置时注册固定的 codemode 默认值", expected: { url: TS_OHT_URL, exposure: "codemode" } },
+			{ name: "settings.tsgw.mcpUrl 提供会话默认值", configuredUrl: customUrl,
 				expected: { url: customUrl, exposure: "codemode" } },
-			{ name: "global mcp.json fully overrides registration and settings", configuredUrl: customUrl,
+			{ name: "全局 mcp.json 完整覆盖注册值与设置", configuredUrl: customUrl,
 				global: globalConfig, expected: globalConfig, scope: "global" },
-			{ name: "same-name enabled false suppresses the default connection", configuredUrl: customUrl,
+			{ name: "同名配置 enabled 为 false 时阻止默认连接", configuredUrl: customUrl,
 				global: { ...globalConfig, enabled: false }, expected: { ...globalConfig, enabled: false }, scope: "global" },
-			{ name: "trusted project mcp.json replaces the same-name global server", configuredUrl: customUrl,
+			{ name: "受信任项目的 mcp.json 替换同名全局服务器", configuredUrl: customUrl,
 				global: globalConfig, project: projectConfig, trusted: true, expected: projectConfig, scope: "project" },
-			{ name: "untrusted project cannot override the global server", configuredUrl: customUrl,
+			{ name: "不受信任的项目不能覆盖全局服务器", configuredUrl: customUrl,
 				global: globalConfig, project: projectConfig, trusted: false, expected: globalConfig, scope: "global" },
 		];
 		for (const [index, scenario] of scenarios.entries()) {
 			await t.test(scenario.name, async () => {
-				// Independent files and session per scenario, but one process-wide sandbox.
+				// 每个场景使用独立文件与会话，但共享进程级沙箱。
 				const agentDir = join(sandbox.agentDir, String(index));
 				const cwd = join(sandbox.cwd, String(index));
 				mkdirSync(agentDir, { recursive: true });
 				mkdirSync(join(cwd, ".pi"), { recursive: true });
-				// ModelRuntime owns auth.json and initializes it even without credentials.
+				// ModelRuntime 管理 auth.json，即使没有凭据也会初始化它。
 				writeFileSync(join(agentDir, "auth.json"), "{}");
 				process.env.PI_CODING_AGENT_DIR = agentDir;
 				const globalPath = join(agentDir, "mcp.json");
@@ -160,11 +160,11 @@ test("Pi SDK MCP: source defaults, settings URL, file precedence, disabled serve
 					cwd, agentDir, settingsManager: settings,
 					noExtensions: true, additionalExtensionPaths: [entry],
 					noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-					systemPrompt: "Isolated MCP host regression; never invoke a model.",
+					systemPrompt: "隔离的 MCP 宿主回归测试；绝不调用模型。",
 					extensionFactories: [
 						createCodemodeExtension({ mode: "on" }),
 						createMcpExtension({
-							// Deliberately no loadConfig override: exercise real file loading.
+							// 有意不覆盖 loadConfig：验证真实文件加载。
 							createTransport: (entry, cwd) => {
 								const server = new MemoryServer();
 								transports.push({ entry, cwd, server });
@@ -182,7 +182,7 @@ test("Pi SDK MCP: source defaults, settings URL, file precedence, disabled serve
 					await loader.reload();
 					assert.deepEqual(loader.getExtensions().errors, []);
 					assert.ok(loader.getExtensions().extensions.some((extension) => extension.path === entry));
-					assert.equal(transports.length, 0, "Extension loading must not connect");
+					assert.equal(transports.length, 0, "加载扩展时不得建立连接");
 					const runtime = await ModelRuntime.create({
 						authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"),
 						modelsStorePath: join(agentDir, "models-store.json"),
@@ -192,10 +192,10 @@ test("Pi SDK MCP: source defaults, settings URL, file precedence, disabled serve
 					({ session } = await createAgentSession({
 						cwd, agentDir, modelRuntime: runtime, resourceLoader: loader, settingsManager: settings,
 						sessionManager: SessionManager.inMemory(cwd),
-						// Unlike tools: [], this does not filter away registered MCP tools.
+						// 与 tools: [] 不同，这不会滤除已注册的 MCP 工具。
 						tools: ["codemode"],
 					}));
-					assert.equal(transports.length, 0, "Session creation must wait for session_start");
+					assert.equal(transports.length, 0, "创建会话后必须等待 session_start 才能连接");
 					await session.bindExtensions({
 						mode: "print", onError: (error) => { errors.push(error); },
 						uiContext: { ...session.extensionRunner.getUIContext(),
@@ -205,12 +205,12 @@ test("Pi SDK MCP: source defaults, settings URL, file precedence, disabled serve
 					assert.match(lifecycle[0]!, /^start:/);
 					assert.ok(session.extensionRunner.getRegisteredCommands().some((command) => command.name === "mcp"));
 
-					// Real slash dispatch waits for background discovery without model calls.
+					// 真实斜杠命令分发等待后台发现，不调用模型。
 					await session.prompt("/mcp");
 					await session.prompt("/mcp");
 					const disabled = "enabled" in scenario.expected && scenario.expected.enabled === false;
 					const statuses = notices.filter((message) => message.startsWith(`${TS_OHT_NAME}:`));
-					assert.equal(statuses.length, 2, "Both /mcp invocations must report status");
+					assert.equal(statuses.length, 2, "两次 /mcp 调用均须报告状态");
 					assert.equal(statuses[0], statuses[1]);
 					assert.match(statuses[0]!, disabled ? /^ts_oht: disabled/ : /^ts_oht: connected, 1 tools/);
 					assert.ok(statuses[0]!.includes(`(${scenario.expected.exposure})`));
@@ -218,14 +218,14 @@ test("Pi SDK MCP: source defaults, settings URL, file precedence, disabled serve
 						assert.ok(statuses[0]!.includes("overridden:"));
 						assert.ok(statuses[0]!.includes(scenario.scope === "project" ? projectPath : globalPath));
 					} else assert.ok(!statuses[0]!.includes("overridden:"));
-					assert.equal(transports.length, disabled ? 0 : 1, "At most one connection; /mcp must not reconnect");
+					assert.equal(transports.length, disabled ? 0 : 1, "最多建立一次连接；/mcp 不得重新连接");
 					const tool = session.getAllTools().find((tool) => tool.name === "mcp__ts_oht__lookup");
 					if (disabled) assert.equal(tool, undefined);
 					else {
 						const captured = transports[0]!;
 						assert.equal(captured.cwd, cwd);
 						assert.equal(captured.entry.name, TS_OHT_NAME);
-						assert.deepEqual(captured.entry.config, scenario.expected, "URL, exposure and timeout must come from the winner, not merge");
+						assert.deepEqual(captured.entry.config, scenario.expected, "URL、暴露方式与超时必须完全取自优先配置，不得合并");
 						assert.equal(captured.entry.scope, scenario.scope ?? "extension");
 						assert.equal(captured.entry.source, scenario.scope === "project" ? projectPath : scenario.scope === "global" ? globalPath : entry);
 						assert.equal(captured.server.starts, 1);
@@ -233,31 +233,31 @@ test("Pi SDK MCP: source defaults, settings URL, file precedence, disabled serve
 						const methods = captured.server.messages.flatMap((message) => "method" in message ? [message.method] : []);
 						assert.deepEqual(methods.slice(0, 2), ["initialize", "notifications/initialized"]);
 						for (const method of ["initialize", "tools/list"])
-							assert.equal(methods.filter((name) => name === method).length, 1, `${method} once, despite two /mcp calls`);
-						// Pi 1.2 advertises resource support without eager enumeration.
+							assert.equal(methods.filter((name) => name === method).length, 1, `即使调用两次 /mcp，${method} 也只能执行一次`);
+						// Pi 1.2 声明资源支持，但不立即枚举。
 						for (const method of ["resources/list", "resources/templates/list"])
-							assert.ok(methods.filter((name) => name === method).length <= 1, `No repeated ${method}`);
+							assert.ok(methods.filter((name) => name === method).length <= 1, `不得重复调用 ${method}`);
 						assert.ok(captured.server.messages.some((message) => "id" in message && message.id === "server-ping" && "result" in message));
 						if (scenario.expected.exposure === "codemode")
-							assert.ok(["deferred", "codemode"].includes(tool?.exposure ?? ""), "Indirect exposure across Pi 1.1/1.2");
+							assert.ok(["deferred", "codemode"].includes(tool?.exposure ?? ""), "Pi 1.1/1.2 间均采用间接暴露");
 						else assert.equal(tool?.exposure, scenario.expected.exposure);
 						assert.equal(tool?.annotations?.readOnlyHint, true);
 						assert.ok(session.getAllTools().some((tool) => tool.name === "list_mcp_resources"));
 					}
-					assert.deepEqual(session.messages, [], "Slash commands must not start any agent turn");
+					assert.deepEqual(session.messages, [], "斜杠命令不得启动任何代理轮次");
 				} finally {
-					// dispose() invalidates contexts but does not await MCP shutdown. Drain
-					// the real runner's lifecycle first, before replacing files/environment.
+					// dispose() 会使上下文失效，但不等待 MCP 关闭。
+					// 替换文件或环境前，先等待真实运行器的生命周期处理完成。
 					try { await session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }); }
 					finally { session?.dispose(); }
 				}
 				assert.deepEqual(lifecycle.slice(1), ["shutdown:quit"]);
-				for (const { server } of transports) assert.equal(server.closes, 1, "Shutdown closes each transport once");
-				assert.deepEqual(errors, [], "The real runner must not swallow MCP lifecycle errors");
-				assert.deepEqual(snapshot(protectedPaths), before, "No fixture mcp/settings/auth file may be changed or created");
-				assert.deepEqual(sandbox.requests, [], "No model requests");
-				assert.equal(sandbox.catalogCalls, 0, "No model catalog requests");
-				assert.deepEqual(sandbox.blocked, [], "No unexpected HTTP or socket attempts, even if caught");
+				for (const { server } of transports) assert.equal(server.closes, 1, "关闭时每个传输只能关闭一次");
+				assert.deepEqual(errors, [], "真实运行器不得吞掉 MCP 生命周期错误");
+				assert.deepEqual(snapshot(protectedPaths), before, "不得改写或创建测试夹具的 MCP、设置或认证文件");
+				assert.deepEqual(sandbox.requests, [], "不得发起模型请求");
+				assert.equal(sandbox.catalogCalls, 0, "不得发起模型目录请求");
+				assert.deepEqual(sandbox.blocked, [], "不得尝试意外 HTTP 或套接字访问，即使错误被捕获");
 			});
 		}
 	} finally { sandbox.restore(); }

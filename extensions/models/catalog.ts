@@ -14,22 +14,21 @@ import { qwenModels } from "./vendors/qwen.ts";
 export const PROVIDER_ID = "tsgw";
 
 /**
- * Neutral placeholder root. Point the extension at your gateway through
- * settings.json (`"tsgw": { "baseUrl": ... }`); this default only applies
- * when nothing is configured.
+ * 中性的占位根地址。通过 settings.json（`"tsgw": { "baseUrl": ... }`）
+ * 将扩展指向你的网关；仅在未配置时使用此默认值。
  */
 export const DEFAULT_ROOT = "https://aih.example.com";
 
-/** Normalize a gateway root, including the common accidental `/v1` suffix. */
+/** 规范化网关根地址，包括处理常见的误加 `/v1` 后缀。 */
 export function normalizeRoot(value = DEFAULT_ROOT): string {
 	let url: URL;
 	try {
 		url = new URL(value);
 	} catch {
-		throw new Error(`TSGW baseUrl is not a valid URL: ${value}`);
+		throw new Error(`TSGW baseUrl 不是有效的 URL：${value}`);
 	}
 	if (url.protocol !== "https:" && url.protocol !== "http:") {
-		throw new Error("TSGW baseUrl must use http or https");
+		throw new Error("TSGW baseUrl 必须使用 http 或 https");
 	}
 	url.hash = "";
 	url.search = "";
@@ -77,10 +76,10 @@ export function filterModels(
 }
 
 /**
- * The authoritative TSGW catalog: vendor slices concatenated in a fixed
- * order, then filtered by the configured blacklist/whitelist.
+ * TSGW 的权威模型目录：按固定顺序拼接各厂商分片，
+ * 然后根据配置的黑白名单进行过滤。
  *
- * 新增模型 → 改对应 vendors 文件；新增供应商 → 这里加一行 import + spread。
+ * 新增模型 → 改对应 vendors 文件；新增供应商 → 这里增加导入与展开。
  */
 export function modelsForRoot(
 	root: string,

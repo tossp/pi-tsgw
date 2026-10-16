@@ -13,25 +13,25 @@ export interface PutTarget {
 }
 
 type Address = { address: string; family: 4 | 6 };
-/** Narrow seams for offline transport tests; production always uses Node DNS and HTTPS. */
+/** 供离线传输测试使用的有限依赖注入点；生产环境始终使用 Node DNS 和 HTTPS。 */
 export interface TransportDeps {
 	resolve(host: string, signal: AbortSignal): Promise<Address[]>;
 	request(options: RequestOptions, response: (response: IncomingMessage) => void): ClientRequest;
 }
 
 const messages = {
-	"http-error": "Upload server rejected the bytes. Do not automatically repeat the upload.",
-	redirect: "Upload redirects are not allowed.",
-	"network-error": "Upload transport or byte stream failed. Do not automatically repeat the upload.",
-	timeout: "Upload deadline exceeded. Do not automatically repeat the upload.",
-	cancelled: "Upload cancelled. Do not automatically repeat the upload.",
-	"invalid-target": "Upload target is not a valid public HTTPS destination.",
-	"invalid-headers": "Upload headers are not permitted or do not match the byte count.",
+	"http-error": "上传服务器拒绝了所发送的字节。不要自动重复上传。",
+	redirect: "上传不允许重定向。",
+	"network-error": "上传传输或字节流失败。不要自动重复上传。",
+	timeout: "上传已超过截止时间。不要自动重复上传。",
+	cancelled: "上传已取消。不要自动重复上传。",
+	"invalid-target": "上传目标不是有效的公网 HTTPS 地址。",
+	"invalid-headers": "上传请求头不被允许，或与字节数不匹配。",
 } as const;
 type Code = keyof typeof messages;
 const failure = (code: Code) => new UploadError(code, messages[code]);
 
-/** Reject special-use IPv4 and non-global/transition/documentation IPv6. */
+/** 拒绝特殊用途 IPv4，以及非全球可达、过渡机制或文档用途的 IPv6。 */
 export function isPublicAddress(address: string): boolean {
 	if (isIP(address) === 4) {
 		const [a, b, c] = address.split(".").map(Number) as [number, number, number, number];
@@ -48,7 +48,7 @@ export function isPublicAddress(address: string): boolean {
 	const first = Number.parseInt(parts[0]!, 16);
 	const second = Number.parseInt(parts[1] || "0", 16);
 	return first >= 0x2000 && first <= 0x3fff &&
-		// 2001::/23 includes Teredo, benchmarking, ORCHID and protocol assignments.
+		// 2001::/23 包含 Teredo、基准测试、ORCHID 和协议分配地址。
 		!(first === 0x2001 && second < 0x200) &&
 		!(first === 0x2001 && second === 0xdb8) && first !== 0x2002 &&
 		!(first === 0x3fff && second < 0x1000);
@@ -87,7 +87,7 @@ function validate(target: PutTarget): { url: URL; headers: Record<string, string
 		headers[name] = value;
 	}
 	headers["content-length"] = String(target.size);
-	// Total budget, not a socket-idle timeout: allow at least 330s, then 64 KiB/s.
+	// 这是总时限，而非套接字空闲超时：至少允许 330 秒，再按 64 KiB/s 计算。
 	const budget = Math.max(330_000, Math.ceil(target.size / 65_536) * 1000);
 	return { url, headers, deadline: Math.min(expiry, Date.now() + budget) };
 }
@@ -182,7 +182,7 @@ export async function putBytesWithDeps(
 					throw failure("network-error");
 				}
 				count += item.value.byteLength;
-				// Bounded writes and callback backpressure; never concatenate the upload.
+				// 限制单次写入大小并通过回调施加背压；绝不拼接整个上传内容。
 				for (let offset = 0; offset < item.value.byteLength && !error; offset += 65_536) {
 					await new Promise<void>((resolve, reject) => {
 						const interrupted = () => finish(error);
@@ -207,7 +207,7 @@ export async function putBytesWithDeps(
 		controller.abort();
 		response?.destroy();
 		req?.destroy();
-		// Do not return while the request or an in-flight producer is still running.
+		// 请求或正在运行的数据生产者尚未结束时，不得返回。
 		await pumping?.catch(() => {});
 		try { await iterator?.return?.(); } catch { if (!error) error = failure("network-error"); }
 		await requestClosed;

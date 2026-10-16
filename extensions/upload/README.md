@@ -1,146 +1,127 @@
-# Local file uploads
+# 本地文件上传
 
-`upload_local_file` is a local Pi tool. It orchestrates the host's existing
-`ts_oht.upload_file` and `ts_oht.get_file_url` MCP tools, then streams raw bytes
-directly to the returned S3 targets. No new MCP server/client, S3 SDK, runtime
-dependency, MCP key storage or S3 credentials are introduced.
+`upload_local_file` 是一个本地 Pi 工具。它编排宿主现有的 `ts_oht.upload_file` 和
+`ts_oht.get_file_url` MCP 工具，然后将原始字节以流式方式直接传输到返回的 S3 目标。
+不会引入新的 MCP 服务器/客户端、S3 SDK、运行时依赖、MCP 密钥存储或 S3 凭据。
 
-## Requirements and authorization
+## 要求与授权
 
-- Pi with `ctx.executeTool` (tested with 1.1.0). The package's older provider
-  compatibility floor is not a promise of upload support on older hosts.
-- The plugin registers `ts_oht` with the default public endpoint; optional
-  `tsgw.mcpUrl` overrides it. A same-name global/project MCP file entry wins,
-  including a disabled entry. Pi manages the connection and OAuth; the upload
-  tool still requires its upload/URL tools to be connected and callable. Hidden,
-  disabled, blocked or not-yet-connected tools produce an error; the tool does
-  not activate them, create its own connection, or read/modify MCP configuration.
-- The current service's `mode` / `uploads[]` contract is required. The old
-  `uploadUrl`-only contract is not supported.
-- The tool uses the Pi process's OS file permissions, not a sandbox or the
-  built-in `read` tool's path approvals. Authorize **file exfiltration**, not just
-  reading. Gate `upload_local_file` in your permission extension where needed;
-  both the outer tool and nested MCP calls pass through host permission hooks.
-- Paths belong to the plugin machine/container, not necessarily your browser's
-  computer. Relative paths use the session cwd; `~/` expands to the host home.
-  Symlinks resolve to their canonical regular file; directories/devices/FIFOs
-  are rejected. There is no implicit cwd-only allowlist.
-- The server advertises a 300-second planning/completion limit. Configure the
-  host MCP timeout to at least 330 seconds if needed. The plugin cannot override
-  that per call and never edits the user's settings. The host default may end a
-  call earlier. The local 330-second MCP deadline bounds waiting, not remote work.
+- Pi 需支持 `ctx.executeTool`（已在 1.1.0 和 1.2.0 上测试）。本包较低的提供商兼容性
+  最低版本不代表承诺在旧宿主上支持上传。
+- 插件使用默认公共端点注册 `ts_oht`；可选的 `tsgw.mcpUrl` 可覆盖此端点。
+  全局/项目 MCP 文件中的同名条目优先，包括已禁用的条目。Pi 管理连接和 OAuth；
+  上传工具仅通过 `reachesTools` 声明其两个上传/URL 依赖。在 Pi 1.2+ 上，宿主可在执行
+  父工具前等待这些依赖的 MCP 连接/发现或重连。旧宿主忽略此提示，仍要求工具已经连接。
+  隐藏、禁用、被阻止或失败的工具仍不可用；插件不会启用它们、创建自己的连接，
+  或读取/修改 MCP 配置。就绪不等于通过认证或获得权限。
+- 要求当前服务的 `mode` / `uploads[]` 协议约定。不支持仅有 `uploadUrl` 的旧协议约定。
+- 工具使用 Pi 进程的操作系统文件权限，而非沙箱或内置 `read` 工具的路径审批。
+  授权的是**文件外传**，而非仅读取。必要时在权限扩展中管控 `upload_local_file`；
+  外层工具和嵌套 MCP 调用都会经过宿主权限钩子。
+- 路径属于插件所在的机器/容器，不一定是浏览器所在的计算机。相对路径以会话 cwd 为基准；
+  `~/` 展开为宿主的主目录。符号链接解析为其规范路径对应的普通文件；
+  目录/设备/FIFO 会被拒绝。不存在隐式的仅限 cwd 白名单。
+- 服务器声明规划/完成操作的时限为 300 秒。必要时将宿主 MCP 超时配置为至少 330 秒。
+  插件无法逐次调用覆盖该配置，也绝不编辑用户设置。宿主默认值可能更早结束调用。
+  本地 330 秒 MCP 截止时限约束的是嵌套 MCP 等待，不约束远端工作或宿主执行前的就绪等待。
+  在 Pi 1.2 的隔离空闲 `ctx.executeTool` 测试中，取消不会立即结束就绪等待；
+  发现完成后，宿主会阻止已取消的父工具执行。不要将取消理解为远端任务已取消。
 
-## Tool interface
+## 工具接口
 
 ```ts
 upload_local_file({
   path: string,
   contentType?: string,
-  expiresIn?: number,                 // integer 1–604800; default 86400
-  disposition?: "inline" | "attachment", // default inline
-  resume?: string                    // unchanged receipt from a failed call
+  expiresIn?: number,                 // 整数，范围 1–604800；默认 86400
+  disposition?: "inline" | "attachment", // 默认 inline
+  resume?: string                    // 失败调用返回的原样恢复凭条
 })
 ```
 
-`contentType` must not contain charset/other parameters. The default is a
-best-effort extension mapping, falling back to `application/octet-stream`;
-this is not content sniffing. The program reads the real size and timestamps,
-never taking these from model-supplied arguments. File names must satisfy the
-service's UTF-8 name restrictions.
+`contentType` 不得包含 charset 或其他参数。默认值尽力根据扩展名映射，无法匹配时
+回退到 `application/octet-stream`；这不是内容嗅探。程序读取真实大小和时间戳，
+绝不从模型提供的参数中获取这些值。文件名必须满足服务的 UTF-8 名称限制。
+结构约束（schema）与 MIME 语法/长度以及恢复凭条的 base64url 字符集/长度保持一致；
+运行时验证仍会检查凭条内容、文件身份和远端协议。
 
-- 1 byte through 32 MiB: read a bounded snapshot and send one raw PUT.
-- Above 32 MiB through the service's current 5 TiB safety ceiling: stream the
-  returned part ranges with at most **3 workers**, without buffering the whole
-  file or a whole large part. The backend may impose lower limits; the extreme
-  size is a protocol bound, not a claim of endpoint acceptance/performance.
-- Validate mode, key/uid, part geometry, unique part numbers, sizes, HTTP method,
-  headers and expiration. A one-part remaining plan is still multipart.
-- Follow no redirects and perform no automatic PUT retries. Targets must use
-  public HTTPS on port 443. DNS addresses are checked and pinned for each PUT;
-  private/local targets, credential/hop-by-hop headers and non-PUT methods are
-  refused. Download and upload targets must share an origin.
-- After all multipart PUTs finish, call `upload_file` **once** with the same
-  metadata to reconcile and complete. Only the service's `uploaded:true` counts
-  as a completed multipart object. No automatic completion loop is used.
-- Default requests reuse the service's 24-hour inline URL if still valid.
-  Attachment/custom lifetime (or an expired default link) is signed only after
-  upload success using `get_file_url`.
+Pi 在规范化/强制类型转换后验证工具参数。在 Pi 1.1/1.2 宿主集成测试中，
+`expiresIn: "3600"` 变为 `3600`，`expiresIn: 1.5` 变为 `1`，可选的 `null` 字段会被移除。
+直接调用业务逻辑会拒绝非整数有效期，但无法拒绝已被宿主转换的原始小数。
+结构约束并不保证对原始输入进行严格验证。
 
-The pre-signed PUT deadline is bounded by its signature expiry and a
-size-dependent total timeout. User cancellation stops local PUTs and waits for
-all workers to settle before releasing the file/lock. MCP cancellation does
-**not** guarantee cancellation of service-side work. The plugin does not retry
-MCP calls; the host's transport can independently reconnect/re-authenticate.
+- 1 字节至 32 MiB：读取有界快照，并发送一次原始 PUT。
+- 超过 32 MiB、直至服务当前 5 TiB 安全上限：最多使用 **3 个并发工作单元**流式传输返回的
+  分片范围，不会将整个文件或整个大分片缓存在内存中。后端可能施加更低限制；
+  这个极限大小是协议边界，不表示端点一定接受或具备相应性能。
+- 验证模式、key/uid、分片布局、分片编号唯一性、大小、HTTP 方法、请求头和有效期。
+  仅剩一个分片的计划仍属于分片上传。
+- 不跟随重定向，不自动重试 PUT。目标必须使用端口 443 上的公共 HTTPS。
+  每次 PUT 都会检查并固定 DNS 地址；拒绝私有/本地目标、凭据类/逐跳请求头及非 PUT 方法。
+  下载与上传目标必须同源。
+- 所有分片 PUT 完成后，使用相同元数据调用 `upload_file` **一次**，核对状态并完成上传。
+  只有服务返回的 `uploaded:true` 才算分片对象已完成。不使用自动完成循环。
+- 默认请求会复用服务提供的 24 小时 inline URL，前提是它仍有效。
+  attachment/自定义有效期（或默认链接已过期）仅在上传成功后通过 `get_file_url` 签名。
 
-## Failures and explicit recovery
+预签名 PUT 的截止时限同时受签名有效期和按大小确定的总超时约束。用户取消会停止本地 PUT，
+并等待所有工作单元结束后才释放文件/锁。取消 MCP **不保证**服务端工作被取消。
+插件不重试 MCP 调用；宿主传输层可以独立重连/重新认证。
 
-Results carry `uploaded` (`true`, `false`, or `null` when unknown),
-`uploadStatus`, `phase`, `linkStatus`, and safe errors. Never interpret merely
-receiving a key or a signed URL as a completed upload.
+## 失败与显式恢复
 
-| Situation | Result / recovery |
+结果包含 `uploaded`（`true`、`false`，或结果未知时的 `null`）、`uploadStatus`、
+`phase`、`linkStatus` 和安全的错误信息。绝不能仅因收到 key 或签名 URL 就认定上传已完成。
+
+| 情况 | 结果 / 恢复方式 |
 | --- | --- |
-| Invalid input, missing file or unavailable MCP | Error; no automatic connection, alternate authentication or retry |
-| Part failure, timeout or cancellation | Stop the batch; preserve `key`, `uid` and `resume` when known; do not auto-resign or retry |
-| Completion response lost | Unknown, not failed; explicit recovery checks the previous key first |
-| Upload succeeded but link signing failed | `uploaded:true`, `linkStatus:failed`; preserve key and resume; a still-valid default link is labelled `fallback`, not the requested link |
-| Single PUT outcome unknown | Recovery checks the old key only; never repeats the PUT or requests a new object |
+| 输入无效、文件缺失或 MCP 不可用 | 报错；不自动连接、不改用其他认证方式、不重试 |
+| 分片失败、超时或取消 | 停止该批次；已知时保留 `key`、`uid` 和 `resume`；不自动重新签名或重试 |
+| 完成响应丢失 | 结果未知，而非失败；显式恢复时先检查原有 key |
+| 上传成功但链接签名失败 | `uploaded:true`、`linkStatus:failed`；保留 key 和 resume；仍有效的默认链接标记为 `fallback`，而非所请求的链接 |
+| 单次 PUT 结果未知 | 恢复时仅检查旧 key；绝不重复 PUT 或请求新对象 |
 
-To recover, call the same tool with the returned `resume` receipt, the original
-path, and desired link options. The receipt contains metadata/identity and the
-object key, **not URLs, credentials or file contents**. It is an opaque recovery
-record, not an authentication token. Do not edit it or discard it and blindly
-start a fresh upload.
+恢复时，使用返回的 `resume` 凭条、原始路径和所需链接选项再次调用同一工具。
+凭条包含元数据/身份信息和对象 key，**不含 URL、凭据或文件内容**。
+它是不透明的恢复记录，不是认证令牌。不要编辑它，也不要丢弃它后盲目重新上传。
 
-Recovery first calls `get_file_url` for the old key. If the object exists, it
-returns the link without reading/re-uploading the file (also works when the
-local file has since been removed). Only an explicit remote `not-found` allows
-an unfinished multipart upload to proceed. Other errors leave the outcome
-unknown. A completed upload whose object was deleted is not recreated.
+恢复时首先为旧 key 调用 `get_file_url`。若对象存在，则直接返回链接，不读取/重新上传文件
+（即使本地文件之后已被删除也可用）。只有远端明确返回 `not-found`，才允许继续未完成的
+分片上传。其他错误会使结果保持未知。已完成上传的对象若被删除，不会重新创建。
 
-For multipart recovery the file's canonical path, device/inode, size, mtime,
-ctime and content type must still match. The service re-plans by the original
-metadata and returns only missing parts. The client requires the **same key and
-uid** before sending bytes. If the service no longer has the old task, it may
-create a different plan during this lookup; that plan is refused without
-uploading bytes, and the server's existing cleanup handles it. There is no
-service-side resume-by-uid endpoint to avoid this planning side effect.
+分片恢复要求文件的规范路径、设备/inode、大小、mtime、ctime 和内容类型仍然一致。
+服务按原始元数据重新规划，仅返回缺失的分片。客户端要求 **key 和 uid 均与原先相同**，
+才会发送字节。如果服务已不再保留旧任务，可能在此次查询中创建不同的计划；
+客户端会拒绝该计划且不上传字节，并由服务器现有清理机制处理它。
+服务端没有按 uid 恢复的端点，因此无法避免此规划副作用。
 
-The tool checks file identity and timestamps before/after streamed ranges and
-before completion. This detects normal changes, not malicious timestamp
-spoofing; it is not a content hash or snapshot guarantee for mutable large
-files. Do not edit an in-progress file. A source change stops completion; the
-client never deletes or aborts objects/tasks itself. Service-side cleanup may
-still reconcile uploaded parts independently.
+工具在流式传输各范围前后以及完成上传前检查文件身份和时间戳。这能检测常规修改，
+但不能防范恶意时间戳伪造；对可变的大文件而言，它不构成内容哈希或快照保证。
+不要修改正在上传的文件。源文件变化会阻止完成操作；客户端绝不会自行删除或中止对象/任务。
+服务端清理机制仍可能独立核对并处理已上传的分片。
 
-A process-local metadata lock prevents overlapping calls through this module,
-including while a timed-out host call is still settling. It is **not** a
-cross-process/client lock. Stop other clients and wait for outstanding PUTs
-before resuming. The server shares bucket access among all authorized clients;
-there is no per-user object isolation.
+进程内元数据锁防止通过此模块发起的调用相互重叠，包括已超时的宿主调用仍在收尾期间。
+它**不是**跨进程/客户端锁。恢复前请停止其他客户端，并等待尚未结束的 PUT 完成。
+服务器在所有获授权客户端之间共享存储桶访问权限；不存在按用户隔离对象的机制。
 
-## Links, storage and verification
+## 链接、存储与验证
 
-Download URLs are temporary bearer credentials. Anyone holding one can access
-the object. Tool results intentionally include the requested link, but the
-plugin never logs signed URLs, headers, raw MCP results or network errors and
-never persists recovery state on disk. Host transcripts and trusted tool hooks
-can see tool results; handle/export them accordingly. `inline` can execute
-active content such as HTML on the storage domain; use `attachment` as needed.
+下载 URL 是临时持有者凭据。任何持有链接的人都能访问对象。工具结果会有意包含所请求的链接，
+但插件绝不记录签名 URL、请求头、原始 MCP 结果或网络错误，也绝不将恢复状态持久化到磁盘。
+宿主会话记录和受信任的工具钩子可以看到工具结果；处理/导出时请据此采取措施。
+`inline` 可在存储域名下执行 HTML 等活动内容；必要时使用 `attachment`。
 
-The private temporary bucket is cleaned after approximately seven days.
-Re-signing a URL does not extend object retention; deletion/credential expiry
-may invalidate a link earlier than its stated expiry.
+私有临时存储桶中的对象会在约七天后清理。重新签名 URL 不会延长对象保留时间；
+对象删除/凭据过期可能导致链接早于其标示的有效期失效。
 
-Automated tests use synthetic files and isolated host/MCP fixtures; they never
-use personal configuration or the production gateway. Real endpoint verification
-must be explicitly authorized and reported separately from mocked host tests.
+自动化测试分别检查原始结构约束、真实宿主的输入规范化，以及实际成功/失败/恢复输出是否符合结构约束。
+就绪测试延迟真实的 JSON-RPC 发现响应，覆盖冷启动、重连、连接失败、已禁用服务器和取消。
+测试使用合成文件以及隔离的宿主/MCP 测试环境；绝不使用个人配置或生产网关。
+真实端点验证必须获得明确授权，并与模拟宿主测试分开报告。
 
-After authorization, `TSGW_UPLOAD_LIVE=1 npm run test:upload:live` runs the real Pi
-SDK with the host's existing `ts_oht` configuration/authentication and a local
-fixture model (no inference request). It creates two small files and one 33 MiB
-multipart object, verifies downloaded SHA-256, inline/attachment and custom
-lifetimes, interrupts a part batch, and simulates losing the completion response
-before explicit recovery. It does not modify client/server configuration or
-remove remote objects; existing server retention cleans them. Local fixtures
-and in-memory session state are discarded. No signed links are printed.
+获得授权后，`TSGW_UPLOAD_LIVE=1 npm run test:upload:live` 会运行真实 Pi SDK，
+使用宿主现有的 `ts_oht` 配置/认证和本地测试模型（不发送推理请求）。
+它创建两个小文件和一个 33 MiB 的分片对象，验证下载内容的 SHA-256、inline/attachment
+和自定义有效期，中断一个分片批次，并在显式恢复前模拟完成响应丢失。
+它不修改客户端/服务器配置，也不删除远端对象；由现有服务器保留策略清理它们。
+本地测试文件和内存中的会话状态会被丢弃。不打印任何签名链接。

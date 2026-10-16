@@ -1,37 +1,32 @@
 # pi-tsgw
 
-Pi extension for the TOSSP AIH gateway. Registers the `tsgw` provider with a
-model catalog spanning four wire protocols (openai-completions,
-openai-responses, anthropic-messages, google-generative-ai) and applies
-per-vendor request-body operations so thinking levels, reasoning formats, and
-optional built-in web search behave correctly on the gateway.
+面向 TOSSP AIH gateway 的 Pi 扩展。注册 `tsgw` 提供商，其模型目录涵盖四种通信协议
+（openai-completions、openai-responses、anthropic-messages、google-generative-ai），
+并按厂商对请求体执行相应操作，使思考级别、推理格式和可选的内置网络搜索在网关上正常工作。
 
-No private API keys or gateway endpoints are included. The static catalog
-contains model metadata and public-price estimates; these are not your gateway's
-billing rates.
+本项目不包含私有 API 密钥或网关端点。静态目录包含模型元数据和公开价格估算；
+这些价格并非你的网关计费费率。
 
-## Install
+## 安装
 
 ```bash
 pi install git:github.com/tossp/pi-tsgw
 ```
 
-or, for npm:
+或通过 npm 安装：
 
 ```bash
 pi install npm:pi-tsgw
 ```
 
-Then `/reload` (or restart pi). The provider appears as `tsgw` in the model
-picker.
+然后执行 `/reload`（或重启 pi）。模型选择器中会出现 `tsgw` 提供商。
 
-## Configuration
+## 配置
 
-All configuration lives in the `tsgw` namespace of `~/.pi/agent/settings.json`.
-The plugin reads no environment variables; only Pi's own credential
-resolution handles API keys.
+所有配置均位于 `~/.pi/agent/settings.json` 的 `tsgw` 命名空间下。
+插件不读取环境变量；API 密钥仅由 Pi 自身的凭据解析机制处理。
 
-Example:
+示例：
 
 ```json
 {
@@ -46,218 +41,177 @@ Example:
 }
 ```
 
-### Gateway address
+### 网关地址
 
-`baseUrl` points at your AIH gateway (any instance — the public one or a
-self-hosted one). The `/v1` suffix is normalized away. If unset, a neutral
-placeholder root is used that will not work.
+`baseUrl` 指向你的 AIH 网关（可以是公共实例或自托管实例）。规范化时会去掉 `/v1` 后缀。
+未设置时使用一个中性的占位根地址，该地址无法实际使用。
 
-### API key
+### API 密钥
 
-The extension delegates credential reading and resolution to Pi:
+扩展将凭据读取和解析交由 Pi 处理：
 
-1. **`/login`** — select the `tsgw` provider and enter the key; pi stores it
-   in `~/.pi/agent/auth.json` (preferred)
-2. **`TSGW_API_KEY`** environment variable — Pi's fallback when nothing is
-   stored
+1. **`/login`** — 选择 `tsgw` 提供商并输入密钥；pi 将其存储在
+   `~/.pi/agent/auth.json` 中（推荐方式）。
+2. **`TSGW_API_KEY` 环境变量** — 未存储凭据时由 Pi 回退使用。
 
-Startup discovery uses Pi's stored-credential API; later catalog refreshes use
-the credential supplied by Pi. With environment-only authentication, the initial
-catalog may fall back to static models until Pi refreshes it.
+启动时的发现使用 Pi 的已存储凭据 API；后续目录刷新使用 Pi 提供的凭据。
+如果仅通过环境变量认证，初始目录可能回退到静态模型，直到 Pi 刷新目录。
 
-### Options
+### 选项
 
-| Setting (`settings.json` `tsgw.*`) | Default | Meaning |
+| 设置（`settings.json` 中的 `tsgw.*`） | 默认值 | 含义 |
 | --- | --- | --- |
-| `baseUrl` | placeholder | Gateway root (the `/v1` suffix is normalized away) |
-| `mcpUrl` | `https://xn--oht.cc/mcp` | Optional `ts_oht` HTTP(S) endpoint override; independent of the model gateway |
-| `tsSearch` | `live` | GPT: `cached` or `live`; unset, legacy `off`, and invalid values fall back to `live`. Supported Grok models always use live search. |
-| `traceHeaders` | `false` | Adds `AH-Thread-Id` / `AH-Trace-Id` headers for gateway-side tracing |
-| `includeModels` | unset | Re-include override: matching model ids are kept even when also matched by `excludeModels` (exact id or `prefix-*` glob) |
-| `excludeModels` | unset | Blacklist: matching model ids are dropped unless pulled back by `includeModels` (exact id or `prefix-*` glob) |
+| `baseUrl` | 占位地址 | 网关根地址（规范化时去掉 `/v1` 后缀） |
+| `mcpUrl` | `https://xn--oht.cc/mcp` | 可选的 `ts_oht` HTTP(S) 端点覆盖值；独立于模型网关 |
+| `tsSearch` | `live` | GPT：`cached` 或 `live`；未设置、旧值 `off` 和无效值均回退到 `live`。受支持的 Grok 模型始终使用实时搜索。 |
+| `traceHeaders` | `false` | 添加 `AH-Thread-Id` / `AH-Trace-Id` 请求头，用于网关侧追踪 |
+| `includeModels` | 未设置 | 重新纳入的覆盖规则：匹配的模型 ID 即使也被 `excludeModels` 匹配，仍会保留（精确 ID 或 `prefix-*` 通配模式） |
+| `excludeModels` | 未设置 | 黑名单：匹配的模型 ID 会被移除，除非通过 `includeModels` 重新纳入（精确 ID 或 `prefix-*` 通配模式） |
 
-## Model catalog
+## 模型目录
 
-The catalog is assembled from per-vendor slices (`extensions/models/vendors/`),
-covering 11 vendor families: DeepSeek, GLM (Zhipu), MiMo (Xiaomi), MiniMax,
-Kimi (Moonshot), Qwen (Alibaba), GPT (OpenAI), Gemini (Google), Claude
-(Anthropic), LongCat, and Grok (xAI). The current static catalog contains 36 chat
-model IDs, including retained aliases; this is not a live availability count.
-Vendor files carry documentation links and metadata caveats. Alias mappings,
-output limits, and shared thinking policies are not all individually verified
-against gateway endpoints; public-price estimates do not guarantee billing.
-MiMo uses `mimo-v2.6-pro` and `mimo-v2.6-flash`; the former V2.5 IDs are not
-registered. Update any explicit model selections or filter rules to the new IDs.
+目录由各厂商的分片（`extensions/models/vendors/`）组装而成，涵盖 11 个厂商系列：
+DeepSeek、GLM（智谱）、MiMo（小米）、MiniMax、Kimi（Moonshot）、Qwen（阿里巴巴）、
+GPT（OpenAI）、Gemini（Google）、Claude（Anthropic）、LongCat 和 Grok（xAI）。
+当前静态目录包含 36 个聊天模型 ID（含保留的别名）；这不是实时可用模型数量。
+厂商文件包含文档链接和元数据注意事项。别名映射、输出限制和共享思考策略并未全部
+针对网关端点逐项验证；公开价格估算不构成计费保证。
+MiMo 使用 `mimo-v2.6-pro` 和 `mimo-v2.6-flash`；不再注册原有 V2.5 ID。
+请将显式模型选择或过滤规则更新为新 ID。
 
-The curated catalog keeps DeepSeek `deepseek-flash` and V4 Pro; GLM 5.2+,
-plus the explicit `glm-4.5-air` exception; MiniMax M3+; Kimi K3; GPT 6+;
-and Gemini 3.5+ plus the unversioned `gemini-flash` / `gemini-pro` aliases.
-Qwen, MiMo, LongCat, Claude, and Grok retain their existing registrations.
-Removed IDs and their dedicated request policies are no longer registered;
-include rules cannot restore them, even if a gateway still lists them. Existing
-explicit model selections referencing removed IDs need to be updated.
+精选目录保留 DeepSeek `deepseek-flash` 和 V4 Pro；GLM 5.2+，以及明确例外
+`glm-4.5-air`；MiniMax M3+；Kimi K3；GPT 6+；以及 Gemini 3.5+ 和无版本号的
+`gemini-flash` / `gemini-pro` 别名。Qwen、MiMo、LongCat、Claude 和 Grok 保留现有注册。
+已移除的 ID 及其专用请求策略不再注册；即使网关仍列出这些 ID，纳入规则也无法恢复它们。
+现有显式模型选择若引用了已移除的 ID，需要更新。
 
-Kimi offers `kimi-k3` and the gateway variant `kimi-k3-256k`, displayed as
-**Kimi K3 (256K)** with a 262,144-token context window. Its other metadata,
-price estimates, and thinking policy are inherited from K3; the 131,072-token
-output setting is separate from context size. These inherited values are not
-individual endpoint verification or a guarantee of the variant's billing rates.
+Kimi 提供 `kimi-k3` 和网关变体 `kimi-k3-256k`，后者显示为
+**Kimi K3 (256K)**，上下文窗口为 262,144 个 token。其余元数据、价格估算和思考策略
+继承自 K3；131,072 个 token 的输出设置与上下文大小彼此独立。
+这些继承值不代表已逐项验证该端点，也不保证该变体的计费费率。
 
-The catalog also includes `MiniMax-M3.1-Flash-Preview`, `glm-5.3`,
-`glm-5.3-flash`, and `glm-5.3-flashx`. All four require thinking: MiniMax
-uses low/medium/high/xhigh/max; GLM uses low/high/max. Unsupported `off` is
-disabled in model metadata, and stale off/minimal requests map to low rather
-than silently selecting the default max. MiniMax and GLM Flash/FlashX support
-image input; GLM 5.3 is text-only. Registration does not prove gateway
-inference or tool-call support.
+目录还包含 `MiniMax-M3.1-Flash-Preview`、`glm-5.3`、`glm-5.3-flash` 和
+`glm-5.3-flashx`。这四个模型都要求启用思考：MiniMax 使用 low/medium/high/xhigh/max；
+GLM 使用 low/high/max。模型元数据中禁用了不受支持的 `off`，过时的 off/minimal 请求
+会映射到 low，而不是静默选择默认的 max。MiniMax 和 GLM Flash/FlashX 支持图像输入；
+GLM 5.3 仅支持文本。注册并不证明网关支持推理或工具调用。
 
-As checked on 2026-10-16, MiniMax publishes subscription access but no per-token
-price for M3.1 Flash Preview. Its zero cost fields mean **unknown**, not free,
-and usage cost totals therefore omit its actual charges. GLM 5.3 price estimates
-use domestic public rates and the existing fixed USD/CNY conversion; temporary
-free cache storage is recorded as zero, not a permanent billing guarantee.
+截至 2026-10-16 的核查，MiniMax 已公布 M3.1 Flash Preview 的订阅访问方式，
+但未公布按 token 计费的价格。其费用字段为零表示**未知**，而非免费，因此用量费用总计
+会遗漏其实际收费。GLM 5.3 的价格估算使用国内公开费率和现有的固定 USD/CNY 换算率；
+临时免费的缓存存储记为零，不代表永久计费保证。
 
-Use broad `excludeModels` rules to drop model families and precise
-`includeModels` rules to pull selected models back. `includeModels` is not a
-global whitelist: models matching neither list remain available. To register
-only selected models, use `"excludeModels": ["*"]` and pull them back through
-`includeModels`. Both lists are case-sensitive and support only exact IDs or
-trailing `*` prefix matching (not general globs); preserve `MiniMax-*` casing.
-When a gateway catalog is available, filtering applies after intersecting it
-with the static catalog. Include rules cannot add unknown or unavailable IDs.
+使用宽泛的 `excludeModels` 规则排除模型系列，再用精确的 `includeModels` 规则
+重新纳入指定模型。`includeModels` 不是全局白名单：两个列表都未匹配的模型仍然可用。
+若只想注册指定模型，使用 `"excludeModels": ["*"]`，再通过 `includeModels` 重新纳入。
+两个列表均区分大小写，仅支持精确 ID 或末尾 `*` 前缀匹配（不支持通用通配模式）；
+请保留 `MiniMax-*` 的大小写。网关目录可用时，先与静态目录取交集，再应用过滤。
+纳入规则无法添加未知或不可用的 ID。
 
-Opening `/model` refreshes the gateway catalog in the background, with a
-five-minute cache to avoid repeated requests. Run `/tsgw-refresh` to bypass the
-cache and force an immediate refresh without restarting or reloading Pi. If a
-refresh fails, the last successful model list remains active.
+打开 `/model` 会在后台刷新网关目录，并使用五分钟缓存避免重复请求。
+运行 `/tsgw-refresh` 可绕过缓存立即强制刷新，无需重启或重新加载 Pi。
+刷新失败时，继续使用最近一次成功获取的模型列表。
 
-Memory and disk caches are scoped to the gateway root and credential using a
-SHA-256 digest; plaintext credentials are not stored. The disk cache is a single
-slot at `<agent-dir>/tsgw/models-cache.json`: changing scope may require a fresh
-fetch. Legacy unscoped cache files are ignored and replaced after a successful
-fetch. In-process request ordering prevents late results from replacing newer
-cache writes; this is not a cross-process locking mechanism.
+内存和磁盘缓存通过 SHA-256 摘要限定在网关根地址与凭据对应的作用域内；不存储明文凭据。
+磁盘缓存仅有一个槽位，位于 `<agent-dir>/tsgw/models-cache.json`：改变作用域可能需要
+重新获取。旧版无作用域缓存文件会被忽略，并在获取成功后替换。
+进程内请求排序可防止较晚返回的结果覆盖更新的缓存写入；这不是跨进程锁机制。
 
-## Status bar and session controls
+## 状态栏与会话控制
 
-Pi Web clients supporting `command:/…` statuses render these as clickable
-buttons; the terminal CLI displays status text and accepts the same commands:
+支持 `command:/…` 状态的 Pi Web 客户端会将其渲染为可点击按钮；终端 CLI 显示状态文本，
+并接受相同命令：
 
-- **`TSGW · N`** (`/tsgw`): one menu for **refreshing the model catalog** and
-  **viewing diagnostics**. The count is the filtered registered catalog, not a
-  count of healthy inference endpoints. 🟢 means a fresh directory result;
-  🟡 means a static/expired directory or a failed refresh; ⚠️ means missing
-  credentials or gateway configuration; ⏳ means a refresh is running.
-- **Built-in search** (`/tsgw-search`): GPT offers only `cached / live`
-  for the current session, defaulting to `live`. Supported Grok models use
-  fixed live search: the command only shows a notice, without a picker or
-  changing the GPT session mode. Other TSGW models use **delegated search**
-  through `tsgw_search`, if a supporting model remains in the effective catalog.
-  The status shows `代理` (live) or `代理缓存` (cached); it is hidden for other providers.
+- **`TSGW · N`**（`/tsgw`）：在同一菜单中**刷新模型目录**和**查看诊断信息**。
+  数量表示过滤后已注册的目录条目数，而非健康推理端点的数量。
+  🟢 表示新鲜的目录结果；🟡 表示静态/过期目录或刷新失败；⚠️ 表示缺少凭据或网关配置；
+  ⏳ 表示正在刷新。
+- **内置联网**（`/tsgw-search`）：GPT 仅为当前会话提供 `cached / live`，默认为 `live`。
+  受支持的 Grok 模型固定使用实时搜索：此命令只显示提示，不提供选择器，也不改变 GPT
+  的会话模式。其他 TSGW 模型通过 `tsgw_search` 使用**委托搜索**，前提是有效目录中
+  仍有支持搜索的模型。状态显示 `代理`（live）或 `代理缓存`（cached）；对其他提供商隐藏。
 
-For native GPT or a GPT delegate, type `/tsgw-search cached` or `/tsgw-search live`;
-`off` is no longer accepted. These controls do not modify `settings.json` or
-persist across a reload or a new session; `tsgw.tsSearch` remains the startup
-default. Existing `cached` configuration is preserved; unset, legacy `off`,
-and invalid configuration now default to `live`.
+对于原生 GPT 或 GPT 委托模型，输入 `/tsgw-search cached` 或 `/tsgw-search live`；
+不再接受 `off`。这些控制不会修改 `settings.json`，也不会在重新加载或新会话后保留；
+`tsgw.tsSearch` 仍是启动默认值。现有 `cached` 配置会保留；未设置、旧值 `off` 和
+无效配置现在均默认使用 `live`。
 
-Injection remains limited to the existing model/protocol support list. GPT
-Responses appends a `web_search` tool (`external_web_access` is false for
-`cached`, true for `live`); Grok Completions appends
-`search_parameters: { mode: "on" }`. Existing search tools/fields are never
-overwritten. This setting does not control Qwen's vendor policy, external
-tools, or thinking mode and is not a global network-access switch.
+注入仍仅限于现有的模型/协议支持列表。GPT Responses 追加一个 `web_search` 工具
+（`cached` 时 `external_web_access` 为 false，`live` 时为 true）；Grok Completions
+追加 `search_parameters: { mode: "on" }`。绝不覆盖现有搜索工具/字段。
+此设置不控制 Qwen 的厂商策略、外部工具或思考模式，也不是全局网络访问开关。
 
-When the current TSGW model lacks native search, the plugin activates
-`tsgw_search`: the current model calls it with a search question, a supporting
-model performs built-in web search, and the answer/sources return to the current
-model. The conversation model does not change. Only the question is sent, not
-session history or local tools. Native-search models do not expose this proxy.
+当当前 TSGW 模型缺少原生搜索能力时，插件会启用 `tsgw_search`：当前模型用搜索问题
+调用它，由支持搜索的模型执行内置网络搜索，再将答案/来源返回当前模型。
+对话模型不会改变。仅发送问题，不发送会话历史或本地工具。原生搜索模型不暴露此代理工具。
 
-Delegates are chosen from the effective filtered catalog, preferring
-**GPT 6 Luna**, then GPT 6 Sol, GPT 6.1 Sol, GPT 6 Astra, then the supported
-Grok models. No candidate means search is unavailable. An inference failure is
-reported, not silently retried on a more expensive model. Each tool call incurs
-an additional model request and any gateway search charges. GPT delegates follow
-`cached/live`; Grok delegates are always live. The tool is demand-driven by the
-current model, not an automatic search on every user message.
+委托模型从过滤后的有效目录中选择，优先顺序为 **GPT 6 Luna**，其次是 GPT 6 Sol、
+GPT 6.1 Sol、GPT 6 Astra，然后是受支持的 Grok 模型。没有候选模型时搜索不可用。
+推理失败会直接报告，不会静默改用更昂贵的模型重试。每次工具调用都会额外产生一次模型请求，
+以及网关可能收取的搜索费用。GPT 委托模型遵循 `cached/live`；Grok 委托模型始终实时搜索。
+此工具由当前模型按需调用，不会在每条用户消息后自动搜索。
 
-Delegated search requires `modelRegistry.streamSimple` (tested on Pi 1.1.0).
-It reuses Pi's registry authentication and adapters, including token usage/cost
-accounting; it does not parse HTTP responses or resolve credentials itself.
-Delegate requests do not inherit main-session request/header hooks (including
-`traceHeaders`). Source URLs are collected from adapter stream metadata when available; the
-search model is also asked to include links. Neither the status nor a successful
-request proves that an endpoint searched or returned reliable citations.
-The old `ts_search` tool is not restored. External tools such as `ts_oht.search`
-remain independent.
+委托搜索要求 `modelRegistry.streamSimple`（已在 Pi 1.1.0 上测试）。
+它复用 Pi 的注册表认证和适配器，包括 token 用量/费用统计；不会自行解析 HTTP 响应或凭据。
+委托请求不继承主会话的请求/请求头钩子（包括 `traceHeaders`）。
+可用时从适配器流元数据中收集来源 URL；同时也会要求搜索模型提供链接。
+状态显示或请求成功都不能证明端点确实执行了搜索或返回了可靠引用。
+不会恢复旧的 `ts_search` 工具。`ts_oht.search` 等外部工具仍然独立。
 
-Diagnostics show directory source, original fetch time, cache freshness,
-configuration presence, and safe refresh error summaries—never API keys or
-URLs. They make no extra network requests. Statuses update on session/model
-activity and directory refreshes; there is no background health polling.
+诊断信息显示目录来源、最初获取时间、缓存新鲜度、配置是否存在以及安全的刷新错误摘要，
+绝不显示 API 密钥或 URL。诊断不会额外发起网络请求。状态会随会话/模型活动和目录刷新更新；
+不会在后台轮询健康状态。
 
-Icons use Emoji/Unicode: Pi Web currently strips ANSI colors from command
-buttons. Busy sessions disable the buttons. The terminal CLI shows the same
-statuses as text; use the slash commands there. Pi Web may not show extension
-statuses until the session runtime has started.
+图标使用 Emoji/Unicode：Pi Web 目前会移除命令按钮中的 ANSI 颜色。
+会话忙碌时按钮不可用。终端 CLI 以文本显示相同状态；请在那里使用斜杠命令。
+Pi Web 可能要等会话运行时启动后才显示扩展状态。
 
-## Subagent orchestration skill
+## 子代理编排技能
 
-The package ships [delegate-model-selection](skills/delegate-model-selection/SKILL.md),
-which encourages suitable tasks to run through background subagents and provides
-model/thinking-level guidance, including independent Kimi + Astra reviews.
-Task splitting, parallelism, validation, and escalation remain the agent's choice.
+本包附带 [delegate-model-selection](skills/delegate-model-selection/SKILL.md)，
+鼓励适合的任务通过后台子代理执行，并提供模型/思考级别指导，包括独立的 Kimi + Astra 审查。
+任务拆分、并行、验证和升级仍由代理自行决定。
 
-The plugin maintains the reference table in the same `SKILL.md`
-for direct use, without asking agents to check live rankings or data freshness.
-It is guidance, not a model whitelist or fixed execution sequence. Prices are
-API reference rates, not subscription charges. GLM guidance uses 5.3, with Flash
-and FlashX as alternatives. Thinking levels use Pi names: M3 recommends `high`,
-which maps to adaptive like its other non-off levels.
+插件在同一份 `SKILL.md` 中维护参考表，供直接使用，无需要求代理检查实时排名或数据新鲜度。
+它是指导，不是模型白名单或固定执行顺序。价格是 API 参考费率，不是订阅费用。
+GLM 指导使用 5.3，并以 Flash 和 FlashX 为备选。思考级别使用 Pi 名称：M3 推荐 `high`，
+与其其他非 off 级别一样，映射为 adaptive。
 
-Pi discovers the skill through the package manifest after installation and
-`/reload`, unless skills are disabled or filtered by the host/package settings.
-Loading only `extensions/index.ts` does not load package skills. A host-provided
-subagent tool with model selection and available `tsgw` models is required; this
-package does not supply that tool or change dispatch settings, user rules, or
-permissions.
+安装并执行 `/reload` 后，Pi 会通过包清单发现该技能，除非宿主/包设置禁用或过滤了技能。
+仅加载 `extensions/index.ts` 不会加载包内技能。需要宿主提供支持模型选择的子代理工具，
+且有可用的 `tsgw` 模型；本包不提供该工具，也不改变调度设置、用户规则或权限。
 
-## Default MCP registration
+## 默认 MCP 注册
 
-The plugin registers `ts_oht` at `https://xn--oht.cc/mcp` with `codemode`
-exposure on each load. No MCP configuration is required to use this default.
-An optional `tsgw.mcpUrl` in the user-level settings changes the plugin's endpoint;
-it is independent of `tsgw.baseUrl` and is read once at initialization. Invalid
-explicit URLs skip this registration with a safe warning, rather than silently
-connecting to the default. Older hosts without `registerMcpServer` skip it.
+插件每次加载时都会注册 `ts_oht`，端点为 `https://xn--oht.cc/mcp`，
+暴露方式为 `codemode`。使用此默认配置无需任何 MCP 配置。
+用户级设置中可选的 `tsgw.mcpUrl` 会改变插件使用的端点；它独立于 `tsgw.baseUrl`，
+且仅在初始化时读取一次。显式 URL 无效时，会安全地发出警告并跳过注册，
+而不是静默连接默认端点。不支持 `registerMcpServer` 的旧宿主会跳过注册。
 
-Pi manages connections, OAuth sign-in and credentials. Use `/mcp login ts_oht`
-inside a session if sign-in is required. The plugin does not read or write
-`mcp.json` or `mcp-auth.json`, and does not carry credentials. Keep the same
-server name and exact URL to reuse the host's existing OAuth scope.
+Pi 管理连接、OAuth 登录和凭据。需要登录时，在会话内使用 `/mcp login ts_oht`。
+插件不读写 `mcp.json` 或 `mcp-auth.json`，也不携带凭据。
+保持相同的服务器名称和完全一致的 URL，才能复用宿主现有的 OAuth 作用域。
 
-A same-name `ts_oht` in the effective global/project `mcp.json` takes precedence
-over the plugin registration, including `enabled: false`; the plugin does not
-create a second connection or bypass that choice. Use a complete same-name
-file configuration to override the URL, exposure, timeout, auth, or enabled state.
-Changes to a plugin-provided server apply only to the current session; they are
-not saved. Shell `pi mcp` commands do not load plugins and cannot see servers
-provided only by this registration. Reload or restart after configuration changes.
+有效的全局/项目 `mcp.json` 中同名的 `ts_oht` 优先于插件注册，包括 `enabled: false`；
+插件不会创建第二条连接，也不会绕过该选择。要覆盖 URL、暴露方式、超时、认证或启用状态，
+请在文件中使用完整的同名配置。对插件提供的服务器所做的更改仅作用于当前会话，不会保存。
+Shell 中的 `pi mcp` 命令不加载插件，无法看到仅由此注册提供的服务器。
+配置变更后请重新加载或重启。
 
-## Local file upload
+## 本地文件上传
 
-The `upload_local_file` tool uploads an authorized file from the Pi host directly
-to S3 using the already-connected `ts_oht` MCP for signing. It supports single
-PUTs and streaming multipart uploads, explicit recovery, custom download expiry
-and inline/attachment links. It uses the host-managed connection and stores no credentials.
+`upload_local_file` 工具使用已连接的 `ts_oht` MCP 进行签名，将 Pi 宿主上已获授权的文件
+直接上传到 S3。它支持单次 PUT 和流式分片上传、显式恢复、自定义下载有效期，
+以及 inline/attachment 链接。它使用宿主管理的连接，不存储凭据。
 
-Upload support requires a host with `ctx.executeTool` (tested with Pi 1.1.0) and
-callable `ts_oht` upload tools. File access uses host OS permissions, not a
-sandbox. See [upload usage and safety boundaries](extensions/upload/README.md)
-before enabling it in an environment with sensitive files.
+上传功能要求宿主支持 `ctx.executeTool`（已在 Pi 1.1.0 和 1.2.0 上测试），
+且 `ts_oht` 上传工具可调用。在 Pi 1.2+ 上，`reachesTools` 允许宿主在发现/重连期间
+等待这两个依赖；旧宿主仍要求工具已经连接。它不会绕过禁用的工具、权限或认证。
+文件访问使用宿主操作系统权限，而非沙箱。在含有敏感文件的环境中启用前，
+请阅读[上传用法与安全边界](extensions/upload/README.md)。
 
-## Development
+## 开发
 
 ```bash
 npm ci
@@ -266,20 +220,19 @@ npm exec -- tsc -p tsconfig.json
 npm pack --dry-run --json
 ```
 
-Pi is installed as a development dependency; the lockfile defines the test
-baseline. Tests isolate configuration and credentials using temporary agent
-directories. Unit tests use a fake host; host integration tests load the extension
-through the real Pi SDK with simulated HTTP responses, without production
-requests. They do not verify upstream inference, native search results, or Pi
-Web rendering. Run the full suite after upgrading Pi.
+Pi 作为开发依赖安装；锁文件定义测试基线（Pi SDK 1.2.0，结构约束（schema）测试使用 TypeBox 1.3.37）。
+SDK 保留其自身的 TypeBox 1.3.27 验证器，因此不假设结构约束构造与宿主验证使用相同版本。
+Pi AI/MCP 是明确仅用于测试的开发依赖；运行时依赖和提供商的对等依赖最低版本保持不变。
+测试使用临时代理目录隔离配置和凭据。单元测试使用模拟宿主；宿主集成测试通过真实 Pi SDK
+加载扩展并模拟 HTTP 响应，不发起生产请求。它们不验证上游推理、原生搜索结果或 Pi Web
+渲染效果。升级 Pi 后请运行完整测试套件。
 
-## Technical details
+## 技术细节
 
-- [Vendor profiles](https://github.com/tossp/pi-tsgw/tree/main/extensions/models/vendors): model metadata, compatibility flags, and thinking mappings.
-- [Request operations](https://github.com/tossp/pi-tsgw/blob/main/extensions/models/operations.ts): copy-on-write dispatch; DeepSeek/Claude response handling stays with Pi's adapters.
-- [Built-in search](https://github.com/tossp/pi-tsgw/blob/main/extensions/models/web-search.ts): exact model/protocol support and append-only injection.
-- [Host integration](https://github.com/tossp/pi-tsgw/blob/main/extensions/index.ts): configuration, refreshes, commands, and lifecycle snapshots. Late request callbacks must not access stale session contexts.
+- [厂商配置](https://github.com/tossp/pi-tsgw/tree/main/extensions/models/vendors)：模型元数据、兼容性标志和思考映射。
+- [请求操作](https://github.com/tossp/pi-tsgw/blob/main/extensions/models/operations.ts)：写时复制分派；DeepSeek/Claude 响应仍由 Pi 的适配器处理。
+- [内置搜索](https://github.com/tossp/pi-tsgw/blob/main/extensions/models/web-search.ts)：精确的模型/协议支持范围和仅追加注入。
+- [宿主集成](https://github.com/tossp/pi-tsgw/blob/main/extensions/index.ts)：配置、刷新、命令和生命周期快照。延迟执行的请求回调不得访问过期的会话上下文。
 
-These source links describe the repository's current main branch; an installed
-release may differ. Development rules in `AGENTS.md` are repository-only and
-are not part of the npm package.
+这些源码链接描述仓库当前的 main 分支；已安装的发行版可能有所不同。
+`AGENTS.md` 中的开发规则仅用于仓库，不属于 npm 包。

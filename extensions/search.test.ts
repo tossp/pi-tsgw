@@ -22,8 +22,8 @@ function testLunaPriorityAndCandidateFiltering(): void {
 		candidate("grok-4.20", "openai-completions"),
 	]), { modelId: "gpt-6-luna", kind: "gpt" });
 
-	// Candidate order does not supersede policy preference; bad protocols and
-	// unsupported IDs are ignored, then Grok is the fallback.
+	// 候选顺序不优先于策略偏好；忽略错误协议与不支持的 ID，
+	// 最后回退至 Grok。
 	deepStrictEqual(resolveSearchDelegate([
 		candidate("gpt-6-luna", "openai-completions"),
 		candidate("gpt-6-luna-extra"), candidate("grok-4.20", "openai-completions"),
@@ -37,4 +37,4 @@ function testLunaPriorityAndCandidateFiltering(): void {
 
 testExactCandidateProtocol();
 testLunaPriorityAndCandidateFiltering();
-console.log("search.test.ts: all assertions passed");
+console.log("search.test.ts：全部断言通过");

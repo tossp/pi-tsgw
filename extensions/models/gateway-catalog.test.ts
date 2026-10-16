@@ -25,7 +25,7 @@ function expectFailure(
 	result: Awaited<ReturnType<typeof fetchGatewayModelIds>>,
 	reason: GatewayModelFailureReason,
 ): void {
-	if (result.ok) throw new Error(`expected ${reason} failure`);
+	if (result.ok) throw new Error(`应发生 ${reason} 失败`);
 	equal(result.reason, reason);
 }
 
@@ -53,7 +53,7 @@ async function testSuccessfulFetch(): Promise<void> {
 		"secret",
 		{ fetcher },
 	);
-	if (!result.ok) throw new Error(`unexpected failure: ${result.reason}`);
+	if (!result.ok) throw new Error(`意外失败：${result.reason}`);
 	deepStrictEqual(result.ids, ["gpt-5.4", "grok-4.20-fast"]);
 	equal(requestedUrl, "https://gateway.example.com/v1/models");
 	equal(authorization, "Bearer secret");
@@ -64,7 +64,7 @@ async function testFetchFailures(): Promise<void> {
 		fetcher: async () => new Response("unavailable", { status: 503 }),
 	});
 	expectFailure(http, "http");
-	if (http.ok) throw new Error("expected HTTP failure");
+	if (http.ok) throw new Error("应发生 HTTP 失败");
 	equal(http.status, 503);
 
 	const network = await fetchGatewayModelIds(
@@ -77,7 +77,7 @@ async function testFetchFailures(): Promise<void> {
 		},
 	);
 	expectFailure(network, "network");
-	if (network.ok) throw new Error("expected network failure");
+	if (network.ok) throw new Error("应发生网络失败");
 	equal(network.detail, "offline");
 
 	const invalidJson = await fetchGatewayModelIds(
@@ -153,7 +153,7 @@ async function testFreshCacheHit(): Promise<void> {
 		DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS - 1,
 	);
 
-	if (!first.ok || !second.ok) throw new Error("expected cached results");
+	if (!first.ok || !second.ok) throw new Error("应返回缓存结果");
 	equal(first.cached, false);
 	equal(second.cached, true);
 	equal(second.stale, false);
@@ -176,7 +176,7 @@ async function testForceRefreshesFreshCache(): Promise<void> {
 		1,
 	);
 
-	if (!refreshed.ok) throw new Error("expected forced refresh");
+	if (!refreshed.ok) throw new Error("应成功强制刷新");
 	equal(refreshed.cached, false);
 	deepStrictEqual(refreshed.ids, ["model-2"]);
 	equal(calls, 2);
@@ -199,7 +199,7 @@ async function testForceFailureUsesStaleCache(): Promise<void> {
 		1,
 	);
 
-	if (!fallback.ok) throw new Error("expected forced stale fallback");
+	if (!fallback.ok) throw new Error("应强制回退到过期缓存");
 	equal(fallback.cached, true);
 	equal(fallback.stale, true);
 	equal(fallback.fallbackReason, "http");
@@ -222,7 +222,7 @@ async function testExpiredCacheRefresh(): Promise<void> {
 		DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
 	);
 
-	if (!refreshed.ok) throw new Error("expected refreshed result");
+	if (!refreshed.ok) throw new Error("应返回刷新结果");
 	equal(refreshed.cached, false);
 	deepStrictEqual(refreshed.ids, ["model-2"]);
 	equal(calls, 2);
@@ -245,7 +245,7 @@ async function testStaleFallback(): Promise<void> {
 		DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
 	);
 
-	if (!fallback.ok) throw new Error("expected stale fallback");
+	if (!fallback.ok) throw new Error("应回退到过期缓存");
 	equal(fallback.cached, true);
 	equal(fallback.stale, true);
 	equal(fallback.fallbackReason, "http");
@@ -259,7 +259,7 @@ async function testFailureWithoutCache(): Promise<void> {
 		{ fetcher: async () => new Response("unavailable", { status: 404 }) },
 		0,
 	);
-	if (result.ok) throw new Error("expected uncached failure");
+	if (result.ok) throw new Error("应返回无缓存的失败结果");
 	equal(result.reason, "http");
 }
 
@@ -313,9 +313,9 @@ async function testAbortableRequestsAreIsolated(): Promise<void> {
 	);
 	firstController.abort();
 	const [aborted, refreshed] = await Promise.all([first, second]);
-	if (aborted.ok) throw new Error("expected first request to abort");
+	if (aborted.ok) throw new Error("首个请求应被取消");
 	equal(aborted.reason, "aborted");
-	if (!refreshed.ok) throw new Error("expected isolated refresh to succeed");
+	if (!refreshed.ok) throw new Error("隔离刷新应成功");
 	deepStrictEqual(refreshed.ids, ["fresh-model"]);
 	equal(calls, 2);
 }
@@ -396,7 +396,7 @@ async function testFreshDiskCacheHit(directory: string): Promise<void> {
 		101,
 	);
 
-	if (!result.ok) throw new Error("expected persisted cache hit");
+	if (!result.ok) throw new Error("应命中持久化缓存");
 	equal(calls, 0);
 	equal(result.cached, true);
 	equal(result.stale, false);
@@ -422,7 +422,7 @@ async function testForceBypassesFreshDiskCache(directory: string): Promise<void>
 		101,
 	);
 
-	if (!result.ok) throw new Error("expected forced disk refresh");
+	if (!result.ok) throw new Error("应强制刷新磁盘缓存");
 	equal(calls, 1);
 	equal(result.cached, false);
 	deepStrictEqual(result.ids, ["new-model"]);
@@ -445,7 +445,7 @@ async function testSuccessfulFetchPersistsDiskCache(directory: string): Promise<
 		200,
 	);
 
-	if (!result.ok) throw new Error("expected successful refresh");
+	if (!result.ok) throw new Error("刷新应成功");
 	deepStrictEqual(loadGatewayModelCache(cacheFilePath, scope, 200), {
 		ids: ["gpt-5.6-luna", "grok-4.20"],
 		fresh: true,
@@ -466,7 +466,7 @@ async function testStaleDiskFallback(directory: string): Promise<void> {
 		DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
 	);
 
-	if (!result.ok) throw new Error("expected stale persisted fallback");
+	if (!result.ok) throw new Error("应回退到过期的持久化缓存");
 	equal(result.cached, true);
 	equal(result.stale, true);
 	equal(result.fallbackReason, "http");
@@ -497,4 +497,4 @@ try {
 } finally {
 	rmSync(cacheDirectory, { recursive: true, force: true });
 }
-console.log("gateway-catalog.test.ts: all assertions passed");
+console.log("gateway-catalog.test.ts：全部断言通过");

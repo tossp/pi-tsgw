@@ -46,7 +46,7 @@ function apply(
 		payload,
 		context(modelId, api, thinkingLevel),
 	);
-	if (!isPlainObject(result)) throw new Error("expected a plain object result");
+	if (!isPlainObject(result)) throw new Error("结果应为普通对象");
 	return result;
 }
 
@@ -336,7 +336,7 @@ function testNoOpsAndProtectedFields(): void {
 			applyModelOperations(payload, context("deepseek-flash")),
 			payload,
 		);
-	// Retired IDs must not keep stale thinking or search injection policies.
+	// 已退役 ID 不得保留过时的思考或搜索注入策略。
 	for (const id of [
 		"deepseek-v4-flash", "glm-5.1", "glm-5", "glm-5-turbo", "glm-4.7", "glm-4.6", "glm-4.5",
 		"MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1", "kimi-for-coding", "kimi-k2.7-code",
@@ -412,4 +412,4 @@ testCompletionProfiles();
 testGeminiProfiles();
 testOpenAIResponsesProfiles();
 testNoOpsAndProtectedFields();
-console.log("operations.test.ts: all assertions passed");
+console.log("operations.test.ts：全部断言通过");

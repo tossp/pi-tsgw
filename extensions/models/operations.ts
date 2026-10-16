@@ -1,8 +1,8 @@
 /**
  * 请求体改写调度：按模型 id 查各厂商的思维链策略并应用。
  *
- * 各厂商的 thinking 策略定义在 `vendors/*.ts`（厂商文件自包含其思维链
- * 要求），本模块只做汇总与调度，不再硬编码模型族 switch。
+ * 各厂商的思维链策略定义在 `vendors/*.ts`（厂商文件自包含其思维链
+ * 要求），本模块只做汇总与调度，不再硬编码模型族分支。
  */
 
 import {
@@ -22,7 +22,7 @@ import { minimaxThinking } from "./vendors/minimax.ts";
 import { openaiThinking } from "./vendors/openai.ts";
 import { qwenThinking } from "./vendors/qwen.ts";
 
-// 与 catalog.ts 的 PROVIDER_ID 保持一致；此处不 import catalog，避免循环依赖。
+// 与 catalog.ts 的 PROVIDER_ID 保持一致；此处不导入 catalog，避免循环依赖。
 const TSGW_PROVIDER = "tsgw";
 
 const THINKING_STRATEGIES: Record<string, ThinkingApplier> = {
@@ -38,9 +38,9 @@ const THINKING_STRATEGIES: Record<string, ThinkingApplier> = {
 };
 
 /**
- * Apply the closed set of per-vendor thinking operations without mutating
- * `payload`. Non-plain payloads and all non-TSGW requests are returned
- * unchanged. Models without a registered strategy pass through untouched.
+ * 应用预先限定的各厂商思维链操作，不修改原始 `payload`。
+ * 非普通对象的请求体与所有非 TSGW 请求均原样返回。
+ * 未注册策略的模型不做改动，直接透传。
  */
 export function applyModelOperations(
 	payload: unknown,

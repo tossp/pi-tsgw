@@ -6,11 +6,11 @@ import { type PayloadWriter, type ThinkingApplier, type ThinkingLevel } from "..
  * MiniMax 系列。
  * 国内官方依据：
  * https://platform.minimaxi.com/docs/api-reference/text-chat （输出上限）
- * 2026-10-16 M3.1 依据（不能关闭 thinking，支持五档 effort）：
+ * 2026-10-16 M3.1 依据（不能关闭思考，支持五档思考深度）：
  * https://platform.minimax.cn/docs/guides/text-generation
  * https://platform.minimax.cn/docs/api-reference/text-openai-api
  * https://platform.minimax.cn/docs/api-reference/text-chat （最大输出 524288）
- * 预览版仅 M Plan / Code 提供；未公布 token 单价，cost=0 是未知占位，不是免费。
+ * 预览版仅 M Plan / Code 提供；未公布词元单价，cost=0 是未知占位，不是免费。
  */
 export function minimaxModels(root: string): ProviderModelConfig[] {
 	const v1 = `${root}/v1`;
@@ -31,7 +31,7 @@ export function minimaxModels(root: string): ProviderModelConfig[] {
 				max: "max",
 			},
 			input: ["text", "image"],
-			// No public per-token price; do not inherit M3 prices.
+			// 未公布按词元计费的价格；不沿用 M3 定价。
 			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			contextWindow: 1000000,
 			maxTokens: 524288,
@@ -58,7 +58,7 @@ export function minimaxModels(root: string): ProviderModelConfig[] {
 }
 
 // MiniMax 思维链：`reasoning_split=true`，档位映射 disabled/adaptive。
-// 国内 OpenAI SDK 文档：M3 可关闭 thinking。
+// 国内 OpenAI SDK 文档：M3 可关闭思考。
 function applyMiniMax(writer: PayloadWriter, level: ThinkingLevel): void {
 	writer.remove("reasoning_effort");
 	writer.set("reasoning_split", true);
@@ -68,7 +68,7 @@ function applyMiniMax(writer: PayloadWriter, level: ThinkingLevel): void {
 function applyMiniMax31(writer: PayloadWriter, level: ThinkingLevel): void {
 	writer.set("reasoning_split", true);
 	writer.setThinking({ type: "adaptive" });
-	// Stale off/minimal snapshots must not select unsupported none or default max.
+	// 过期的 off/minimal 快照不得选用不受支持的 none，也不得使用默认 max。
 	writer.set("reasoning_effort", level === "off" || level === "minimal" ? "low" : level);
 }
 

@@ -3,5 +3,5 @@ dist/
 *.log
 .DS_Store
 
-# pi-subagents workspace artifacts
+# pi-subagents 工作区产物
 .pi-subagents/

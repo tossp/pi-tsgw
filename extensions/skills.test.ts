@@ -14,7 +14,7 @@ function packageRoot(): string {
 		const path = join(dir, "package.json");
 		if (existsSync(path) && JSON.parse(readFileSync(path, "utf8")).name === "pi-tsgw") return dir;
 		const parent = dirname(dir);
-		assert.notEqual(parent, dir, "Cannot locate pi-tsgw package root");
+		assert.notEqual(parent, dir, "无法定位 pi-tsgw 包根目录");
 		dir = parent;
 	}
 }
@@ -23,9 +23,9 @@ const root = packageRoot();
 const skillDir = join(root, "skills", "delegate-model-selection");
 const skillPath = join(skillDir, "SKILL.md");
 
-// These tests validate packaging, Pi names and local mappings, not model quality,
-// current prices, automatic skill invocation, or live subagent execution.
-test("selection table uses registered IDs and Pi thinking levels", () => {
+// 这些测试验证打包、Pi 名称及本地映射，不验证模型质量、
+// 当前价格、技能自动调用或真实子代理执行。
+test("选型表使用已注册 ID 与 Pi 思考档位", () => {
 	const reference = readFileSync(skillPath, "utf8");
 	const rows = reference.split("\n").filter((line) => /^\| [^|]+ \| `/.test(line));
 	const expected = [
@@ -39,21 +39,21 @@ test("selection table uses registered IDs and Pi thinking levels", () => {
 	];
 	const choices = rows.map((row) => {
 		const cells = row.split("|").map((cell) => cell.trim());
-		assert.equal(cells.length, 8, "Each reference row must have six columns");
+		assert.equal(cells.length, 8, "每条参考行必须有六列");
 		return [cells[2]!.replaceAll("`", ""), cells[3]!.replaceAll("`", "")];
 	});
-	assert.deepEqual(choices, expected, "Preserve per-tier order and explicit thinking levels");
+	assert.deepEqual(choices, expected, "保留各档位顺序与显式思考深度");
 	const models = modelsForRoot(TEST_ROOT);
 	const levels: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 	for (const [id, level] of choices) {
 		const model = models.find((candidate) => candidate.id === id);
-		assert.ok(model, `Unregistered model: ${id}`);
-		assert.ok(levels.includes(level as ThinkingLevel), `Not a Pi thinking level: ${level}`);
-		assert.notEqual(model.thinkingLevelMap?.[level as ThinkingLevel], null, `${id}/${level} is disabled`);
+		assert.ok(model, `未注册的模型：${id}`);
+		assert.ok(levels.includes(level as ThinkingLevel), `不是 Pi 思考档位：${level}`);
+		assert.notEqual(model.thinkingLevelMap?.[level as ThinkingLevel], null, `${id}/${level} 已禁用`);
 	}
 	for (const id of ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx"]) {
 		const model = models.find((candidate) => candidate.id === id)!;
-		assert.ok(model, `GLM alternative must remain registered: ${id}`);
+		assert.ok(model, `GLM 备选模型必须保持注册：${id}`);
 		assert.equal(model.thinkingLevelMap?.off, null);
 		for (const level of ["low", "medium", "high", "xhigh", "max"] as const) {
 			const effort = level === "medium" ? "high" : level === "xhigh" ? "max" : level;
@@ -87,7 +87,7 @@ test("selection table uses registered IDs and Pi thinking levels", () => {
 	assert.equal(input.thinking.type, "legacy");
 });
 
-test("DeepSeek skill prices and catalog share the domestic peak-price baseline", () => {
+test("DeepSeek 技能价格与目录共用国内高峰价基准", () => {
 	const reference = readFileSync(skillPath, "utf8");
 	const row = reference.split("\n").find((line) => line.includes("| `deepseek-flash` | `max` |"));
 	assert.ok(row);
@@ -102,7 +102,7 @@ test("DeepSeek skill prices and catalog share the domestic peak-price baseline",
 	assert.match(reference, /静态目录采用区间高端，不自动按时段切换/);
 });
 
-test("Pi SDK discovers the bundled skill through the package manifest and respects filtering", { timeout: 60_000 }, async () => {
+test("Pi SDK 通过包清单发现随包技能并遵守过滤规则", { timeout: 60_000 }, async () => {
 	const sandbox = new HostSandbox();
 	try {
 		const { DefaultResourceLoader, formatSkillsForPrompt, SettingsManager } =
@@ -117,7 +117,7 @@ test("Pi SDK discovers the bundled skill through the package manifest and respec
 		const loader = makeLoader();
 		await loader.reload();
 		assert.deepEqual(loader.getSkills().diagnostics, []);
-		assert.equal(loader.getSkills().skills.length, 1, "Only the bundled skill, no personal resources");
+		assert.equal(loader.getSkills().skills.length, 1, "仅加载随包技能，不加载个人资源");
 		const skill = loader.getSkills().skills[0]!;
 		assert.equal(skill.name, "delegate-model-selection");
 		assert.equal(skill.filePath, skillPath);
@@ -129,14 +129,14 @@ test("Pi SDK discovers the bundled skill through the package manifest and respec
 		assert.match(formatSkillsForPrompt([skill]), /delegate-model-selection/);
 		const body = readFileSync(skill.filePath, "utf8");
 		assert.match(body, /^\| 任务等级 \| 模型 \| 思考深度 \| 评分 \| 输入价 \| 输出价 \|$/m,
-			"The loaded skill must contain its selection table");
+			"加载的技能必须包含选型表");
 		await loader.reload();
 		assert.deepEqual(loader.getSkills().diagnostics, []);
-		assert.equal(loader.getSkills().skills.length, 1, "Reload must not duplicate the skill");
+		assert.equal(loader.getSkills().skills.length, 1, "重载不得重复加载技能");
 		const filtered = makeLoader([]);
 		await filtered.reload();
 		assert.deepEqual(filtered.getSkills(), { skills: [], diagnostics: [] });
-		assert.deepEqual(sandbox.blocked, [], "Skill discovery must not make network requests");
+		assert.deepEqual(sandbox.blocked, [], "技能发现不得发起网络请求");
 	} finally {
 		sandbox.restore();
 	}

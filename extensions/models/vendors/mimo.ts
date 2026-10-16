@@ -8,7 +8,7 @@ import { applyEnabledThinking, type ThinkingApplier } from "../_tools.ts";
  * 规格：https://mimo.mi.com/docs/zh-CN/quick-start/summary/model
  * 思考：https://mimo.mi.com/docs/zh-CN/quick-start/usage-guide/text-generation/deep-thinking
  * 定价：https://mimo.mi.com/docs/zh-CN/price/pay-as-you-go
- * 国内 CNY/百万 tokens 按既有 0.1475 USD/CNY 估算；缓存写入限时免费。
+ * 国内 CNY/百万词元按既有 0.1475 USD/CNY 估算；缓存写入限时免费。
  */
 export function mimoModels(root: string): ProviderModelConfig[] {
 	const v1 = `${root}/v1`;

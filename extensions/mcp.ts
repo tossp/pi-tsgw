@@ -3,7 +3,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 export const TS_OHT_NAME = "ts_oht";
 export const TS_OHT_URL = "https://xn--oht.cc/mcp";
 
-/** Session default only; Pi owns file overrides, connections and OAuth. */
+/** 仅设置会话默认值；文件覆盖、连接与 OAuth 由 Pi 管理。 */
 export function registerTsgwMcp(pi: ExtensionAPI, configuredUrl?: unknown): void {
 	const value = configuredUrl === undefined ? TS_OHT_URL : configuredUrl;
 	try {
@@ -12,15 +12,15 @@ export function registerTsgwMcp(pi: ExtensionAPI, configuredUrl?: unknown): void
 		if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || url.hash)
 			throw new Error();
 	} catch {
-		// Invalid explicit configuration must not connect to a different default.
-		// Never include URLs or parser errors in ordinary logs.
-		console.error("TSGW: invalid mcpUrl; ts_oht registration skipped.");
+		// 显式配置无效时，不得改用其他默认地址连接。
+		// 常规日志中绝不包含 URL 或解析器错误。
+		console.error("TSGW：mcpUrl 无效；已跳过 ts_oht 注册。");
 		return;
 	}
 	if (typeof pi.registerMcpServer !== "function") {
-		console.error("TSGW: this Pi host cannot register MCP servers; ts_oht registration skipped.");
+		console.error("TSGW：当前 Pi 宿主无法注册 MCP 服务器；已跳过 ts_oht 注册。");
 		return;
 	}
-	// Preserve the exact URL because Pi binds OAuth to server name + URL.
+	// 保留精确 URL，因为 Pi 将 OAuth 绑定到服务器名称与 URL 的组合。
 	pi.registerMcpServer(TS_OHT_NAME, { url: value as string, exposure: "codemode" });
 }

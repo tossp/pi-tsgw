@@ -5,13 +5,13 @@ import { isMaximum, type PayloadWriter, type ThinkingApplier, type ThinkingLevel
 /**
  * 智谱 AI（Zhipu）GLM 系列。
  * 国内官方依据：
- * https://docs.bigmodel.cn/cn/guide/capabilities/thinking （effort 仅 5.2+）
+ * https://docs.bigmodel.cn/cn/guide/capabilities/thinking （思考深度设置仅支持 5.2+）
  * https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode （保留式思考）
  * 2026-10-16 5.3 / Flash / FlashX：始终思考，仅 low/high/max。
  * https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3
  * https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash
  * https://docs.bigmodel.cn/cn/guide/start/pricing
- * 国内 CNY/百万 tokens 按既有固定 0.1475 USD/CNY 估算（非实时汇率）；
+ * 国内 CNY/百万词元按既有固定 0.1475 USD/CNY 估算（非实时汇率）；
  * 三型号输入/输出/缓存命中为 8/28/2、0.8/2.8/0.23、2/7/0.57，
  * 缓存存储限时免费。1M 上下文与 128K 最大输出分别登记。
  */

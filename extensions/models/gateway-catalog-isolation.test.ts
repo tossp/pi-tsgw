@@ -26,7 +26,7 @@ function deferred() {
 }
 const unavailable: GatewayFetch = async () => new Response(null, { status: 503 });
 
-test("scope hashes root and credential and normalizes trailing slash only", () => {
+test("作用域对根地址与凭据取哈希，且仅归一化末尾斜杠", () => {
 	const scope = gatewayModelCacheScope("https://example.invalid", "secret");
 	match(scope, /^[a-f0-9]{64}$/);
 	equal(scope, gatewayModelCacheScope("https://example.invalid/", "secret"));
@@ -35,7 +35,7 @@ test("scope hashes root and credential and normalizes trailing slash only", () =
 });
 
 for (const change of ["root", "credential"] as const) {
-	test(`memory and in-flight requests isolate ${change}`, async (t) => {
+	test(`内存与进行中的请求按${change === "root" ? "根地址" : "凭据"}隔离`, async (t) => {
 		const { root } = fixture(t);
 		const otherRoot = change === "root" ? `${root}/other` : root;
 		const otherKey = change === "credential" ? "other-key" : "key";
@@ -53,7 +53,7 @@ for (const change of ["root", "credential"] as const) {
 			});
 		}
 	});
-	test(`disk cache rejects another ${change}, including stale fallback`, async (t) => {
+	test(`磁盘缓存拒绝不同${change === "root" ? "根地址" : "凭据"}，包括过期回退`, async (t) => {
 		const { root, path } = fixture(t);
 		const scope = gatewayModelCacheScope(root, "key");
 		saveGatewayModelCache(path, scope, ["private-model"], 0);
@@ -70,7 +70,7 @@ for (const change of ["root", "credential"] as const) {
 	});
 }
 
-test("legacy unscoped disk cache is ignored and replaced on successful fetch", async (t) => {
+test("忽略无作用域的旧版磁盘缓存，并在请求成功时替换", async (t) => {
 	const { root, path } = fixture(t);
 	writeFileSync(path, JSON.stringify({ ids: ["legacy-private"], storedAt: 0 }));
 	const scope = gatewayModelCacheScope(root, "key");
@@ -85,7 +85,7 @@ test("legacy unscoped disk cache is ignored and replaced on successful fetch", a
 });
 
 for (const outcome of ["success", "failure", "abort"] as const) {
-	test(`late old success cannot overwrite after newer ${outcome}`, async (t) => {
+	test(`较新请求${outcome === "success" ? "成功" : outcome === "failure" ? "失败" : "取消"}后，迟到的旧成功结果不得覆盖`, async (t) => {
 		const { root, path } = fixture(t);
 		const scope = gatewayModelCacheScope(root, "key");
 		await getGatewayModelIds(root, "key", {
@@ -116,18 +116,18 @@ for (const outcome of ["success", "failure", "abort"] as const) {
 	});
 }
 
-test("normal and force requests are separate; late normal success cannot undo force", async (t) => {
+test("普通与强制请求分离；迟到的普通成功结果不能撤销强制刷新", async (t) => {
 	const { root } = fixture(t);
 	const old = deferred();
 	const first = getGatewayModelIds(root, "key", { fetcher: old.fetcher }, 0);
 	await getGatewayModelIds(root, "key", { force: true, fetcher: async () => response("new") }, 1);
 	old.resolve(response("old")); await first;
 	const result = await getGatewayModelIds(root, "key", { fetcher: unavailable }, 2);
-	if (!result.ok) throw new Error("expected cache");
+	if (!result.ok) throw new Error("应命中缓存");
 	deepStrictEqual(result.ids, ["new"]);
 });
 
-test("signal-free dedup keeps initiating timestamp; cancellation does not share its signal", async (t) => {
+test("无 signal 的请求去重保留发起时间戳；取消请求不共享其 signal", async (t) => {
 	const { root } = fixture(t);
 	const shared = deferred(), isolated = deferred();
 	const first = getGatewayModelIds(root, "key", { fetcher: shared.fetcher }, 10);
@@ -141,10 +141,10 @@ test("signal-free dedup keeps initiating timestamp; cancellation does not share 
 	deepStrictEqual(await third, { ok: false, reason: "aborted" });
 	shared.resolve(response("shared"));
 	for (const result of await Promise.all([first, second])) {
-		if (!result.ok) throw new Error("expected successful independent request");
+		if (!result.ok) throw new Error("独立请求应成功");
 		equal(result.storedAt, 10);
 	}
-	// The newer cancelled request also revokes the old request's write permission.
+	// 较新的已取消请求也会撤销旧请求的写入权限。
 	deepStrictEqual(await getGatewayModelIds(root, "key", { fetcher: unavailable }, 13), {
 		ok: false, reason: "http", status: 503,
 	});
@@ -152,7 +152,7 @@ test("signal-free dedup keeps initiating timestamp; cancellation does not share 
 
 for (const change of ["root", "credential"] as const) {
 	for (const outcome of ["success", "failure"] as const) {
-		test(`single disk slot fences late ${change} success after newer ${outcome}`, async (t) => {
+		test(`较新请求${outcome === "success" ? "成功" : "失败"}后，单一磁盘位置阻止旧${change === "root" ? "根地址" : "凭据"}请求的迟到成功结果写入`, async (t) => {
 			const { root, path } = fixture(t);
 			const otherRoot = change === "root" ? `${root}/other` : root;
 			const otherKey = change === "credential" ? "other-key" : "key";
@@ -162,14 +162,14 @@ for (const change of ["root", "credential"] as const) {
 			const first = getGatewayModelIds(root, "key", {
 				cacheFilePath: path, force: true, fetcher: old.fetcher,
 			}, 1);
-			// Relative and dot-segment aliases must identify the same disk slot.
+			// 相对路径与点路径段别名必须标识同一磁盘位置。
 			const alias = `${relative(process.cwd(), dirname(path))}/./models.json`;
 			await getGatewayModelIds(otherRoot, otherKey, {
 				cacheFilePath: alias, force: true,
 				fetcher: outcome === "success" ? async () => response("new") : unavailable,
 			}, 2);
 			const persisted = readFileSync(path, "utf8");
-			// A late subscriber to the old shared request cannot reclaim this slot.
+			// 旧共享请求的迟到订阅者不能重新占用此位置。
 			const subscriber = getGatewayModelIds(root, "key", {
 				cacheFilePath: alias, force: true, fetcher: old.fetcher,
 			}, 3);
@@ -179,16 +179,16 @@ for (const change of ["root", "credential"] as const) {
 			equal(readFileSync(path, "utf8"), persisted);
 			deepStrictEqual(loadGatewayModelCache(path, scope, 4)?.ids,
 				[outcome === "success" ? "new" : "baseline"]);
-			// Disk fencing must not discard the other scope's valid memory result.
+			// 磁盘写入防护不得丢弃其他作用域的有效内存结果。
 			const memory = await getGatewayModelIds(root, "key", { fetcher: unavailable }, 4);
-			if (!memory.ok) throw new Error("expected independent memory cache");
+			if (!memory.ok) throw new Error("应命中独立内存缓存");
 			deepStrictEqual(memory.ids, ["old"]);
 			equal(memory.storedAt, 1);
 		});
 	}
 }
 
-test("one signal-free shared request persists independently to multiple paths", async (t) => {
+test("单个无 signal 的共享请求独立持久化到多个路径", async (t) => {
 	const { root, path } = fixture(t);
 	const otherPath = join(dirname(path), "other.json");
 	const old = deferred();
@@ -204,7 +204,7 @@ test("one signal-free shared request persists independently to multiple paths", 
 	}
 });
 
-test("disk fence affects only the contested path of a shared request", async (t) => {
+test("磁盘写入防护仅影响共享请求中有竞争的路径", async (t) => {
 	const { root, path } = fixture(t);
 	const otherPath = join(dirname(path), "other.json");
 	const old = deferred();
@@ -219,7 +219,7 @@ test("disk fence affects only the contested path of a shared request", async (t)
 	deepStrictEqual(loadGatewayModelCache(otherPath, gatewayModelCacheScope(root, "key"), 4)?.ids, ["shared"]);
 });
 
-test("pre-aborted requests cannot return fresh memory or disk entries", async (t) => {
+test("预先取消的请求不能返回新鲜内存或磁盘条目", async (t) => {
 	const { root, path } = fixture(t);
 	await getGatewayModelIds(root, "key", {
 		cacheFilePath: path, fetcher: async () => response("cached"),

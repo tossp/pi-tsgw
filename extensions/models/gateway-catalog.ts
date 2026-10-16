@@ -90,7 +90,7 @@ function uniqueModelIds(data: unknown[]): string[] {
 	return Array.from(ids);
 }
 
-/** Load the OpenAI-compatible model list exposed by a gateway. */
+/** 加载网关提供的 OpenAI 兼容模型列表。 */
 export async function fetchGatewayModelIds(
 	baseUrl: string,
 	apiKey: string,
@@ -156,12 +156,12 @@ export async function fetchGatewayModelIds(
 	}
 }
 
-/** Create a defensive, in-memory TTL cache for a gateway model list. */
+/** 为网关模型列表创建带有效期和防御性复制的内存缓存。 */
 export function createModelCache(
 	ttlMs = DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
 ): ModelCache {
 	if (!Number.isFinite(ttlMs) || ttlMs < 0)
-		throw new RangeError("ttlMs must be a non-negative finite number");
+		throw new RangeError("ttlMs 必须是非负有限数值");
 	let entry: ModelCacheEntry | undefined;
 
 	return {
@@ -180,7 +180,7 @@ export function createModelCache(
 	};
 }
 
-/** Hash both identity components; no plaintext credentials in cache keys or files. */
+/** 对两个身份组成部分一起计算哈希；缓存键和文件中不保存明文凭据。 */
 export function gatewayModelCacheScope(baseUrl: string, apiKey: string): string {
 	return createHash("sha256")
 		.update(JSON.stringify([baseUrl.replace(/\/+$/, ""), apiKey]))
@@ -225,7 +225,7 @@ function isCacheEntryFresh(
 	return Math.max(0, now - entry.storedAt) < ttlMs;
 }
 
-/** Atomically persist gateway model IDs. Write failures are non-fatal. */
+/** 原子持久化网关模型 ID；写入失败不影响主流程。 */
 export function saveGatewayModelCache(
 	filePath: string,
 	scope: string,
@@ -245,12 +245,12 @@ export function saveGatewayModelCache(
 		try {
 			unlinkSync(temporaryPath);
 		} catch {
-			// The temporary file may not have been created.
+			// 临时文件可能尚未创建。
 		}
 	}
 }
 
-/** Load a persisted gateway model list. Missing or invalid files are ignored. */
+/** 加载持久化的网关模型列表；忽略缺失或无效的文件。 */
 export function loadGatewayModelCache(
 	filePath: string,
 	scope: string,
@@ -258,7 +258,7 @@ export function loadGatewayModelCache(
 	ttlMs = DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
 ): LoadedGatewayModelCache | undefined {
 	if (!Number.isFinite(ttlMs) || ttlMs < 0)
-		throw new RangeError("ttlMs must be a non-negative finite number");
+		throw new RangeError("ttlMs 必须是非负有限数值");
 	const entry = readGatewayModelCacheEntry(filePath, scope);
 	if (!entry) return undefined;
 	return {
@@ -275,7 +275,7 @@ interface PendingRequest {
 }
 const inFlightRequests = new Map<string, PendingRequest>();
 const latestRequests = new Map<string, number>();
-// Disk is single-slot per normalized path, independently of the memory scope.
+// 每个规范化路径仅有一个磁盘缓存槽，与内存缓存作用域相互独立。
 const latestDiskRequests = new Map<string, number>();
 let revision = 0;
 
@@ -289,10 +289,10 @@ function cacheFor(key: string): ModelCache {
 }
 
 /**
- * Load gateway model IDs with a five-minute process cache.
+ * 加载网关模型 ID，使用有效期为五分钟的进程内缓存。
  *
- * Fresh cache entries are returned without I/O. A failed refresh falls back
- * to a stale entry when available; otherwise the fetch failure is returned.
+ * 缓存未过期时直接返回，不进行输入输出。刷新失败时，若有过期缓存则回退使用；
+ * 否则返回获取失败的结果。
  */
 export async function getGatewayModelIds(
 	baseUrl: string,
@@ -334,9 +334,9 @@ export async function getGatewayModelIds(
 	}
 
 	const requestKey = `${key}\0${opts.force ? "force" : "normal"}`;
-	// A shared request cannot safely inherit one caller's AbortSignal: Pi may
-	// supersede that refresh while a newer caller is still waiting. Only
-	// signal-free calls share in-flight work; abortable calls own their fetch.
+	// 共享请求无法安全地继承某个调用者的 AbortSignal：较新的调用者仍在等待时，
+	// Pi 可能已替换该次刷新。只有不带信号的调用共享进行中的请求；
+	// 可取消的调用独立发起获取请求。
 	const shareRequest = opts.signal === undefined;
 	let request = shareRequest ? inFlightRequests.get(requestKey) : undefined;
 	if (!request) {
@@ -356,8 +356,8 @@ export async function getGatewayModelIds(
 
 	const diskPath = opts.cacheFilePath ? resolve(opts.cacheFilePath) : undefined;
 	if (diskPath) {
-		// Register every subscriber's path, including shared requests with different
-		// destinations. Joining an older request must not roll back a newer fence.
+		// 登记每个订阅者的路径，包括目标路径不同的共享请求。
+		// 加入较旧请求时，不得回退较新的版本屏障。
 		latestDiskRequests.set(diskPath, Math.max(
 			latestDiskRequests.get(diskPath) ?? 0, request.revision,
 		));
@@ -371,11 +371,11 @@ export async function getGatewayModelIds(
 			inFlightRequests.delete(requestKey);
 	}
 
-	// Cancellation never falls back or writes, even if a fetcher ignores its signal.
+	// 取消后绝不回退或写入，即使获取器忽略了取消信号。
 	if (opts.signal?.aborted) return { ok: false, reason: "aborted" };
 	if (fetched.ok) {
-		// Latest-started wins even if the newer request fails or aborts.
-		// Superseded successes still return to their callers without cache writes.
+		// 以后启动的请求为准，即使较新的请求失败或取消。
+		// 被取代的成功请求仍向调用者返回结果，但不写入缓存。
 		if (latestRequests.get(key) === request.revision) {
 			cache.set(fetched.ids, request.storedAt);
 			if (diskPath && latestDiskRequests.get(diskPath) === request.revision)

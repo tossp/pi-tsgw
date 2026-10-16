@@ -5,7 +5,7 @@ import { type PayloadWriter, type ThinkingApplier, type ThinkingLevel } from "..
  * Google Gemini 系列（google-generative-ai 协议）。
  * 官方文档：https://ai.google.dev/gemini-api/docs
  * GenerateContent 档位/预算：https://docs.cloud.google.com/vertex-ai/generative-ai/docs/thinking
- * gemini-flash 别名保留 budget 策略，其他保留型号使用 level。网关别名的路由仍需网关侧验证。
+ * gemini-flash 别名保留预算策略，其他保留型号使用档位策略。网关别名的路由仍需网关侧验证。
  */
 export function geminiModels(root: string): ProviderModelConfig[] {
 	const gemini = `${root}/gemini`;
@@ -92,7 +92,7 @@ function applyGeminiPro(writer: PayloadWriter, level: ThinkingLevel): void {
 	writer.setGoogleThinking({ includeThoughts: level !== "off", thinkingLevel }, ["thinkingBudget"]);
 }
 
-// 3.5 Flash 支持 MINIMAL/LOW/MEDIUM/HIGH，不使用 token budget。
+// 3.5 Flash 支持 MINIMAL/LOW/MEDIUM/HIGH，不使用词元预算。
 function applyGemini35Flash(writer: PayloadWriter, level: ThinkingLevel): void {
 	writer.remove("reasoning_effort");
 	const thinkingLevel = level === "off" || level === "minimal" ? "MINIMAL"

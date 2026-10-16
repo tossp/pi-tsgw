@@ -17,7 +17,7 @@ async function withUi(run: (context: Awaited<ReturnType<typeof fixture>>) => Pro
 	const root = `https://status-${++fixtureId}.example.test`;
 	await withAgentDir({ tsgw: { baseUrl: root, tsSearch: search } }, async (dir) => {
 		const previousFetch = globalThis.fetch;
-		globalThis.fetch = async () => { throw new Error("unexpected network access"); };
+		globalThis.fetch = async () => { throw new Error("意外网络访问"); };
 		try { await run(await fixture(root, dir)); }
 		finally { globalThis.fetch = previousFetch; }
 	});
@@ -74,7 +74,7 @@ const modelResponse = (ids = ["gpt-6-sol", "glm-5.2"]) =>
 	new Response(JSON.stringify({ data: ids.map((id) => ({ id })) }), { status: 200 });
 
 await withUi(async ({ pi, ctx, statuses, choices, dialogs, notices, dir }) => {
-	match(statuses.get("command:/tsgw")!, /^🟡 TSGW/); // Static is not a healthy gateway.
+	match(statuses.get("command:/tsgw")!, /^🟡 TSGW/); // 静态目录不代表网关健康。
 	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：实时");
 	const before = readFileSync(join(dir, "settings.json"), "utf8");
 	choices.push("🟢 内置联网：实时");
@@ -103,7 +103,7 @@ await withUi(async ({ pi, ctx, statuses, choices, dialogs, notices, dir }) => {
 await withUi(async ({ pi, ctx, statuses, dialogs, notices, choices }) => {
 	ctx.model = { ...ctx.model, id: "grok-4.5", api: "openai-completions" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
-	// Existing cached setting maps to live Grok search; don't advertise cache-only access.
+	// 已有 cached 配置映射到 Grok 实时搜索；不得宣称仅访问缓存。
 	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：实时");
 	for (const args of ["", "off", "cached", "live", "invalid"]) {
 		await pi.invokeCommand("tsgw-search", ctx, args);
@@ -154,7 +154,7 @@ await withUi(async ({ pi, ctx, choices, statuses, updates, dialogs, notices, roo
 	match(diagnosis, /\d{4}-\d{2}-\d{2}T/);
 	equal(diagnosis.includes("secret-test-key"), false);
 	equal(diagnosis.includes(root), false);
-	equal(requests, 1); // Diagnosis is local, never a probe.
+	equal(requests, 1); // 诊断仅在本地进行，绝不发起探测。
 	globalThis.fetch = async () => new Response("unavailable", { status: 503 });
 	await pi.invokeCommand("tsgw-refresh", ctx);
 	equal(statuses.get("command:/tsgw"), "🟡 TSGW · 2");
@@ -171,7 +171,7 @@ await withUi(async ({ pi, ctx, statuses, setConfigured, refreshCalls, notices })
 	await pi.invokeCommand("tsgw-refresh", ctx);
 	equal(refreshCalls(), 0);
 	equal(notices.at(-1)?.level, "warning");
-	// Also exercise registry-level failure/cancellation (without a provider callback).
+	// 同时验证注册表层级的失败与取消（不经提供方回调）。
 	setConfigured(true);
 	ctx.modelRegistry.refresh = async () => ({ errors: new Map([["tsgw", new Error("secret-test-key")]]) });
 	await pi.invokeCommand("tsgw-refresh", ctx);
@@ -180,12 +180,12 @@ await withUi(async ({ pi, ctx, statuses, setConfigured, refreshCalls, notices })
 	ctx.modelRegistry.refresh = async () => ({ errors: new Map(), aborted: true });
 	await pi.invokeCommand("tsgw-refresh", ctx);
 	equal(notices.at(-1)?.level, "warning");
-	match(notices.at(-1)!.text, /cancelled/);
+	match(notices.at(-1)!.text, /已取消/);
 });
 
 await withUi(async ({ pi, ctx, notices, statuses, refreshModels }) => {
-	// With GPT delegates filtered out by the effective catalog, Grok proxy is
-	// fixed-live and never mutates the session's GPT cached/live preference.
+	// 生效目录滤除 GPT 委托模型后，Grok 代理固定为实时，
+	// 绝不修改会话的 GPT cached/live 偏好。
 	globalThis.fetch = async () => modelResponse(["grok-4.20"]);
 	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key: "test" },
 		force: true, signal: new AbortController().signal });
@@ -200,7 +200,7 @@ await withUi(async ({ pi, ctx, notices, statuses, refreshModels }) => {
 });
 
 await withUi(async ({ pi, ctx, notices }) => {
-	// A model can change in another client while the mode picker is open.
+	// 模式选择器打开期间，其他客户端可能切换模型。
 	ctx.ui.select = async () => {
 		ctx.model = { ...ctx.model, id: "grok-4.5", api: "openai-completions" };
 		pi.invoke("model_select", { model: ctx.model }, ctx);
@@ -209,11 +209,11 @@ await withUi(async ({ pi, ctx, notices }) => {
 	await pi.invokeCommand("tsgw-search", ctx);
 	match(notices.at(-1)!.text, /支持性已变化/);
 	deepStrictEqual((providerRequest(pi, {}) as { search_parameters: unknown }).search_parameters, { mode: "on" });
-	// Headless commands can use explicit arguments without touching UI rendering.
+	// 无界面命令可使用显式参数，不触及 UI 渲染。
 	ctx.hasUI = false;
 	ctx.model = { ...TSGW_SOL };
-	ctx.ui.select = async () => { throw new Error("headless dialog"); };
-	ctx.ui.setStatus = () => { throw new Error("headless status"); };
+	ctx.ui.select = async () => { throw new Error("无界面模式下调用了对话框"); };
+	ctx.ui.setStatus = () => { throw new Error("无界面模式下渲染了状态"); };
 	pi.invoke("agent_start", {}, ctx);
 	await pi.invokeCommand("tsgw-search", ctx, "live");
 	equal((providerRequest(pi, {}) as { tools: Array<{ external_web_access: boolean }> })
@@ -221,7 +221,7 @@ await withUi(async ({ pi, ctx, notices }) => {
 });
 
 await withUi(async ({ pi, ctx, statuses, refreshModels }) => {
-	// Proxy activation follows the effective catalog after background refreshes.
+	// 后台刷新后，代理激活状态随生效目录变化。
 	ctx.model = { ...ctx.model, id: "glm-5.2", api: "openai-completions" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
 	equal(pi.activeTools.includes("tsgw_search"), true);
@@ -235,13 +235,13 @@ await withUi(async ({ pi, ctx, statuses, refreshModels }) => {
 	equal(pi.activeTools.includes("tsgw_search"), true);
 	ctx.hasUI = false;
 	const setStatus = ctx.ui.setStatus;
-	ctx.ui.setStatus = () => { throw new Error("headless refresh touched UI"); };
+	ctx.ui.setStatus = () => { throw new Error("无界面刷新访问了 UI"); };
 	pi.invoke("agent_start", {}, ctx);
 	globalThis.fetch = async () => modelResponse(["glm-5.2"]);
 	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key: "test" },
 		force: true, signal: new AbortController().signal });
 	equal(pi.activeTools.includes("tsgw_search"), false);
-	// Background /model refreshes also update the status without using the command.
+	// 后台 /model 刷新即使不使用该命令也会更新状态。
 	ctx.ui.setStatus = setStatus;
 	ctx.hasUI = true;
 	pi.invoke("agent_start", {}, ctx);
@@ -254,10 +254,10 @@ await withUi(async ({ pi, ctx, statuses, refreshModels }) => {
 	const pending = refreshModels({ allowNetwork: true, credential: { type: "api_key", key: "test" },
 		force: true, signal: new AbortController().signal });
 	pi.invoke("session_shutdown", {}, ctx);
-	ctx.ui.setStatus = () => { throw new Error("stale UI sink accessed"); };
+	ctx.ui.setStatus = () => { throw new Error("访问了失效的 UI 接收端"); };
 	resolveFetch(modelResponse());
 	await pending;
-	// Shutdown must preserve request snapshots, but disconnect UI sinks.
+	// 关闭时必须保留请求快照，但断开 UI 接收端。
 	equal(typeof providerRequest(pi, {}), "object");
 });
 
@@ -308,7 +308,7 @@ for (const commandName of ["tsgw-refresh", "tsgw-search", "tsgw"]) {
 	await withUi(async ({ pi, ctx }) => {
 		let stale = false;
 		const guarded = new Proxy(ctx, { get(target, property, receiver) {
-			if (stale) throw new Error(`stale context access: ${String(property)}`);
+			if (stale) throw new Error(`访问失效上下文：${String(property)}`);
 			return Reflect.get(target, property, receiver);
 		} });
 		let started!: () => void;
@@ -330,14 +330,14 @@ for (const commandName of ["tsgw-refresh", "tsgw-search", "tsgw"]) {
 		stale = true;
 		release();
 		await pending;
-		// Late picker completions must not mutate the old instance's search snapshot.
+		// 迟到的选择器结果不得修改旧实例的搜索快照。
 		equal((providerRequest(pi, {}) as { tools: Array<{ external_web_access: boolean }> })
 			.tools[0].external_web_access, false);
 	}, "cached");
 }
 
 await withUi(async ({ pi, ctx, statuses, notices }) => {
-	// A picker from the previous session cannot override the restored default.
+	// 上一会话的选择器不能覆盖已恢复的默认值。
 	await pi.invokeCommand("tsgw-search", ctx, "cached");
 	ctx.ui.select = async () => {
 		pi.invoke("session_start", { reason: "new" }, ctx);
@@ -372,4 +372,4 @@ for (const stale of [false, true]) {
 	});
 }
 
-console.log("status-integration.test.ts: all assertions passed");
+console.log("status-integration.test.ts：全部断言通过");

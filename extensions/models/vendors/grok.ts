@@ -5,9 +5,9 @@ import { type PayloadWriter, type ThinkingApplier, type ThinkingLevel } from "..
 /**
  * xAI Grok 系列（openai-completions 协议）。
  * 官方文档：https://docs.x.ai/developers/models
- * 定价（docs.x.ai/developers/pricing，<200k prompt 档）：
- *   grok-4.20 / grok-4.3：input $1.25 / cached $0.20 / output $2.50 per 1M
- *   grok-4.5：input $2.00 / cached $0.30 / output $6.00 per 1M
+ * 定价（docs.x.ai/developers/pricing，提示词 <200k 档）：
+ *   grok-4.20 / grok-4.3：每百万词元输入 $1.25 / 缓存命中 $0.20 / 输出 $2.50
+ *   grok-4.5：每百万词元输入 $2.00 / 缓存命中 $0.30 / 输出 $6.00
  */
 export function grokModels(root: string): ProviderModelConfig[] {
 	const v1 = `${root}/v1`;
@@ -93,7 +93,7 @@ export function grokModels(root: string): ProviderModelConfig[] {
 
 // 官方：https://docs.x.ai/developers/model-capabilities/text/reasoning
 // grok-4.5 支持 low/medium/high，不支持禁用 reasoning，off 映射到 low。
-// 4.20 / 4.3 网关别名暂保留既有映射；上述官方指南没有确认其 effort 支持，
+// 4.20 / 4.3 网关别名暂保留既有映射；上述官方指南没有确认其思考深度支持，
 // 不应将同族回归测试视为这些别名已通过端点验证。
 function applyGrok(writer: PayloadWriter, level: ThinkingLevel): void {
 	writer.remove("thinking");

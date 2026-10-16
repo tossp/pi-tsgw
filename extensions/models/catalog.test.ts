@@ -34,7 +34,7 @@ function testCatalogConcatenation(): void {
 		equal(
 			ids.some((id) => id.startsWith(prefix)),
 			true,
-			`expected a model with prefix ${prefix}`,
+			`应存在前缀为 ${prefix} 的模型`,
 		);
 	}
 
@@ -187,8 +187,8 @@ function testCatalogConcatenation(): void {
 		"kimi-k2.7-code-highspeed", "kimi-k2.6", "kimi-k2.5", "gpt-5.6-sol", "gpt-5.6-terra",
 		"gpt-5.6-luna", "gpt-5.5", "gemini-3.1-pro-low", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
 	];
-	for (const id of removed) equal(ids.includes(id), false, `removed ID: ${id}`);
-	// User include rules cannot resurrect removed static IDs.
+	for (const id of removed) equal(ids.includes(id), false, `已移除的 ID：${id}`);
+	// 用户 include 规则不能恢复已移除的静态 ID。
 	deepStrictEqual(modelsForRoot(ROOT, { exclude: ["*"], include: removed }), []);
 	const gemini = models.find(({ id }) => id === "gemini-flash");
 	strictEqual(gemini?.baseUrl, `${ROOT}/gemini`);
@@ -281,12 +281,12 @@ function testNormalizeRoot(): void {
 		normalizeRoot("https://gw.example.com/base/v1"),
 		"https://gw.example.com/base",
 	);
-	throws(() => normalizeRoot("ftp://gw.example.com"), /http or https/);
-	throws(() => normalizeRoot("not-a-url"), /not a valid URL/);
+	throws(() => normalizeRoot("ftp://gw.example.com"), /http 或 https/);
+	throws(() => normalizeRoot("not-a-url"), /不是有效的 URL/);
 	equal(PROVIDER_ID, "tsgw");
 }
 
 testCatalogConcatenation();
 testFilterModels();
 testNormalizeRoot();
-console.log("catalog.test.ts: all assertions passed");
+console.log("catalog.test.ts：全部断言通过");

@@ -15,7 +15,7 @@ export interface CapturedRequest {
 	headers: Headers;
 }
 
-/** Only HTTP is faked: Pi's loader, registry, session, runner and adapters stay real. */
+/** 仅模拟 HTTP：Pi 的加载器、注册表、会话、运行器与适配器均使用真实实现。 */
 export class HostSandbox {
 	readonly root = mkdtempSync(join(tmpdir(), "pi-tsgw-host-"));
 	readonly cwd = join(this.root, "workspace");
@@ -35,8 +35,8 @@ export class HostSandbox {
 	constructor() {
 		mkdirSync(this.cwd);
 		mkdirSync(this.agentDir);
-		// Clear ALL ambient provider keys, cloud credentials and Pi resource overrides.
-		// Import the SDK only after installing this environment and network guard.
+		// 清除所有环境中的提供方密钥、云凭据和 Pi 资源覆盖配置。
+		// 仅在安装此环境与网络防护之后导入 SDK。
 		for (const name of Object.keys(process.env)) delete process.env[name];
 		Object.assign(process.env, {
 			PATH: this.env.PATH ?? "",
@@ -50,7 +50,7 @@ export class HostSandbox {
 		process.chdir(this.cwd);
 		const deny = (): never => {
 			this.blocked.push("socket");
-			throw new Error("Host regression forbids real network sockets");
+			throw new Error("宿主回归测试禁止真实网络套接字");
 		};
 		net.Socket.prototype.connect = deny;
 		tls.connect = deny;
@@ -64,7 +64,7 @@ export class HostSandbox {
 		const url = new URL(request.url);
 		if (url.origin !== TEST_ROOT || !["/v1/models", "/v1/responses"].includes(url.pathname)) {
 			this.blocked.push(`${request.method} ${url.origin}${url.pathname}`);
-			throw new Error("Unexpected HTTP request in isolated host regression");
+			throw new Error("隔离宿主回归测试中出现意外 HTTP 请求");
 		}
 		assert.equal(request.headers.get("authorization"), `Bearer ${TEST_KEY}`);
 		if (url.pathname === "/v1/models") {
@@ -91,7 +91,7 @@ export class HostSandbox {
 	}
 }
 
-/** Minimal genuine Responses wire stream consumed by Pi's built-in adapter. */
+/** 供 Pi 内置适配器消费的最小真实 Responses 协议流。 */
 function responsesSse(): Response {
 	const item = {
 		id: "msg_fixture", type: "message", role: "assistant", status: "completed",

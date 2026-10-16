@@ -7,9 +7,9 @@ import { minimaxModels, minimaxThinking } from "./vendors/minimax.ts";
 import { kimiModels, kimiThinking } from "./vendors/kimi.ts";
 import { mimoModels, mimoThinking } from "./vendors/mimo.ts";
 
-// Official evidence lives beside the vendor implementations; research baseline:
-// Blinko #863 (2026-10-09). These are payload regressions, not gateway endpoint tests. Grok aliases and gemini-flash retain
-// their existing compatibility policy pending gateway routing evidence.
+// 官方依据位于各厂商实现旁；调研基线为 Blinko #863（2026-10-09）。
+// 这些是请求体回归测试，不是网关端点测试。Grok 别名与 gemini-flash
+// 在获得网关路由依据前保留现有兼容策略。
 const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 const root = "https://aih.example.com";
 function freeze(value: unknown): void {
@@ -24,7 +24,7 @@ function apply(strategies: Record<string, ThinkingApplier>, id: string, level: T
 	const writer = new PayloadWriter(payload);
 	strategies[id](writer, { provider: "tsgw", modelId: id, api: "openai-completions", thinkingLevel: level, tsSearchMode: "live" });
 	const result = writer.result();
-	deepStrictEqual(payload, before, `${id}/${level}: input mutation`);
+	deepStrictEqual(payload, before, `${id}/${level}：输入被修改`);
 	strictEqual(result.messages, payload.messages);
 	strictEqual(result.tools, payload.tools);
 	equal(result.max_tokens, payload.max_tokens);
@@ -39,7 +39,7 @@ function coverage(ids: readonly string[], strategies: Record<string, ThinkingApp
 }
 
 const geminiCases = {
-	"gemini-flash": "flash-budget", // Existing gateway compatibility, not proven 3.x semantics.
+	"gemini-flash": "flash-budget", // 沿用网关兼容策略，未证实 3.x 语义。
 	"gemini-pro": "pro-level",
 	"gemini-3.5-flash": "flash-level",
 	"gemini-3.5-flash-low": "flash-level",
@@ -59,7 +59,7 @@ for (const [id, kind] of Object.entries(geminiCases)) {
 	}
 }
 
-// GLM docs: reasoning_effort only 5.2+; 4.7 introduced preserved thinking.
+// GLM 文档：仅 5.2+ 支持 reasoning_effort；4.7 引入思考保留。
 const glmCases = {
 	"glm-5.2": { effort: true, preserve: true },
 	"glm-4.5-air": { effort: false, preserve: false },
@@ -93,7 +93,7 @@ for (const [id, support] of Object.entries(glmCases)) {
 	}
 }
 
-// MiMo V2.6 directly replaces V2.5; both IDs support images and switchable thinking.
+// MiMo V2.6 直接替代 V2.5；两个 ID 均支持图像与可切换思考。
 const mimoIds = ["mimo-v2.6-pro", "mimo-v2.6-flash"];
 coverage(mimoIds, mimoThinking, mimoModels(root));
 for (const model of mimoModels(root)) {
@@ -138,7 +138,7 @@ for (const id of minimaxIds) {
 		equal(Object.hasOwn(result, "reasoning_effort"), false);
 	}
 }
-// Domestic native API explicitly documents the M3 / M3.1 output cap.
+// 国内原生 API 明确记录了 M3 / M3.1 的输出上限。
 for (const model of minimaxModels(root)) {
 	equal(model.maxTokens, 524288);
 	equal(model.thinkingLevelMap?.off, model.id === minimax31Id ? null : undefined);
@@ -152,7 +152,7 @@ for (const model of kimiModels(root)) {
 	equal(model.contextWindow, model.id === "kimi-k3" ? 1000000 : 262144);
 	equal(model.name, model.id === "kimi-k3" ? "Kimi K3" : "Kimi K3 (256K)");
 	for (const level of levels) {
-		// Both variants must correct stale off/none without falling back to max.
+		// 两个变体都必须纠正遗留 off/none，且不回退到 max。
 		for (const effort of [undefined, "max", "none"]) {
 			const result = apply(kimiThinking, model.id, level, { ...base(), reasoning_effort: effort, thinking: { type: "disabled" } });
 			equal(Object.hasOwn(result, "thinking"), false);
@@ -162,8 +162,8 @@ for (const model of kimiModels(root)) {
 	}
 }
 
-// Only grok-4.5 has confirmed effort support in the current official reasoning
-// guide. Other IDs below intentionally freeze legacy policy, not an API claim.
+// 当前官方推理指南仅确认 grok-4.5 支持思考强度。
+// 下列其他 ID 有意固定旧有策略，不代表对 API 能力的声明。
 const grokIds = ["grok-4.20", "grok-4.5", "grok-4.3-low", "grok-4.3-medium", "grok-4.3-high", "grok-4.20-fast"];
 coverage(grokIds, grokThinking, grokModels(root));
 for (const id of grokIds) {
@@ -173,4 +173,4 @@ for (const id of grokIds) {
 		equal(result.reasoning_effort, ["off", "minimal", "low"].includes(level) ? "low" : level === "medium" ? "medium" : "high", `${id}/${level}`);
 	}
 }
-console.log("vendor-strategies: per-ID seven-level payload regressions passed");
+console.log("vendor-strategies：逐 ID 七档请求体回归测试通过");

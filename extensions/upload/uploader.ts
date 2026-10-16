@@ -29,7 +29,7 @@ export interface UploadResult {
 }
 export interface Progress { phase: UploadResult["phase"]; completedParts: number; totalParts: number }
 export interface UploadDependencies {
-	/** Returns the raw MCP CallToolResult. Authentication/connection belong to the host. */
+	/** 返回原始 MCP CallToolResult。认证和连接由主机负责。 */
 	call(tool: string, args: Record<string, unknown>, signal: AbortSignal): Promise<unknown>;
 	put?: (target: Target, body: AsyncIterable<Uint8Array> | Uint8Array, signal: AbortSignal) => Promise<void>;
 	open?: typeof openLocalFile;
@@ -37,8 +37,8 @@ export interface UploadDependencies {
 	onProgress?: (progress: Progress) => void;
 }
 
-// Scope matches the service's metadata-based identity, including aliases/hard links.
-// The lock remains held until late host calls settle; it is not a distributed lock.
+// 作用范围与服务基于元数据的身份判定一致，包括别名和硬链接。
+// 延迟返回的主机调用结束前持续持锁；这不是分布式锁。
 const active = new Set<string>();
 const lockKey = (metadata: FileMetadata) => createHash("sha256").update(JSON.stringify(metadata)).digest("hex");
 
@@ -55,12 +55,12 @@ export async function uploadLocalFile(params: UploadParams, cwd: string, signal:
 	const put = deps.put ?? putBytes;
 	const open = deps.open ?? openLocalFile;
 	const notify = (completedParts = 0, totalParts = 0) => {
-		// Rendering/progress observers must never change upload outcome.
-		try { deps.onProgress?.({ phase: state.phase, completedParts, totalParts }); } catch { /* UI only */ }
+		// 渲染或进度观察器绝不能改变上传结果。
+		try { deps.onProgress?.({ phase: state.phase, completedParts, totalParts }); } catch { /* 仅影响界面 */ }
 	};
 	const claim = (metadata: FileMetadata) => {
 		const candidate = lockKey(metadata);
-		if (active.has(candidate)) throw new UploadError("busy", "An upload for this file is still in flight. Wait for it to stop before resuming.");
+		if (active.has(candidate)) throw new UploadError("busy", "此文件仍有上传操作正在进行。请等待其停止后再恢复。");
 		active.add(candidate);
 		key = candidate;
 	};
@@ -70,7 +70,7 @@ export async function uploadLocalFile(params: UploadParams, cwd: string, signal:
 		const combined = AbortSignal.any([signal, controller.signal]);
 		const timer = setTimeout(() => controller.abort(), deps.remoteTimeoutMs ?? 330_000);
 		let stop: (() => void) | undefined;
-		// Host hooks/connection waits may ignore cancellation. Bound waiting, retain the lock.
+		// 主机钩子或连接等待可能忽略取消。限制等待时间，但继续持锁。
 		const work = Promise.resolve().then(() => {
 			checkAbort(combined);
 			return deps.call(tool, args, combined);
@@ -79,7 +79,7 @@ export async function uploadLocalFile(params: UploadParams, cwd: string, signal:
 		void work.then(() => pending.delete(work), () => pending.delete(work));
 		const stopped = new Promise<never>((_, reject) => {
 			stop = () => reject(new UploadError(signal.aborted ? "cancelled" : "timeout",
-				"Remote result is unknown. Do not automatically repeat the operation."));
+				"远程操作结果未知。不要自动重复此操作。"));
 			combined.addEventListener("abort", stop, { once: true });
 			if (combined.aborted) stop();
 		});
@@ -93,7 +93,7 @@ export async function uploadLocalFile(params: UploadParams, cwd: string, signal:
 		phase: "link", linkStatus: "ready", ...link, disposition, ...(receipt?.uid ? { uid: receipt.uid } : {}) });
 	const getLink = async (objectKey: string) => {
 		const link = download(await call(URL_TOOL, { key: objectKey, expiresIn: seconds, disposition }), objectKey, seconds);
-		if (Date.parse(link.expiresAt) <= Date.now()) throw new UploadError("expired-link", "The service returned an expired download link; no automatic re-sign was attempted.");
+		if (Date.parse(link.expiresAt) <= Date.now()) throw new UploadError("expired-link", "服务返回了已过期的下载链接；未尝试自动重新签名。");
 		return link;
 	};
 	try {
@@ -104,14 +104,14 @@ export async function uploadLocalFile(params: UploadParams, cwd: string, signal:
 		}
 		checkAbort(signal);
 		if (!Number.isSafeInteger(seconds) || seconds < 1 || seconds > 604800 || !["inline", "attachment"].includes(disposition))
-			throw new UploadError("invalid-options", "expiresIn must be an integer from 1 to 604800; disposition must be inline or attachment.");
+			throw new UploadError("invalid-options", "expiresIn 必须是 1 到 604800 之间的整数；disposition 必须是 inline 或 attachment。");
 		if (receipt) {
 			claim(receipt.metadata);
 			state.phase = "link";
 			notify();
 			try { return acceptLink(await getLink(receipt.key)); }
 			catch (error) {
-				// Never replay a single PUT or a completed upload, even when the object is gone.
+				// 即使对象已不存在，也绝不重放单次 PUT 或已完成的上传。
 				if (!(error instanceof UploadError) || error.code !== "not-found" || receipt.mode === "single" || receipt.phase === "link") throw error;
 			}
 			state.uploaded = false;
@@ -119,13 +119,13 @@ export async function uploadLocalFile(params: UploadParams, cwd: string, signal:
 		}
 		file = await open(params.path, cwd, params.contentType ?? receipt?.metadata.contentType);
 		if (receipt && (file.fingerprint !== receipt.fingerprint || JSON.stringify(file.metadata) !== JSON.stringify(receipt.metadata)))
-			throw new UploadError("file-changed", "The file no longer matches the resume receipt. Old parts must not be reused.");
+			throw new UploadError("file-changed", "文件已与恢复凭条不匹配。不得复用旧分片。");
 		if (!receipt) claim(file.metadata);
-		// Single uploads use a fixed snapshot; multipart uploads use bounded streaming reads.
+		// 单次上传使用固定快照；分片上传使用有界流式读取。
 		const snapshot = file.metadata.size <= SINGLE_LIMIT ? await file.snapshot(signal) : undefined;
 		await file.assertUnchanged();
 		state.phase = "prepare";
-		// Preparing multipart may also complete a pre-existing server-side task.
+		// 准备分片上传也可能完成已有的服务端任务。
 		if (file.metadata.size > SINGLE_LIMIT) {
 			state.uploaded = null;
 			state.uploadStatus = "unknown";
@@ -172,14 +172,14 @@ export async function uploadLocalFile(params: UploadParams, cwd: string, signal:
 				state.phase = "complete";
 				receipt.phase = "complete";
 				notify(completed, prepared.uploads.length);
-				// One reconciliation/complete call; never loop or resend a part automatically.
+				// 只进行一次状态核对或完成调用；绝不循环调用或自动重发分片。
 				const completion = await call(UPLOAD_TOOL, { ...file.metadata });
 				const completedIdentity = planIdentity(completion, file.metadata.size, receipt);
 				if (!completedIdentity.uploaded) {
 					receipt.phase = "upload";
 					state.uploaded = false;
 					state.uploadStatus = "incomplete";
-					throw new UploadError("incomplete-upload", "The service still reports missing parts. Resume explicitly; no part was retried.");
+					throw new UploadError("incomplete-upload", "服务仍报告有缺失分片。请显式恢复；未重试任何分片。");
 				}
 				state.uploaded = true;
 				state.uploadStatus = "uploaded";
@@ -198,7 +198,7 @@ export async function uploadLocalFile(params: UploadParams, cwd: string, signal:
 		return acceptLink(await getLink(receipt.key));
 	} catch (error) {
 		const safe = error instanceof UploadError ? error : new UploadError("operation-failed",
-			"The upload operation failed. Raw errors were withheld; do not automatically retry.");
+			"上传操作失败。已隐藏原始错误；不要自动重试。");
 		return { ...state, linkStatus: state.phase === "link" ? "failed" : "not-ready",
 			...(receipt ? { key: receipt.key, uid: receipt.uid, resume: encodeReceipt(receipt) } : {}),
 			...(state.uploaded === true && fallback && Date.parse(fallback.expiresAt) > Date.now() ? { fallback } : {}),

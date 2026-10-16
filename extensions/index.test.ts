@@ -40,7 +40,7 @@ async function testChatCompletionsCompatibility(): Promise<void> {
 		strictEqual(
 			model.compat?.supportsDeveloperRole,
 			false,
-			`${model.id} must send its instruction prompt as system, not developer`,
+			`${model.id} 必须以 system 而非 developer 角色发送指令提示`,
 		);
 	}
 }
@@ -83,7 +83,7 @@ async function testSafeProviderHooksAfterContextStales(): Promise<void> {
 	assertUuid(headers["AH-Trace-Id"]);
 	strictEqual(headers["AH-Thread-Id"], firstHeaders["AH-Thread-Id"]);
 	if (headers["AH-Trace-Id"] === firstHeaders["AH-Trace-Id"])
-		throw new Error("agent_start must refresh AH-Trace-Id");
+		throw new Error("agent_start 必须刷新 AH-Trace-Id");
 
 	const preserved = {
 		"ah-thread-id": "keep-thread",
@@ -99,7 +99,7 @@ async function testSafeProviderHooksAfterContextStales(): Promise<void> {
 async function testLifecycleStateUpdates(): Promise<void> {
 	const pi = await createPi();
 	sessionStart(pi, new FakeContext(TSGW_DEEPSEEK, "high"));
-	// DeepSeek Responses thinking is handled natively by Pi's adapter.
+	// DeepSeek Responses 的思考参数由 Pi 适配器原生处理。
 	deepStrictEqual(providerRequest(pi, {}), {});
 
 	pi.invoke("thinking_level_select", {
@@ -225,12 +225,12 @@ async function testOldInstanceCallbacksKeepOwnSnapshot(): Promise<void> {
 				],
 				text: { verbosity: "low" },
 			},
-			`${replacement.label}: late old callback must retain its own state`,
+			`${replacement.label}：迟到的旧回调必须保留自身状态`,
 		);
 		deepStrictEqual(
 			providerRequest(newPi, {}),
 			{},
-			`${replacement.label}: new instance must use its own state`,
+			`${replacement.label}：新实例必须使用自身状态`,
 		);
 
 		const headers: Record<string, string | null> = {};
@@ -241,7 +241,7 @@ async function testOldInstanceCallbacksKeepOwnSnapshot(): Promise<void> {
 }
 
 async function testSettingsConfig(): Promise<void> {
-	// settings.json `tsgw.baseUrl` drives the registered provider root.
+	// settings.json 中的 `tsgw.baseUrl` 决定已注册提供方的根地址。
 	const piBase = await createPi({
 		tsgw: { baseUrl: "https://gateway.example.net" },
 	});
@@ -250,7 +250,7 @@ async function testSettingsConfig(): Promise<void> {
 		?.baseUrl;
 	strictEqual(baseUrl, "https://gateway.example.net/v1");
 
-	// Missing, legacy off, and invalid settings default to live; cached is retained.
+	// 缺失、旧版 off 和无效配置默认使用 live；保留已有 cached。
 	for (const tsSearch of [undefined, "off", "invalid", null, false, 42, {}, "cached", "live"]) {
 		const piSearch = await createPi({ tsgw: { tsSearch } });
 		sessionStart(piSearch, new FakeContext(TSGW_SOL, "off"));
@@ -261,7 +261,7 @@ async function testSettingsConfig(): Promise<void> {
 		});
 	}
 
-	// `includeModels` pulls exact models back from broad `excludeModels` rules.
+	// `includeModels` 将精确匹配的模型从宽泛的 `excludeModels` 规则中恢复。
 	const piFiltered = await createPi({
 		tsgw: {
 			includeModels: ["glm-5.3"],
@@ -281,7 +281,7 @@ async function testSettingsConfig(): Promise<void> {
 	equal(modelIds.includes("glm-5.3"), true);
 	equal(modelIds.includes("glm-5.2"), false);
 
-	// Malformed or missing `tsgw` namespaces are ignored.
+	// 忽略格式错误或缺失的 `tsgw` 命名空间。
 	const piBroken = await createPi({ tsgw: "not-an-object" });
 	const brokenProvider = piBroken.providers.find(({ name }) => name === "tsgw");
 	const brokenBase = (
@@ -307,7 +307,7 @@ async function testDynamicModelRefresh(): Promise<void> {
 				  }
 				| undefined
 		)?.refreshModels;
-		if (!refreshModels) throw new Error("expected dynamic model refresh");
+		if (!refreshModels) throw new Error("应提供动态模型刷新功能");
 
 		const previousFetch = globalThis.fetch;
 		let calls = 0;
@@ -347,14 +347,14 @@ async function testDynamicModelRefresh(): Promise<void> {
 					force: true,
 					signal,
 				}),
-				/keeping the last successful catalog/,
+				/保留上次成功获取的目录/,
 			);
 			const preserved = await refreshModels({ allowNetwork: false, signal });
 			deepStrictEqual(
 				preserved.map(({ id }) => id),
 				["deepseek-flash", "glm-5.2"],
 			);
-			// Retired IDs cannot return through gateway refresh; K3 256K can.
+			// 已退役 ID 不能通过网关刷新恢复；K3 256K 可以。
 			globalThis.fetch = async () => new Response(JSON.stringify({ data: [
 				"deepseek-flash", "glm-5.2", "kimi-k3-256k",
 				"deepseek-v4-flash", "glm-5.1", "MiniMax-M2.7",
@@ -398,7 +398,7 @@ async function testRefreshCommand(): Promise<void> {
 		force: true,
 	});
 	deepStrictEqual(notifications, [
-		{ message: "TSGW models refreshed (1 → 2).", level: "info" },
+		{ message: "TSGW 模型已刷新（1 → 2）。", level: "info" },
 	]);
 
 	const skipped: Array<{ message: string; level: string }> = [];
@@ -416,7 +416,7 @@ async function testRefreshCommand(): Promise<void> {
 	deepStrictEqual(skipped, [
 		{
 			message:
-				"TSGW model refresh skipped: configure an API key with /login first.",
+				"已跳过 TSGW 模型刷新：请先通过 /login 配置 API 密钥。",
 			level: "warning",
 		},
 	]);
@@ -433,7 +433,7 @@ async function main(): Promise<void> {
 	await testSettingsConfig();
 	await testDynamicModelRefresh();
 	await testRefreshCommand();
-	console.log("index.test.ts: all assertions passed");
+	console.log("index.test.ts：全部断言通过");
 }
 
 void main().catch((error: unknown) => {

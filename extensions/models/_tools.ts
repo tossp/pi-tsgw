@@ -1,5 +1,5 @@
 /**
- * 通用请求改写工具：copy-on-write 的 PayloadWriter、类型与共享辅助函数。
+ * 通用请求改写工具：写时复制的 PayloadWriter、类型与共享辅助函数。
  *
  * 这是 models 模块的内部工具层（下划线前缀 = 不对外暴露），vendors 分片
  * 与 operations 调度都从这里引用，避免 vendors ↔ operations 循环依赖。
@@ -7,8 +7,8 @@
 
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 
-// Pi 1.x also includes image/classifier configs; this catalog is chat-only.
-// Structural extraction keeps compatibility with the older chat-only type.
+// Pi 1.x 还包含图像/分类器配置；本目录仅包含聊天模型。
+// 通过结构提取，保持与旧版仅含聊天模型的类型兼容。
 export type ChatModelConfig = Extract<ProviderModelConfig, { reasoning: boolean }>;
 
 export type ThinkingLevel =
@@ -43,7 +43,7 @@ export function isPlainObject(value: unknown): value is Payload {
 	return prototype === Object.prototype || prototype === null;
 }
 
-/** Copy the top level and nested objects only when a declared operation changes them. */
+/** 仅当声明的操作确实修改对象时，才复制顶层及嵌套对象。 */
 export class PayloadWriter {
 	private copy: Payload | undefined;
 
@@ -130,7 +130,7 @@ export function isMaximum(level: ThinkingLevel): boolean {
 	return level === "xhigh" || level === "max";
 }
 
-/** 通用开关式 thinking：`off` 禁用，其余启用；移除通用 effort 字段。 */
+/** 通用开关式思考：`off` 禁用，其余启用；移除通用思考深度字段。 */
 export function applyEnabledThinking(
 	writer: PayloadWriter,
 	level: ThinkingLevel,
@@ -139,7 +139,7 @@ export function applyEnabledThinking(
 	writer.setThinking({ type: level === "off" ? "disabled" : "enabled" });
 }
 
-/** 厂商思维链策略：对指定模型的请求体应用该厂商的 thinking 改写。 */
+/** 厂商思维链策略：对指定模型的请求体应用该厂商的思考配置改写。 */
 export type ThinkingApplier = (
 	writer: PayloadWriter,
 	context: ModelOperationContext,

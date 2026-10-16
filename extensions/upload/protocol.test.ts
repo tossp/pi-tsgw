@@ -19,7 +19,7 @@ const receipt: Receipt = { version: 1, key: link.key, uid, mode: "multipart", ph
 	metadata: { filename: "example.bin", contentType: "application/octet-stream", size, mtimeMs: 1, ctimeMs: 2 } };
 const invalid = (fn: () => unknown, code = "invalid-response") => assert.throws(fn, (e: unknown) => e instanceof UploadError && e.code === code);
 
-test("MCP accepts current structured and one JSON text block only", () => {
+test("MCP 仅接受当前结构化结果或单个 JSON 文本块", () => {
 	assert.deepEqual(mcpData({ structuredContent: link }), link);
 	assert.deepEqual(mcpData({ content: [{ type: "text", text: JSON.stringify(link) }] }), link);
 	assert.deepEqual(mcpData({ structuredContent: link, content: [{ type: "text", text: "not JSON" }] }), link);
@@ -27,7 +27,7 @@ test("MCP accepts current structured and one JSON text block only", () => {
 		{ content: [{ type: "text", text: "secret" }] }, { content: [{ type: "text", text: "{}" }, { type: "text", text: "{}" }] }]) invalid(() => mcpData(raw));
 });
 
-test("MCP errors are sanitized and only explicit not-found permits recovery", () => {
+test("MCP 错误经过脱敏，且仅明确的 not-found 允许恢复", () => {
 	for (const code of ["not-found", "NoSuchKey", "secret-token"]) {
 		assert.throws(() => mcpData({ isError: true, structuredContent: { error: { code, message: "credential=secret" } } }),
 			(e: unknown) => e instanceof UploadError && e.code === (code === "not-found" ? code : "mcp-error") && !e.message.includes("secret"));
@@ -35,7 +35,7 @@ test("MCP errors are sanitized and only explicit not-found permits recovery", ()
 	invalid(() => mcpData({ structuredContent: { error: "secret" } }), "mcp-error");
 });
 
-test("download validates key, HTTPS, expiry and requested TTL", () => {
+test("下载结果校验 key、HTTPS、到期时间和请求的有效期", () => {
 	assert.deepEqual(download(link, link.key), link);
 	assert.equal(download({ ...link, expiresIn: 60 }, link.key, 60).expiresIn, 60);
 	for (const key of ["", "/a", "a/", "a//b", "a/../b", "a/./b", "a%2Fb", "a?b", "a#b", "a\\b", "a\u0000b"]) invalid(() => validKey(key));
@@ -43,7 +43,7 @@ test("download validates key, HTTPS, expiry and requested TTL", () => {
 	for (const patch of [{ key: "other" }, { expiresIn: 60 }, { expiresIn: 0 }, { expiresAt: "never" }]) invalid(() => download({ ...link, ...patch }, link.key));
 });
 
-test("multipart geometry accepts full, missing subset and final plans", () => {
+test("分片布局校验接受完整计划、缺失分片子集及最终计划", () => {
 	for (const numbers of [[1, 2, 3], [3, 1], [2], []]) {
 		const parsed = plan(multipart(numbers), size, receipt);
 		assert.deepEqual(parsed.uploads.map(p => p.partNumber), numbers);
@@ -56,7 +56,7 @@ test("multipart geometry accepts full, missing subset and final plans", () => {
 	invalid(() => plan({ ...link, uploadUrl: target.url }, 3));
 });
 
-test("malformed plans refuse mode, identity, geometry, target and headers", () => {
+test("拒绝模式、身份、分片布局、目标或请求头畸形的计划", () => {
 	const patches = [
 		{ mode: "single" }, { uploaded: "false" }, { uploaded: true }, { uploads: [] }, { uploads: null },
 		{ uid: "not-a-uuid" }, { uid: "01900000-0000-4000-8000-000000000001" },
@@ -73,7 +73,7 @@ test("malformed plans refuse mode, identity, geometry, target and headers", () =
 	invalid(() => plan({ ...multipart(), uid: "01900000-0000-7000-8000-000000000002" }, size, receipt));
 });
 
-test("plan identity survives malformed download fields without weakening identity validation", () => {
+test("下载字段畸形时保留计划身份，且不削弱身份校验", () => {
 	for (const uploaded of [false, true]) {
 		for (const patch of [{ url: undefined }, { url: "http://invalid.example/secret" }, { expiresAt: "invalid" }, { expiresIn: 0 }]) {
 			const body = { ...multipart(uploaded ? [] : [3]), ...patch };
@@ -87,7 +87,7 @@ test("plan identity survives malformed download fields without weakening identit
 	}
 });
 
-test("receipt roundtrip contains metadata and identity, never transport credentials", () => {
+test("凭条编解码往返保留元数据和身份，但绝不包含传输凭据", () => {
 	const token = encodeReceipt(receipt);
 	assert.deepEqual(decodeReceipt(token), receipt);
 	const text = Buffer.from(token, "base64url").toString();
@@ -96,7 +96,7 @@ test("receipt roundtrip contains metadata and identity, never transport credenti
 	assert.deepEqual(decodeReceipt(external), receipt);
 });
 
-test("invalid receipts cannot silently turn into a new upload", () => {
+test("无效凭条不能悄然触发全新上传", () => {
 	for (const token of ["", "!", "a".repeat(8193), Buffer.from("{}").toString("base64url")]) invalid(() => decodeReceipt(token), "invalid-resume");
 	for (const patch of [{ version: 2 }, { phase: "prepare" }, { mode: "single" }, { fingerprint: "bad" }, { key: "../key" },
 		{ metadata: { ...receipt.metadata, size: 0 } }, { metadata: { ...receipt.metadata, size: MAX_BYTES + 1 } },

@@ -213,4 +213,4 @@ testTtlAndTimestamps();
 testDiagnostics();
 testBuiltinSearchSupport();
 testSearchLabels();
-console.log("status.test.ts: all assertions passed");
+console.log("status.test.ts：全部断言通过");

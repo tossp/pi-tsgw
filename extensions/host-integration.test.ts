@@ -7,8 +7,8 @@ import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-age
 import { modelsForRoot, PROVIDER_ID } from "./models/catalog.ts";
 import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "./host-test-support.test.ts";
 
-// Resolve both source execution and tsc's dist/extensions output without cwd or
-// machine-specific paths. Always load the SOURCE entry through Pi/jiti.
+// 同时兼容源码执行与 tsc 的 dist/extensions 输出，不依赖 cwd 或机器特定路径。
+// 始终通过 Pi/jiti 加载源码入口。
 function sourceEntry(): string {
 	let dir = dirname(fileURLToPath(import.meta.url));
 	while (true) {
@@ -16,7 +16,7 @@ function sourceEntry(): string {
 		if (existsSync(manifest) && JSON.parse(readFileSync(manifest, "utf8")).name === "pi-tsgw")
 			return join(dir, "extensions", "index.ts");
 		const parent = dirname(dir);
-		assert.notEqual(parent, dir, "Cannot locate pi-tsgw package root");
+		assert.notEqual(parent, dir, "无法定位 pi-tsgw 包根目录");
 		dir = parent;
 	}
 }
@@ -25,7 +25,7 @@ function searchTool(request: CapturedRequest): Record<string, unknown> {
 	assert.ok(Array.isArray(request.body.tools));
 	const tools = request.body.tools as Record<string, unknown>[];
 	const matches = tools.filter((tool) => tool.type === "web_search");
-	assert.equal(matches.length, 1, "Exactly one native search tool must reach HTTP");
+	assert.equal(matches.length, 1, "HTTP 请求中必须恰有一个原生搜索工具");
 	return matches[0]!;
 }
 
@@ -37,9 +37,9 @@ function trace(request: CapturedRequest): { thread: string; turn: string } {
 	return { thread: thread!, turn: turn! };
 }
 
-// Run as its own node process: environment/network guards intentionally affect
-// the whole process. No FakePi, mocked SDK methods, credentials or live server.
-test("Pi 1.1 SDK: source loading, catalog refresh, commands, request hooks and reload", { timeout: 60_000 }, async () => {
+// 在独立 Node 进程中运行：环境与网络防护有意作用于整个进程。
+// 不使用 FakePi、模拟 SDK 方法、凭据或真实服务器。
+test("Pi 1.1 SDK：源码加载、目录刷新、命令、请求钩子与重载", { timeout: 60_000 }, async () => {
 	const entry = sourceEntry();
 	const originalEnv = { ...process.env };
 	const originalCwd = process.cwd();
@@ -47,7 +47,7 @@ test("Pi 1.1 SDK: source loading, catalog refresh, commands, request hooks and r
 	const sandbox = new HostSandbox();
 	let session: AgentSession | undefined;
 	try {
-		// Dynamic import is essential: the SDK must initialize inside the sandbox.
+		// 必须动态导入：SDK 必须在沙箱内初始化。
 		const { createAgentSession, createMcpExtension, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } =
 			await import("@earendil-works/pi-coding-agent");
 		writeFileSync(join(sandbox.agentDir, "settings.json"), JSON.stringify({
@@ -65,7 +65,7 @@ test("Pi 1.1 SDK: source loading, catalog refresh, commands, request hooks and r
 			cwd: sandbox.cwd, agentDir: sandbox.agentDir, settingsManager: settings,
 			noExtensions: true, additionalExtensionPaths: [entry],
 			noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
-			systemPrompt: "Reply briefly. This is an isolated host regression.",
+			systemPrompt: "简短回答。这是隔离的宿主回归测试。",
 			extensionFactories: [createMcpExtension({
 				loadConfig: () => ({ errors: [], autoEnableCodemode: false, servers: [{
 					name: "ts_oht", source: "disabled-fixture", scope: "global",
@@ -78,16 +78,16 @@ test("Pi 1.1 SDK: source loading, catalog refresh, commands, request hooks and r
 		});
 		await loader.reload();
 		assert.deepEqual(loader.getExtensions().errors, []);
-		assert.equal(loader.getExtensions().extensions.length, 3, "Only project entry, MCP fixture and lifecycle observer");
+		assert.equal(loader.getExtensions().extensions.length, 3, "仅加载项目入口、MCP 测试夹具和生命周期观察器");
 		assert.ok(loader.getExtensions().extensions.some((extension) => extension.path === entry));
-		assert.equal(sandbox.catalogCalls, 0, "No stored credential: static startup must not fetch");
+		assert.equal(sandbox.catalogCalls, 0, "无已存储凭据：静态启动不得发起请求");
 		const runtime = await ModelRuntime.create({
 			authPath: join(sandbox.agentDir, "auth.json"),
 			modelsPath: join(sandbox.agentDir, "models.json"),
 			modelsStorePath: join(sandbox.agentDir, "models-store.json"),
 			allowModelNetwork: false, refreshOnCreate: false,
 		});
-		assert.deepEqual(await runtime.listCredentials(), [], "No ambient or real stored credentials");
+		assert.deepEqual(await runtime.listCredentials(), [], "不得存在环境凭据或真实已存储凭据");
 		({ session } = await createAgentSession({
 			cwd: sandbox.cwd, agentDir: sandbox.agentDir, modelRuntime: runtime,
 			resourceLoader: loader, settingsManager: settings,
@@ -95,7 +95,7 @@ test("Pi 1.1 SDK: source loading, catalog refresh, commands, request hooks and r
 			thinkingLevel: "high",
 		}));
 		const staticModels = modelsForRoot(TEST_ROOT);
-		assert.equal(staticModels.length, 36, "Update intentionally if the static catalog changes");
+		assert.equal(staticModels.length, 36, "静态目录变更时须有意更新此断言");
 		assert.deepEqual(runtime.getModels(PROVIDER_ID).map((model) => model.id).sort(),
 			staticModels.map((model) => model.id).sort());
 		assert.equal(runtime.getAllModels(PROVIDER_ID).length, staticModels.length);
@@ -119,7 +119,7 @@ test("Pi 1.1 SDK: source loading, catalog refresh, commands, request hooks and r
 		assert.equal(lifecycle.length, 1);
 		assert.match(lifecycle[0]!, /^start:/);
 
-		// Real slash-command dispatch, including no-UI diagnostic guard.
+		// 真实斜杠命令分发，包括无 UI 时的诊断防护。
 		await session.prompt("/tsgw");
 		assert.equal(sandbox.requests.length, 0);
 		sandbox.catalogIds = [model.id, "deepseek-v4-pro", "not-in-static-catalog"];
@@ -128,7 +128,7 @@ test("Pi 1.1 SDK: source loading, catalog refresh, commands, request hooks and r
 		const expectedIds = staticModels.filter((m) => sandbox.catalogIds.includes(m.id)).map((m) => m.id).sort();
 		assert.deepEqual(runtime.getModels(PROVIDER_ID).map((m) => m.id).sort(), expectedIds);
 		assert.ok(expectedIds.length < staticModels.length);
-		// No hand-written cache: failure reuses state produced by the real refresh.
+		// 不手工构造缓存：失败时复用真实刷新产生的状态。
 		sandbox.catalogFails = true;
 		await session.prompt("/tsgw-refresh");
 		assert.equal(sandbox.catalogCalls, 2);
@@ -156,8 +156,8 @@ test("Pi 1.1 SDK: source loading, catalog refresh, commands, request hooks and r
 		assert.notEqual(session.extensionRunner, oldRunner);
 		assert.deepEqual(lifecycle.slice(1), ["shutdown:reload", "start:reload"]);
 		assert.deepEqual(loader.getExtensions().errors, []);
-		// Delayed callbacks from the invalidated runner still use its scalar snapshot.
-		// Invoke the actual runner dispatcher, never the extension handler directly.
+		// 已失效运行器的迟到回调仍使用自身标量快照。
+		// 调用真实运行器的分发器，不直接调用扩展处理器。
 		const latePayload = await oldRunner.emitBeforeProviderRequest({ model: model.id, tools: [] });
 		const lateHeaders = await oldRunner.emitBeforeProviderHeaders({});
 		assert.equal(searchTool({ body: latePayload as Record<string, unknown>, headers: new Headers() }).external_web_access, false);
@@ -167,8 +167,8 @@ test("Pi 1.1 SDK: source loading, catalog refresh, commands, request hooks and r
 		assert.equal(sandbox.requests.length, 3);
 		assert.equal(searchTool(sandbox.requests[2]!).external_web_access, true);
 		assert.notEqual(trace(sandbox.requests[2]!).thread, firstTrace.thread);
-		assert.deepEqual(errors, [], "Real extension runner must not swallow lifecycle/hook errors");
-		assert.deepEqual(sandbox.blocked, [], "No unexpected network attempts, even if caught by Pi");
+		assert.deepEqual(errors, [], "真实扩展运行器不得吞掉生命周期或钩子错误");
+		assert.deepEqual(sandbox.blocked, [], "不得出现意外网络访问，即使错误被 Pi 捕获");
 	} finally {
 		try { session?.dispose(); } finally { sandbox.restore(); }
 	}

@@ -1,7 +1,7 @@
 import type { ChatModelConfig as ProviderModelConfig } from "../_tools.ts";
 
-// DeepSeek Responses 将 developer role 当作 user，且不支持 OpenAI 的
-// prompt_cache_retention；其余 reasoning 字段交给 Pi 的 Responses adapter。
+// DeepSeek Responses 将 developer 角色当作 user，且不支持 OpenAI 的
+// prompt_cache_retention；其余 reasoning 字段交给 Pi 的 Responses 适配器。
 const DEEPSEEK_RESPONSES_COMPAT = {
 	supportsDeveloperRole: false,
 	supportsLongCacheRetention: false,
@@ -11,7 +11,7 @@ const DEEPSEEK_RESPONSES_COMPAT = {
  * DeepSeek（深度求索）系列：V4.1 Flash 与 V4 Pro。
  * 协议文档：https://api-docs.deepseek.com/guides/responses_api
  * 定价依据（2026-10-16）：https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
- * 国内高峰价（元/百万 tokens）：Flash 输入/输出/命中 2/8/0.04，Pro 9/27/0.30。
+ * 国内高峰价（元/百万词元）：Flash 输入/输出/命中 2/8/0.04，Pro 9/27/0.30。
  * 按项目固定 0.1475 USD/CNY 折算；静态 cost 用高峰价保守估算，不按请求时间切换。
  * 空闲时段为半价；高峰为北京时间工作日（不含中国法定节假日）9–12、14–18。
  * cacheWrite=0 表示官方未单列附加缓存写入费用；非网关实际计费。
