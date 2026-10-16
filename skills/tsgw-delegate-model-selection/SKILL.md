@@ -44,7 +44,8 @@ compatibility: 需要宿主提供子代理工具及可用的 tsgw 模型。
 
 - **MiniMax-M3** 只承担步骤明确的小任务。参考使用 Pi 的 high；非 off 档位均映射为 adaptive，不代表不同能力档。adaptive 不是 Pi 档位，此映射不适用于 M3.1 Flash Preview。
 - **deepseek-flash** 作为按量付费补位时使用 max。
-- **Kimi** 不承担长程执行；双模型复核固定为 **Kimi＋Astra**，独立审查同一份材料。Kimi 使用 kimi-k3 / high，Astra 深度按任务选择。
-- 用户明确要求、预算、权限及宿主实际能力优先；不可用的模型或档位如实说明。
+- **Astra 审阅档位**：架构设计、正式设计文档的独立审阅与最终复核，默认使用 `gpt-6-astra` / `max`，不因材料篇幅短或范围明确而自动降档。局部检查、定向复审可按范围降低档位。
+- **Kimi** 不承担长程执行；双模型复核固定为 **Kimi＋Astra**，独立审查同一份材料。Kimi 使用 kimi-k3 / high，Astra 遵循上述审阅档位规则；其他任务的深度按任务选择。
+- 不可用的模型或档位如实说明。
 
 宿主支持 `Agent.model = provider/modelId:level` 时，例如 `tsgw/MiniMax-M3:high`、`tsgw/glm-5.3:max`；其他宿主使用其实际格式。
