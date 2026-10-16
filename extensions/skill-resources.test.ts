@@ -40,6 +40,14 @@ test("随包技能声明、资源链接及本机环境隔离完整", () => {
 	}
 });
 
+test("Go 技能保留 JSON 最佳实践和真实变更迁移规则", () => {
+	const body = readFileSync(join(skillsRoot, "tsgw-programmer-go", "SKILL.md"), "utf8");
+	for (const text of ["属于**本技能约定**，必须执行", "PascalCase", "omitzero", "omitempty",
+		"IsZero() bool", "不可控外部来源", 'json:",omitzero"', 'json:"FieldName,omitzero"',
+		"不得混用", "必须同步修正", "不要创建仅为统一 JSON 标签的独立迁移 PR", "不得擅自破坏公共协议"])
+		assert.ok(body.includes(text), `Go 技能缺少约定：${text}`);
+});
+
 test("文档技能保持正式来源与迁移授权门槛，不再联动审阅插件", () => {
 	const directory = join(skillsRoot, "tsgw-mk-docs");
 	const body = readFileSync(join(directory, "SKILL.md"), "utf8");
