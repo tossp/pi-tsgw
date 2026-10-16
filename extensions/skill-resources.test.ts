@@ -40,6 +40,13 @@ test("随包技能声明、资源链接及本机环境隔离完整", () => {
 	}
 });
 
+test("GitHub 技能保留精确上下文、正文回读与已有授权边界", () => {
+	const body = readFileSync(join(skillsRoot, "tsgw-github", "SKILL.md"), "utf8");
+	for (const text of ["--repo OWNER/REPO", "--body-file", "issues/comments/COMMENT_ID",
+		"Contents API", "既有 pinning", "已有授权覆盖这些动作时无需重复确认"])
+		assert.ok(body.includes(text), `GitHub 技能缺少边界：${text}`);
+});
+
 test("提交技能的仓库发现支持普通仓库、worktree 与换行文件名，且只读", async t => {
 	const directory = await mkdtemp(join(tmpdir(), "tsgw-skill-git-"));
 	t.after(() => rm(directory, { recursive: true, force: true }));

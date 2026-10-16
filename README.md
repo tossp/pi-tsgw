@@ -171,6 +171,7 @@ Pi Web 可能要等会话运行时启动后才显示扩展状态。
 | 技能 | 用途 |
 | --- | --- |
 | [tsgw-git-commit](skills/tsgw-git-commit/SKILL.md) | 暂存内容核验、分批提交与中文提交说明；包含支持 worktree 的只读仓库发现脚本。 |
+| [tsgw-github](skills/tsgw-github/SKILL.md) | 使用 gh 查询与维护 issue、PR、CI，安全发布正文并核验 Actions 升级。 |
 
 技能从本地维护的工作流整理并适配 Pi，按本项目 MIT 许可证提供；不包含第三方 gitmoji 数据集。
 项目规则和用户授权优先，不安装 Git hook，不自动推送或发布。已有同类用户级技能时，建议择一启用，避免重复指导。
