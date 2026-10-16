@@ -22,6 +22,18 @@ function sourceEntry(): string {
 type Transport = ReturnType<McpTransportFactory>;
 type Message = Parameters<Transport["send"]>[0];
 type Entry = Parameters<McpTransportFactory>[0];
+type Config = Entry["config"];
+interface Scenario {
+	name: string;
+	serverName: string;
+	configuredUrl?: string;
+	global?: Config;
+	project?: Partial<Config>;
+	trusted?: boolean;
+	expected: Config;
+	scope?: "global" | "project";
+	projectOverride?: boolean;
+}
 
 // 仅替换传输层：真实 MCP 客户端执行初始化、通知交换与发现，
 // 由真实宿主注册工具。
@@ -72,7 +84,7 @@ class MemoryServer implements Transport {
 				result = {
 					protocolVersion: params.protocolVersion,
 					capabilities: { tools: {}, resources: {} },
-					serverInfo: { name: "in-memory-ts-oht", version: "1.0.0" },
+					serverInfo: { name: "in-memory-mcp", version: "1.0.0" },
 					instructions: "Isolated MCP integration fixture.",
 				};
 				break;
@@ -108,25 +120,49 @@ test("Pi SDK MCP：源码默认值、配置 URL、文件优先级、禁用服务
 		const { createAgentSession, createCodemodeExtension, createMcpExtension,
 			DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } =
 			await import("@earendil-works/pi-coding-agent");
-		const { TS_OHT_NAME, TS_OHT_URL } = await import("./mcp.ts");
+		const { TS_OHT_NAME, TS_OHT_URL, TS_TOOL_NAME, TS_TOOL_URL } = await import("./mcp.ts");
 		assert.equal(TS_OHT_NAME, "ts_oht");
 		assert.equal(TS_OHT_URL, "https://xn--oht.cc/mcp");
+		assert.equal(TS_TOOL_NAME, "ts_tool");
+		assert.equal(TS_TOOL_URL, "https://mcp.tossp.com/mm/ts/mcp");
+		const defaults: Record<string, Config> = {
+			[TS_OHT_NAME]: { url: TS_OHT_URL, exposure: "codemode" },
+			[TS_TOOL_NAME]: { url: TS_TOOL_URL, exposure: "codemode" },
+		};
 		const customUrl = "https://settings-mcp.invalid/custom/mcp";
-		const globalConfig = { url: "https://global-mcp.invalid/complete/mcp", exposure: "direct", timeout: 17 };
-		const projectConfig = { url: "https://project-mcp.invalid/complete/mcp", exposure: "direct", timeout: 23 };
-		const scenarios = [
-			{ name: "无配置时注册固定的 codemode 默认值", expected: { url: TS_OHT_URL, exposure: "codemode" } },
-			{ name: "settings.tsgw.mcpUrl 提供会话默认值", configuredUrl: customUrl,
-				expected: { url: customUrl, exposure: "codemode" } },
-			{ name: "全局 mcp.json 完整覆盖注册值与设置", configuredUrl: customUrl,
-				global: globalConfig, expected: globalConfig, scope: "global" },
-			{ name: "同名配置 enabled 为 false 时阻止默认连接", configuredUrl: customUrl,
-				global: { ...globalConfig, enabled: false }, expected: { ...globalConfig, enabled: false }, scope: "global" },
-			{ name: "受信任项目的 mcp.json 替换同名全局服务器", configuredUrl: customUrl,
-				global: globalConfig, project: projectConfig, trusted: true, expected: projectConfig, scope: "project" },
-			{ name: "不受信任的项目不能覆盖全局服务器", configuredUrl: customUrl,
-				global: globalConfig, project: projectConfig, trusted: false, expected: globalConfig, scope: "global" },
-		];
+		const globalConfig: Config = { url: "https://global-mcp.invalid/complete/mcp", exposure: "direct", timeout: 17 };
+		const projectConfig: Config = { url: "https://project-mcp.invalid/complete/mcp", exposure: "direct", timeout: 23 };
+		// 同一矩阵分别作用于两个服务；每个场景同时检查另一个服务未被文件配置影响。
+		const scenarios: Scenario[] = Object.keys(defaults).flatMap(serverName => {
+			const configuredUrl = serverName === TS_OHT_NAME ? customUrl : undefined;
+			const cases: Omit<Scenario, "serverName">[] = [
+				{ name: "无配置时两个服务均为固定的 codemode 默认值", expected: defaults[serverName]! },
+				{ name: "settings.tsgw.mcpUrl 只改变 ts_oht", configuredUrl: customUrl,
+					expected: serverName === TS_OHT_NAME ? { url: customUrl, exposure: "codemode" } : defaults[serverName]! },
+				{ name: "全局 mcp.json 完整覆盖注册值与设置", configuredUrl,
+					global: globalConfig, expected: globalConfig, scope: "global" },
+				{ name: "全局同名配置禁用目标服务，不影响另一个服务", configuredUrl,
+					global: { ...globalConfig, enabled: false }, expected: { ...globalConfig, enabled: false }, scope: "global" },
+				{ name: "受信任项目替换同名全局服务器", configuredUrl,
+					global: globalConfig, project: projectConfig, trusted: true, expected: projectConfig, scope: "project" },
+				{ name: "不受信任项目不能覆盖全局服务器", configuredUrl,
+					global: globalConfig, project: projectConfig, trusted: false, expected: globalConfig, scope: "global" },
+				{ name: "受信任项目直接覆盖扩展默认值", project: projectConfig,
+					trusted: true, expected: projectConfig, scope: "project" },
+				{ name: "不受信任项目不能覆盖扩展默认值", project: projectConfig,
+					trusted: false, expected: defaults[serverName]! },
+				{ name: "受信任项目同名完整条目可禁用扩展默认值", project: { ...projectConfig, enabled: false },
+					trusted: true, expected: { ...projectConfig, enabled: false }, scope: "project" },
+				{ name: "不受信任项目不能禁用扩展默认值", project: { ...projectConfig, enabled: false },
+					trusted: false, expected: defaults[serverName]! },
+				{ name: "受信任项目可用简写禁用已有全局文件服务器", global: globalConfig,
+					project: { enabled: false }, trusted: true, expected: { ...globalConfig, enabled: false },
+					scope: "global", projectOverride: true },
+				{ name: "不受信任项目的简写禁用不生效", global: globalConfig,
+					project: { enabled: false }, trusted: false, expected: globalConfig, scope: "global" },
+			];
+			return cases.map(scenario => ({ ...scenario, serverName, name: `${serverName}：${scenario.name}` }));
+		});
 		for (const [index, scenario] of scenarios.entries()) {
 			await t.test(scenario.name, async () => {
 				// 每个场景使用独立文件与会话，但共享进程级沙箱。
@@ -142,8 +178,8 @@ test("Pi SDK MCP：源码默认值、配置 URL、文件优先级、禁用服务
 				if (scenario.configuredUrl) writeFileSync(join(agentDir, "settings.json"), JSON.stringify({
 					tsgw: { mcpUrl: scenario.configuredUrl },
 				}));
-				if (scenario.global) writeFileSync(globalPath, JSON.stringify({ mcpServers: { [TS_OHT_NAME]: scenario.global } }, null, 2));
-				if (scenario.project) writeFileSync(projectPath, JSON.stringify({ mcpServers: { [TS_OHT_NAME]: scenario.project } }, null, 2));
+				if (scenario.global) writeFileSync(globalPath, JSON.stringify({ mcpServers: { [scenario.serverName]: scenario.global } }, null, 2));
+				if (scenario.project) writeFileSync(projectPath, JSON.stringify({ mcpServers: { [scenario.serverName]: scenario.project } }, null, 2));
 				const protectedPaths = [globalPath, projectPath, ...["settings.json", "auth.json", "mcp-auth.json"]
 					.flatMap((name) => [join(agentDir, name), join(cwd, ".pi", name)])];
 				const before = snapshot(protectedPaths);
@@ -208,42 +244,55 @@ test("Pi SDK MCP：源码默认值、配置 URL、文件优先级、禁用服务
 					// 真实斜杠命令分发等待后台发现，不调用模型。
 					await session.prompt("/mcp");
 					await session.prompt("/mcp");
-					const disabled = "enabled" in scenario.expected && scenario.expected.enabled === false;
-					const statuses = notices.filter((message) => message.startsWith(`${TS_OHT_NAME}:`));
-					assert.equal(statuses.length, 2, "两次 /mcp 调用均须报告状态");
-					assert.equal(statuses[0], statuses[1]);
-					assert.match(statuses[0]!, disabled ? /^ts_oht: disabled/ : /^ts_oht: connected, 1 tools/);
-					assert.ok(statuses[0]!.includes(`(${scenario.expected.exposure})`));
-					if (scenario.scope) {
-						assert.ok(statuses[0]!.includes("overridden:"));
-						assert.ok(statuses[0]!.includes(scenario.scope === "project" ? projectPath : globalPath));
-					} else assert.ok(!statuses[0]!.includes("overridden:"));
-					assert.equal(transports.length, disabled ? 0 : 1, "最多建立一次连接；/mcp 不得重新连接");
-					const tool = session.getAllTools().find((tool) => tool.name === "mcp__ts_oht__lookup");
-					if (disabled) assert.equal(tool, undefined);
-					else {
-						const captured = transports[0]!;
+					const reports = notices.filter(message => Object.keys(defaults).some(name => message.startsWith(`${name}:`)));
+					assert.equal(reports.length, 2, "两次 /mcp 调用均须报告状态");
+					assert.equal(reports[0], reports[1]);
+					assert.ok(!reports[0]!.includes("config error:"), "真实文件配置必须有效");
+					const lines = reports[0]!.split("\n");
+					assert.equal(lines.filter(line => /^(ts_oht|ts_tool):/.test(line)).length, 2);
+					let enabledCount = 0;
+					for (const name of Object.keys(defaults)) {
+						const target = name === scenario.serverName;
+						const expected: Config = target ? scenario.expected : name === TS_OHT_NAME && scenario.configuredUrl
+							? { url: scenario.configuredUrl, exposure: "codemode" } : defaults[name]!;
+						const scope = target ? scenario.scope : undefined;
+						const disabled = expected.enabled === false;
+						const status = lines.find(line => line.startsWith(`${name}:`));
+						assert.ok(status);
+						assert.ok(status.startsWith(`${name}: ${disabled ? "disabled" : "connected, 1 tools"}`));
+						assert.ok(status.includes(`(${expected.exposure})`));
+						const overrides = lines.filter(line => line.startsWith(`overridden: "${name}"`));
+						assert.equal(overrides.length, scope ? 1 : 0, `${name} 的覆盖提示必须独立`);
+						if (scope) assert.ok(overrides[0]!.includes(scope === "project" ? projectPath : globalPath));
+						const connections = transports.filter(captured => captured.entry.name === name);
+						assert.equal(connections.length, disabled ? 0 : 1, `${name} 最多连接一次；禁用时不连接`);
+						const tool: ReturnType<AgentSession["getAllTools"]>[number] | undefined =
+							session.getAllTools().find(candidate => candidate.name === `mcp__${name}__lookup`);
+						if (disabled) { assert.equal(tool, undefined); continue; }
+						enabledCount++;
+						const captured = connections[0]!;
 						assert.equal(captured.cwd, cwd);
-						assert.equal(captured.entry.name, TS_OHT_NAME);
-						assert.deepEqual(captured.entry.config, scenario.expected, "URL、暴露方式与超时必须完全取自优先配置，不得合并");
-						assert.equal(captured.entry.scope, scenario.scope ?? "extension");
-						assert.equal(captured.entry.source, scenario.scope === "project" ? projectPath : scenario.scope === "global" ? globalPath : entry);
+						assert.deepEqual(captured.entry.config, expected, "URL、暴露方式与超时必须完全取自优先配置，不得合并或串用认证");
+						assert.equal(captured.entry.scope, scope ?? "extension");
+						assert.equal(captured.entry.source, scope === "project" ? projectPath : scope === "global" ? globalPath : entry);
+						assert.equal(captured.entry.override, target && scenario.projectOverride ? projectPath : undefined);
 						assert.equal(captured.server.starts, 1);
 						assert.equal(captured.server.closes, 0);
-						const methods = captured.server.messages.flatMap((message) => "method" in message ? [message.method] : []);
+						const methods = captured.server.messages.flatMap(message => "method" in message ? [message.method] : []);
 						assert.deepEqual(methods.slice(0, 2), ["initialize", "notifications/initialized"]);
 						for (const method of ["initialize", "tools/list"])
-							assert.equal(methods.filter((name) => name === method).length, 1, `即使调用两次 /mcp，${method} 也只能执行一次`);
+							assert.equal(methods.filter(name => name === method).length, 1, `即使调用两次 /mcp，${method} 也只能执行一次`);
 						// Pi 1.2 声明资源支持，但不立即枚举。
 						for (const method of ["resources/list", "resources/templates/list"])
-							assert.ok(methods.filter((name) => name === method).length <= 1, `不得重复调用 ${method}`);
-						assert.ok(captured.server.messages.some((message) => "id" in message && message.id === "server-ping" && "result" in message));
-						if (scenario.expected.exposure === "codemode")
+							assert.ok(methods.filter(name => name === method).length <= 1, `不得重复调用 ${method}`);
+						assert.ok(captured.server.messages.some(message => "id" in message && message.id === "server-ping" && "result" in message));
+						if (expected.exposure === "codemode")
 							assert.ok(["deferred", "codemode"].includes(tool?.exposure ?? ""), "Pi 1.1/1.2 间均采用间接暴露");
-						else assert.equal(tool?.exposure, scenario.expected.exposure);
+						else assert.equal(tool?.exposure, expected.exposure);
 						assert.equal(tool?.annotations?.readOnlyHint, true);
-						assert.ok(session.getAllTools().some((tool) => tool.name === "list_mcp_resources"));
 					}
+					assert.equal(transports.length, enabledCount, "不得连接额外服务器或因 /mcp 重连");
+					assert.ok(session.getAllTools().some(tool => tool.name === "list_mcp_resources"));
 					assert.deepEqual(session.messages, [], "斜杠命令不得启动任何代理轮次");
 				} finally {
 					// dispose() 会使上下文失效，但不等待 MCP 关闭。

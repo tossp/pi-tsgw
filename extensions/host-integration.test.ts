@@ -67,10 +67,12 @@ test("Pi 1.1 SDK：源码加载、目录刷新、命令、请求钩子与重载"
 			noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 			systemPrompt: "简短回答。这是隔离的宿主回归测试。",
 			extensionFactories: [createMcpExtension({
-				loadConfig: () => ({ errors: [], autoEnableCodemode: false, servers: [{
-					name: "ts_oht", source: "disabled-fixture", scope: "global",
-					config: { url: "https://disabled-mcp.invalid/mcp", enabled: false },
-				}] }),
+				loadConfig: () => ({ errors: [], autoEnableCodemode: false,
+					servers: ["ts_oht", "ts_tool"].map(name => ({
+						name, source: "disabled-fixture", scope: "global" as const,
+						config: { url: "https://disabled-mcp.invalid/mcp", enabled: false },
+					})),
+				}),
 			}), (pi) => {
 				pi.on("session_start", (event) => { lifecycle.push(`start:${event.reason}`); });
 				pi.on("session_shutdown", (event) => { lifecycle.push(`shutdown:${event.reason}`); });

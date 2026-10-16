@@ -199,17 +199,24 @@ GLM 指导使用 5.3，并以 Flash 和 FlashX 为备选。思考级别使用 Pi
 
 ## 默认 MCP 注册
 
-插件每次加载时都会注册 `ts_oht`，端点为 `https://xn--oht.cc/mcp`，
-暴露方式为 `codemode`。使用此默认配置无需任何 MCP 配置。
-用户级设置中可选的 `tsgw.mcpUrl` 会改变插件使用的端点；它独立于 `tsgw.baseUrl`，
-且仅在初始化时读取一次。显式 URL 无效时，会安全地发出警告并跳过注册，
-而不是静默连接默认端点。不支持 `registerMcpServer` 的旧宿主会跳过注册。
+插件每次加载时都会向宿主登记以下会话默认值，暴露方式均为 `codemode`：
 
-Pi 管理连接、OAuth 登录和凭据。需要登录时，在会话内使用 `/mcp login ts_oht`。
+| 服务器名称 | 默认端点 |
+| --- | --- |
+| `ts_oht` | `https://xn--oht.cc/mcp` |
+| `ts_tool` | `https://mcp.tossp.com/mm/ts/mcp` |
+
+使用这些默认值无需手工配置 MCP。用户级设置中可选的 `tsgw.mcpUrl` 仅覆盖 `ts_oht`，
+独立于 `tsgw.baseUrl`，且仅在初始化时读取一次；`ts_tool` 的覆盖交给宿主同名文件配置，
+没有额外的插件配置项。显式 `mcpUrl` 无效时，安全警告并仅跳过 `ts_oht`，
+不静默回退，也不影响 `ts_tool`。单个登记失败不阻断另一服务或模型提供方；
+不支持 `registerMcpServer` 的旧宿主会跳过两者注册。
+
+Pi 管理连接、OAuth 登录和凭据。需要登录时，在会话内对相应服务使用 `/mcp login ts_oht` 或 `/mcp login ts_tool`。
 插件不读写 `mcp.json` 或 `mcp-auth.json`，也不携带凭据。
 保持相同的服务器名称和完全一致的 URL，才能复用宿主现有的 OAuth 作用域。
 
-有效的全局/项目 `mcp.json` 中同名的 `ts_oht` 优先于插件注册，包括 `enabled: false`；
+有效的全局/项目 `mcp.json` 中同名的 `ts_oht`、`ts_tool` 分别优先于插件注册，包括 `enabled: false`；
 插件不会创建第二条连接，也不会绕过该选择。要覆盖 URL、暴露方式、超时、认证或启用状态，
 请在文件中使用完整的同名配置。对插件提供的服务器所做的更改仅作用于当前会话，不会保存。
 Shell 中的 `pi mcp` 命令不加载插件，无法看到仅由此注册提供的服务器。

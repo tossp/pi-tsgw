@@ -90,10 +90,12 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 			systemPrompt: "Host-only private context；绝不复制到委托调研中。",
 			extensionFactories: [createMcpExtension({
-				loadConfig: () => ({ errors: [], autoEnableCodemode: false, servers: [{
-					name: "ts_oht", source: "disabled-fixture", scope: "global",
-					config: { url: "https://disabled-mcp.invalid/mcp", enabled: false },
-				}] }),
+				loadConfig: () => ({ errors: [], autoEnableCodemode: false,
+					servers: ["ts_oht", "ts_tool"].map(name => ({
+						name, source: "disabled-fixture", scope: "global" as const,
+						config: { url: "https://disabled-mcp.invalid/mcp", enabled: false },
+					})),
+				}),
 			})],
 		});
 		await loader.reload();

@@ -59,7 +59,7 @@
 
 ## 本地上传
 
-- 插件默认经 `pi.registerMcpServer` 登记公共 `ts_oht` 端点，用户级 `tsgw.mcpUrl` 可覆盖；全局/项目同名 MCP 文件配置优先（包括禁用），由宿主负责，不另建合并、连接或认证机制，不读取/改写 MCP 配置和凭据。
+- 插件默认经 `pi.registerMcpServer` 登记 `ts_oht` 与 `ts_tool`，均为 codemode；用户级 `tsgw.mcpUrl` 仅覆盖前者，无效时也只跳过前者。`ts_tool` 默认公开端点为 `https://mcp.tossp.com/mm/ts/mcp`。全局/项目同名 MCP 文件配置分别优先（包括禁用），由宿主负责；不另建合并、连接或认证机制，不读取/改写 MCP 配置和凭据。
 - `upload_local_file` 只经宿主 `ctx.executeTool` 使用已连接且可调用的 `ts_oht`，不另建 MCP 客户端/服务、不读取或保存其凭据。`reachesTools` 只声明两个上传/链接工具，Pi 1.2+ 的发现/重连等待交给宿主；不能据此绕过权限、禁用或登录，也不把宿主执行前等待算入插件 330 秒 MCP deadline。宿主接口依据见 Blinko `871`、`930`；运行时能力检查与模型 provider 的最低兼容版本分开。
 - 只支持当前 `mode`/`uploads[]` 契约，不恢复 `uploadUrl` 旧格式。单次 PUT 与 multipart 分开确认；上传成功不因链接签发失败降级，未知结果不自动重试。
 - `resume` 是不含凭据的恢复记录，不是新建授权；先检查旧 key，只有明确 not-found 才恢复未完成分片，核对文件身份及原 key/uid 后仅发送缺失分片。进程内锁不是跨客户端锁。
