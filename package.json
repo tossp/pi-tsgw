@@ -1,6 +1,6 @@
 {
   "name": "pi-tsgw",
-  "version": "0.0.16",
+  "version": "0.0.17",
   "description": "面向 TOSSP AIH gateway 的 Pi 扩展：按厂商维护模型目录与思考策略，支持 openai-completions、openai-responses、anthropic-messages 和 google-generative-ai 协议。",
   "type": "module",
   "keywords": [
