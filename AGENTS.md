@@ -4,7 +4,7 @@
 
 ## 项目与维护入口
 
-`pi-tsgw` 是以自用为目标、公开发布的 MIT Pi 扩展，为 TOSSP AIH gateway 注册 `tsgw` provider。负责对话模型目录、厂商请求改写、内置联网、追踪与会话状态；响应解析复用 Pi；非原生联网模型通过受控的 `tsgw_search` 代理调用支持模型。
+`pi-tsgw` 是以自用为目标、公开发布的 MIT Pi 扩展，为 TOSSP AIH gateway 注册 `tsgw` provider。负责聊天与图片模型目录、厂商请求改写、内置联网、追踪与会话状态；聊天响应解析复用 Pi，图片协议由独立适配器承载；非原生联网模型通过受控的 `tsgw_search` 代理调用支持模型。
 
 | 改什么 | 从哪里看 |
 | --- | --- |
@@ -18,6 +18,7 @@
 | 目录拼接、过滤与请求调度 | `extensions/models/catalog.ts`、`operations.ts` |
 | 网络目录与缓存 | `extensions/models/gateway-catalog.ts` 及缓存辅助模块 |
 | 内置联网 | `extensions/models/web-search.ts`、`extensions/search/`（`index.ts`、`proxy.ts` 及相邻测试） |
+| 原生图片生成、适配与维护说明 | `extensions/images/`、`extensions/images/README.md`；宿主集成测试 `extensions/images/host-integration.test.ts` |
 | provider 状态与测试 | `extensions/provider/status.ts`、`extensions/provider/` 中 provider 单测、状态单测和状态集成测试 |
 | MCP 配置与宿主认证边界 | `README.md` 的 MCP 服务配置、`extensions/upload/README.md` |
 | 宿主集成总测试 | 根 `index.test.ts`；其他共享测试夹具仍在 `extensions/` |
@@ -50,6 +51,9 @@
 - 新模型改 vendor；新供应商接入 catalog，有策略则接入 operations。补逐 ID、档位及非目标字段保留测试，不只检查总数量。
 - 调整模型目录、规格、thinking 档位、价格或选型依据时，同步检查 `skills/tsgw-delegate-model-selection/SKILL.md` 的选型表与说明是否需要更新，并按需修改对应测试。参考表由插件维护，使用技能的模型直接参考，不承担查榜、实时核验或时效判断职责。
 - 静态目录与网关目录取交集后再应用用户过滤，不自动登记未知 ID。include 优先于 exclude，但不能突破该交集；两者只支持精确 ID 和尾部 `*` 前缀匹配。
+- 原生图片仅在 Pi `VERSION` 为 1.2.0 或更高稳定版本时注册 `type: image` 的 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`；低版本不注册图片模型/adapter，但聊天保持原功能，不提高最低 peer，也不以策略说明冒充旧版真实验收。图片走现有 tsgw provider、`baseUrl` 和宿主凭据解析，不增加 MCP 注册、HTTP 客户端 SDK 依赖或服务端改动。初版仅文生图、单张 PNG；不自动登记裸别名或其他图片模型。图片不作为聊天模型或搜索代理候选；状态计数含实际登记的聊天与图片模型。
+- 图片 API 最小适配 `POST /v1/images/generations`，默认 300s、支持 signal 和更短的 `options.timeoutMs`；严禁自动重试或自动切模型，不声称取消必然停止上游处理/计费。codemode 的 `models.generateImages` 原生形式仅两个参数；核查 `stopReason` 与 image 内容，再展示图片并取临时路径。没有 MCP 不代表宿主启用了 codemode；文档仅提示必要时手动为 `defaultTools` 加 `+codemode`，不代用户写配置。
+- 图片价格 0 表示未映射准确价格，不是免费；usage 只含上游报告的有效 tokens。图片真实端点验收需明确授权，模拟测试不能替代真实端点验证。
 - 缓存按网关与凭据隔离，不存明文凭据。过期/失败回退不得重置 `storedAt`；force 绕过新鲜缓存；迟到请求不得覆盖新缓存。旧格式或不同 scope 的磁盘数据不能直接信任。
 - 带 signal 的请求独立取消，不共享调用者 signal；磁盘写入失败不阻断目录使用。入口和底层缓存分别保护乱序，不能互相替代。
 - 启动可使用 stale 缓存或回退静态目录；动态刷新失败保留已登记列表。保留 `allowNetwork`、force、signal 和 TTL 语义。

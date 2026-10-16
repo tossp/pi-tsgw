@@ -2,10 +2,12 @@ import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
+	ProviderModelConfig,
 } from "@earendil-works/pi-coding-agent";
 import {
 	getAgentDir,
 	readStoredCredential,
+	VERSION,
 } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -20,6 +22,8 @@ import {
 import { getGatewayModelIds } from "../models/gateway-catalog.ts";
 import { applyModelOperations } from "../models/operations.ts";
 import { registerSearch } from "../search/index.ts";
+import { IMAGE_API, imageModelsForRoot, supportsImageModels } from "../images/models.ts";
+import { generateImages } from "../images/adapter.ts";
 import {
 	catalogLabel,
 	catalogDiagnostics,
@@ -109,8 +113,12 @@ function effectiveModelsForGateway(
 	root: string,
 	filter: ModelFilter | undefined,
 	gatewayIds: ReadonlySet<string> | undefined,
-): ReturnType<typeof modelsForRoot> {
-	const staticModels = modelsForRoot(root);
+	imagesEnabled: boolean,
+): ProviderModelConfig[] {
+	const staticModels: ProviderModelConfig[] = [
+		...modelsForRoot(root),
+		...(imagesEnabled ? imageModelsForRoot(root) : []),
+	];
 	const intersected = gatewayIds
 		? staticModels.filter((model) => gatewayHasModel(gatewayIds, model.id))
 		: staticModels;
@@ -125,8 +133,9 @@ async function resolveEffectiveModels(
 	root: string,
 	filter: ModelFilter | undefined,
 	cacheFilePath: string,
+	imagesEnabled: boolean,
 ): Promise<{
-	models: ReturnType<typeof modelsForRoot>;
+	models: ProviderModelConfig[];
 	gatewayIds: ReadonlySet<string> | undefined;
 	catalog: CatalogStatus;
 }> {
@@ -161,7 +170,7 @@ async function resolveEffectiveModels(
 		}
 	}
 	if (catalog.error) console.warn(`TSGW: ${catalog.error}`);
-	const models = effectiveModelsForGateway(root, filter, gatewayIds);
+	const models = effectiveModelsForGateway(root, filter, gatewayIds, imagesEnabled);
 	return { models, gatewayIds, catalog: { ...catalog, count: models.length } };
 }
 
@@ -169,6 +178,7 @@ export async function registerTsgwProvider(
 	pi: ExtensionAPI, settings: TsgwSettings,
 ): Promise<void> {
 	const root = rootForRuntime(settings.baseUrl);
+	const imagesEnabled = supportsImageModels(VERSION);
 	const defaultSearchMode: WebSearchMode =
 		settings.tsSearch === "cached" || settings.tsSearch === "live"
 			? settings.tsSearch
@@ -193,6 +203,7 @@ export async function registerTsgwProvider(
 		root,
 		modelFilter,
 		cacheFilePath,
+		imagesEnabled,
 	);
 	const { models } = initial;
 	let latestModels = models;
@@ -205,7 +216,7 @@ export async function registerTsgwProvider(
 	const search = registerSearch(pi, {
 		defaultMode: defaultSearchMode,
 		state: () => requestState,
-		models: () => latestModels,
+		models: () => latestModels.filter(model => model.type === undefined || model.type === "chat"),
 		revision: () => lifecycleRevision,
 		refreshState: refreshRequestState,
 		bindStatus: ctx => bindStatus(ctx),
@@ -234,6 +245,7 @@ export async function registerTsgwProvider(
 		api: "openai-completions",
 		apiKey: "$TSGW_API_KEY",
 		models,
+		...(imagesEnabled ? { images: { [IMAGE_API]: { generateImages } } } : {}),
 		async refreshModels(context) {
 			if (!context.allowNetwork) return latestModels;
 			context.signal.throwIfAborted();
@@ -256,7 +268,7 @@ export async function registerTsgwProvider(
 				if (gateway.stale)
 					throw new Error("TSGW 刷新失败；保留上次成功获取的目录。");
 				if (revision === refreshRevision) {
-					latestModels = effectiveModelsForGateway(root, modelFilter, new Set(gateway.ids));
+					latestModels = effectiveModelsForGateway(root, modelFilter, new Set(gateway.ids), imagesEnabled);
 					search.sync();
 					catalog = {
 						count: latestModels.length,
@@ -301,8 +313,10 @@ export async function registerTsgwProvider(
 				ctx.ui.notify("已跳过 TSGW 模型刷新：请先通过 /login 配置 API 密钥。", "warning");
 				return;
 			}
-			const count = () => ctx.modelRegistry.getAvailable()
-				.filter((model) => model.provider === PROVIDER_ID).length;
+			const count = () => typeof ctx.modelRegistry.getModelsOfType === "function"
+				? ctx.modelRegistry.getModelsOfType("chat", PROVIDER_ID).length +
+					ctx.modelRegistry.getModelsOfType("image", PROVIDER_ID).length
+				: ctx.modelRegistry.getAvailable().filter((model) => model.provider === PROVIDER_ID).length;
 			const before = count();
 			revision = refreshRevision;
 			// 较旧的 Pi 版本返回 void，而非取消/错误元数据。

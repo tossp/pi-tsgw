@@ -57,10 +57,10 @@ function compilePatterns(patterns: readonly string[]): (id: string) => boolean {
 }
 
 /** 按“拉回优先”语义过滤模型目录；无过滤条件时原样返回。 */
-export function filterModels(
-	models: readonly ProviderModelConfig[],
+export function filterModels<T extends { id: string }>(
+	models: readonly T[],
 	filter?: ModelFilter,
-): ProviderModelConfig[] {
+): T[] {
 	if (!filter) return [...models];
 	const include = filter.include?.length
 		? compilePatterns(filter.include)

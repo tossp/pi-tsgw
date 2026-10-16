@@ -6,6 +6,7 @@ import { test } from "node:test";
 import type { AgentSession, BuildSystemPromptOptions, ExtensionError } from "@earendil-works/pi-coding-agent";
 import { modelsForRoot, PROVIDER_ID } from "./extensions/models/catalog.ts";
 import { MEMORY_RULES } from "./prompts/memory.ts";
+import { IMAGE_MODEL_IDS } from "./extensions/images/models.ts";
 import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "./extensions/host-test-support.test.ts";
 
 // 同时兼容源码执行与 tsc 的 dist 输出，不依赖 cwd 或机器特定路径。
@@ -98,9 +99,9 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		const staticModels = modelsForRoot(TEST_ROOT);
 		assert.deepEqual(runtime.getModels(PROVIDER_ID).map((model) => model.id).sort(),
 			staticModels.map((model) => model.id).sort());
-		assert.equal(runtime.getAllModels(PROVIDER_ID).length, staticModels.length);
+		assert.equal(runtime.getAllModels(PROVIDER_ID).length, staticModels.length + IMAGE_MODEL_IDS.length);
 		assert.equal(runtime.getModelsOfType("chat", PROVIDER_ID).length, staticModels.length);
-		assert.equal(runtime.getModelsOfType("image", PROVIDER_ID).length, 0);
+		assert.deepEqual(runtime.getModelsOfType("image", PROVIDER_ID).map(model => model.id), [...IMAGE_MODEL_IDS]);
 		assert.equal(runtime.getModelsOfType("classifier", PROVIDER_ID).length, 0);
 		const names = session.extensionRunner.getRegisteredCommands().map((command) => command.name).sort();
 		assert.deepEqual(names, ["tsgw", "tsgw-refresh", "tsgw-search"]);

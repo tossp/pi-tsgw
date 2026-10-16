@@ -1,3 +1,4 @@
+import type { ProviderModelConfig as AnyModelConfig } from "@earendil-works/pi-coding-agent";
 import type { ChatModelConfig as ProviderModelConfig } from "../_tools.ts";
 import { type PayloadWriter, type ThinkingApplier } from "../_tools.ts";
 
@@ -111,3 +112,21 @@ export const openaiThinking = {
 	"gpt-6-sol": (w, _c) => applyOpenAIResponses(w),
 	"gpt-6-luna": (w, _c) => applyOpenAIResponses(w),
 } satisfies Record<string, ThinkingApplier>;
+
+export const OPENAI_IMAGE_API = "tsgw-openai-images";
+export const OPENAI_IMAGE_MODEL_IDS = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"] as const;
+export type OpenAIImageModelConfig = Extract<AnyModelConfig, { type: "image" }>;
+
+/**
+ * 图片接口依据见记忆系统 942；仅登记本插件已实现的文生图能力，不宣称支持编辑。
+ * 价格暂未纳入计费映射，0 表示未知而非免费；不混入 openaiModels 的聊天目录。
+ */
+export function openaiImageModels(root: string): OpenAIImageModelConfig[] {
+	return OPENAI_IMAGE_MODEL_IDS.map((id, index) => ({
+		type: "image", id,
+		name: index === 0 ? "GPT Image 2.5 Flare" : "GPT Image 2.5 Sunburst",
+		api: OPENAI_IMAGE_API, baseUrl: `${root}/v1`,
+		input: ["text"], output: ["image"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+	}));
+}

@@ -1,8 +1,9 @@
 # pi-tsgw
 
-面向 TOSSP AIH gateway 的 Pi 扩展。注册 `tsgw` 提供商，其模型目录涵盖四种通信协议
+面向 TOSSP AIH gateway 的 Pi 扩展。注册 `tsgw` 提供商，其聊天模型涵盖四种通信协议
 （openai-completions、openai-responses、anthropic-messages、google-generative-ai），
 并按厂商对请求体执行相应操作，使思考级别、推理格式和可选的内置网络搜索在网关上正常工作。
+图片模型通过 Pi 原生图片 API 调度，插件适配网关的 Images 接口，不经过 MCP。
 
 本项目不包含私有 API 密钥或网关端点。静态目录包含模型元数据和公开价格估算；
 这些价格并非你的网关计费费率。
@@ -17,6 +18,7 @@ index.test.ts               # 宿主集成总测试
 extensions/provider/         # provider 注册、配置、状态及其测试
 extensions/models/           # 模型目录、策略与联网支持
 extensions/search/           # 搜索注册、代理与相邻测试
+extensions/images/           # 原生图片生成适配与宿主集成测试
 extensions/prompts.ts        # registerPrompts
 prompts/memory.ts            # 记忆提示词正文
 extensions/upload/           # 本地上传及安全说明
@@ -131,13 +133,30 @@ GLM 5.3 仅支持文本。注册并不证明网关支持推理或工具调用。
 重新获取。旧版无作用域缓存文件会被忽略，并在获取成功后替换。
 进程内请求排序可防止较晚返回的结果覆盖更新的缓存写入；这不是跨进程锁机制。
 
+## 原生图片生成
+
+Pi 1.2+ 可在现有 `tsgw` provider 中注册 `gpt-image-2.5-flare` 和
+`gpt-image-2.5-sunburst` 两个 `type: image` 模型。它们复用相同的 `baseUrl`、TSGW
+凭据及 `$TSGW_API_KEY`；由 Pi 宿主解析 `options.apiKey`。图片目录受静态目录、网关目录
+与 `includeModels` / `excludeModels` 的交集及过滤规则约束；不会自动登记裸别名
+`gpt-image-2.5` 或其他图片模型。需要按前缀纳入时可用 `"includeModels": ["gpt-image-2.5*"]`，
+但 include 不能突破目录交集。
+
+初版仅支持文生图：一次生成一张 PNG，不支持图片编辑。图片模型不出现在聊天模型选择器中，
+也不会作为聊天模型提供给搜索代理。使用 Pi codemode 前提是宿主已启用该工具；本扩展不因
+没有 MCP 就自动启用工具。若宿主的 `defaultTools` 未包含 `codemode`，只在确有需要时手动
+启用 `+codemode`。具体调用、超时、结果与价格语义见[图片生成维护与使用说明](extensions/images/README.md)。
+
+图片价格显示为 0 表示尚未映射准确价格，不是免费；usage 只统计上游已报告的有效 tokens。
+当前说明不代表已完成真实网关图片生成验收。
+
 ## 状态栏与会话控制
 
 支持 `command:/…` 状态的 Pi Web 客户端会将其渲染为可点击按钮；终端 CLI 显示状态文本，
 并接受相同命令：
 
 - **`TSGW · N`**（`/tsgw`）：在同一菜单中**刷新模型目录**和**查看诊断信息**。
-  数量表示过滤后已注册的目录条目数，而非健康推理端点的数量。
+  数量表示过滤后已注册的聊天与图片目录条目数，而非健康推理端点的数量。
   🟢 表示新鲜的目录结果；🟡 表示静态/过期目录或刷新失败；⚠️ 表示缺少凭据或网关配置；
   ⏳ 表示正在刷新。
 - **内置联网**（`/tsgw-search`）：GPT 仅为当前会话提供 `cached / live`，默认为 `live`。
