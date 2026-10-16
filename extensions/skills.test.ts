@@ -20,7 +20,7 @@ function packageRoot(): string {
 }
 
 const root = packageRoot();
-const skillDir = join(root, "skills", "delegate-model-selection");
+const skillDir = join(root, "skills", "tsgw-delegate-model-selection");
 const skillPath = join(skillDir, "SKILL.md");
 
 // 这些测试验证打包、Pi 名称及本地映射，不验证模型质量、
@@ -119,14 +119,14 @@ test("Pi SDK 通过包清单发现随包技能并遵守过滤规则", { timeout:
 		assert.deepEqual(loader.getSkills().diagnostics, []);
 		assert.equal(loader.getSkills().skills.length, 1, "仅加载随包技能，不加载个人资源");
 		const skill = loader.getSkills().skills[0]!;
-		assert.equal(skill.name, "delegate-model-selection");
+		assert.equal(skill.name, "tsgw-delegate-model-selection");
 		assert.equal(skill.filePath, skillPath);
 		assert.equal(skill.baseDir, skillDir);
 		assert.equal(skill.sourceInfo.origin, "package");
 		assert.equal(skill.disableModelInvocation, false);
 		assert.match(skill.description, /背景执行/);
 		assert.match(skill.description, /尽量遵循/);
-		assert.match(formatSkillsForPrompt([skill]), /delegate-model-selection/);
+		assert.match(formatSkillsForPrompt([skill]), /<name>tsgw-delegate-model-selection<\/name>/);
 		const body = readFileSync(skill.filePath, "utf8");
 		assert.match(body, /^\| 任务等级 \| 模型 \| 思考深度 \| 评分 \| 输入价 \| 输出价 \|$/m,
 			"加载的技能必须包含选型表");

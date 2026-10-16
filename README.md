@@ -168,7 +168,7 @@ Pi Web 可能要等会话运行时启动后才显示扩展状态。
 
 ## 子代理编排技能
 
-本包附带 [delegate-model-selection](skills/delegate-model-selection/SKILL.md)，
+本包附带 [tsgw-delegate-model-selection](skills/tsgw-delegate-model-selection/SKILL.md)，
 鼓励适合的任务通过后台子代理执行，并提供模型/思考级别指导，包括独立的 Kimi + Astra 审查。
 任务拆分、并行、验证和升级仍由代理自行决定。
 

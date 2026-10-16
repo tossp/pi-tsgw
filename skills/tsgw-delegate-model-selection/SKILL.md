@@ -1,5 +1,5 @@
 ---
-name: delegate-model-selection
+name: tsgw-delegate-model-selection
 description: 当本技能存在时，应更倾向于把适合委派的任务编排为子代理背景执行。本技能定义编排中的模型与思考深度选择，应尽量遵循；具体任务拆分、并行方式与升级策略由模型结合现场自行判断。
 license: MIT
 compatibility: 需要宿主提供子代理工具及可用的 tsgw 模型。
