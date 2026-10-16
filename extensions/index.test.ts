@@ -47,8 +47,7 @@ async function testChatCompletionsCompatibility(): Promise<void> {
 
 async function testTsSearchRegistration(): Promise<void> {
 	const pi = await createPi();
-	// Standalone search is provided externally (for example, ts_oht.search).
-	deepStrictEqual(pi.tools.map(tool => (tool as { name: string }).name), ["upload_local_file"]);
+	deepStrictEqual(pi.tools.map(tool => (tool as { name: string }).name), ["upload_local_file", "tsgw_search"]);
 }
 
 async function testSafeProviderHooksAfterContextStales(): Promise<void> {

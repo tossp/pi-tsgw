@@ -4,7 +4,7 @@
 
 ## 项目与维护入口
 
-`pi-tsgw` 是公开的 MIT Pi 扩展，为 TOSSP AIH gateway 注册 `tsgw` provider。负责对话模型目录、厂商请求改写、内置联网、追踪与会话状态；响应解析复用 Pi，不提供独立搜索工具。
+`pi-tsgw` 是公开的 MIT Pi 扩展，为 TOSSP AIH gateway 注册 `tsgw` provider。负责对话模型目录、厂商请求改写、内置联网、追踪与会话状态；响应解析复用 Pi；非原生联网模型通过受控的 `tsgw_search` 代理调用支持模型。
 
 | 改什么 | 从哪里看 |
 | --- | --- |
@@ -14,7 +14,7 @@
 | 子代理编排与模型选型技能 | `skills/delegate-model-selection/`、`extensions/skills.test.ts` |
 | 目录拼接、过滤与请求调度 | `extensions/models/catalog.ts`、`operations.ts` |
 | 网络目录与缓存 | `extensions/models/gateway-catalog.ts` 及缓存辅助模块 |
-| 内置联网与状态 | `extensions/models/web-search.ts`、`extensions/status.ts` |
+| 内置联网与状态 | `extensions/models/web-search.ts`、`extensions/search.ts`、`extensions/search-proxy.ts`、`extensions/status.ts` |
 | MCP 默认登记与覆盖 | `extensions/mcp.ts`、对应单测和宿主集成测试 |
 | 本地上传、分片恢复与直传安全 | `extensions/upload/`、其中的 `README.md` |
 | 编译、打包、发布 | `tsconfig*.json`、`.npmignore`、`.github/workflows/publish.yml` |
@@ -52,7 +52,7 @@
 - 请求体/请求头钩子只读实例私有快照，不访问失效 context；会话退出断开 UI sink，但保留快照供迟到请求。跨 await 的命令和并发刷新保留 revision 防护，不因宿主升级就删除。
 - 状态只描述目录新鲜度与登记数，不代表推理健康；诊断不发健康探测请求、不显示敏感值。非 UI 模式不得依赖状态渲染。Pi 核心兼容性和 Pi Web 展示分开验证。
 - GPT 内置联网仅 cached/live，默认 live；未配置、旧 off、非法值回退 live，已有 cached 保留。Grok 支持名单内固定实时，不修改 GPT 会话模式。会话控制不写 settings 或历史。
-- 内置联网支持由 `builtinSearchSupport` 的精确 ID 与协议共同判断。不覆盖已有搜索工具/字段，不控制 Qwen 策略或外部工具，不宣传成全局联网开关。不恢复独立 `ts_search`。
+- 内置联网支持由 `builtinSearchSupport` 的精确 ID 与协议共同判断。不覆盖已有搜索工具/字段，不控制 Qwen 策略或外部工具，不宣传成全局联网开关。不恢复旧 `ts_search`；仅 tsgw 非原生联网模型激活 `tsgw_search`，从生效目录优先选 GPT 6 Luna。代理复用宿主 registry 的认证和 adapter，不复制 HTTP/stream/usage 解析；只发送搜索问题，不传会话历史或本地工具，不切换主模型，不因推理失败自动改用更贵模型。代理凭据不使用 `readStoredCredential()`；原生与代理联网都不能仅凭参数注入或 HTTP 200 声称已完成搜索验证。
 - GPT reasoning 留给 adapter；Astra/6.1 Sol 的 off/minimal 用显式 null 禁用，不以省略代替。具体映射以 vendor 与测试为准，不把单个带工具请求失败推广到无工具能力。
 - 分开报告目录匹配、参数注入、普通文本推理和搜索/工具/引用验证；单测或 HTTP 200 不能替代端点能力验证。
 

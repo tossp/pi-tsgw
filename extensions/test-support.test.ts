@@ -71,6 +71,7 @@ export class FakeContext {
 export class FakePi {
 	readonly providers: Array<{ name: string; config: unknown }> = [];
 	readonly tools: unknown[] = [];
+	activeTools: string[] = ["other_tool"];
 	readonly mcpServers: Array<{ name: string; config: Parameters<ExtensionAPI["registerMcpServer"]>[1] }> = [];
 	readonly commands = new Map<string, unknown>();
 	private readonly handlers = new Map<HookName, unknown[]>();
@@ -116,9 +117,11 @@ export class FakePi {
 	exec: ExtensionAPI["exec"] = async () => {
 		throw new Error("FakePi.exec is not used by this test");
 	};
-	getActiveTools: ExtensionAPI["getActiveTools"] = () => [];
-	getAllTools: ExtensionAPI["getAllTools"] = () => [];
-	setActiveTools: ExtensionAPI["setActiveTools"] = () => {};
+	getActiveTools: ExtensionAPI["getActiveTools"] = () => [...this.activeTools];
+	getAllTools: ExtensionAPI["getAllTools"] = () => this.tools as ReturnType<ExtensionAPI["getAllTools"]>;
+	setActiveTools: ExtensionAPI["setActiveTools"] = (names) => {
+		this.activeTools = [...names];
+	};
 	getCommands: ExtensionAPI["getCommands"] = () => [];
 	setModel: ExtensionAPI["setModel"] = async () => false;
 	getThinkingLevel: ExtensionAPI["getThinkingLevel"] = () => {

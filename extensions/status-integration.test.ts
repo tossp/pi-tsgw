@@ -100,7 +100,7 @@ await withUi(async ({ pi, ctx, statuses, choices, dialogs, notices, dir }) => {
 	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：实时");
 });
 
-await withUi(async ({ pi, ctx, statuses, dialogs, notices }) => {
+await withUi(async ({ pi, ctx, statuses, dialogs, notices, choices }) => {
 	ctx.model = { ...ctx.model, id: "grok-4.5", api: "openai-completions" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
 	// Existing cached setting maps to live Grok search; don't advertise cache-only access.
@@ -114,19 +114,24 @@ await withUi(async ({ pi, ctx, statuses, dialogs, notices }) => {
 	ctx.model = { ...TSGW_SOL };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
 	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：缓存");
+	equal(pi.activeTools.includes("tsgw_search"), false);
 	equal((providerRequest(pi, {}) as { tools: Array<{ external_web_access: boolean }> }).tools[0].external_web_access, false);
 	await pi.invokeCommand("tsgw-search", ctx, "live");
 	pi.invoke("session_start", { reason: "new" }, ctx);
 	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：缓存");
 	ctx.model = { ...ctx.model, id: "glm-5.2" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
-	equal(statuses.get("command:/tsgw-search"), "⚪ 内置联网：不支持");
+	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：代理缓存");
 	const dialogCount = dialogs.length;
+	choices.push("🟡 内置联网：代理缓存");
 	await pi.invokeCommand("tsgw-search", ctx);
-	equal(dialogs.length, dialogCount);
+	equal(dialogs.length, dialogCount + 1);
+	equal(pi.activeTools.includes("tsgw_search"), true);
 	ctx.model = { ...ctx.model, provider: "other" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
 	equal(statuses.has("command:/tsgw-search"), false);
+	equal(pi.activeTools.includes("tsgw_search"), false);
+	equal(pi.activeTools.includes("other_tool"), true);
 	equal(statuses.has("command:/tsgw"), true);
 }, "cached");
 
@@ -178,6 +183,22 @@ await withUi(async ({ pi, ctx, statuses, setConfigured, refreshCalls, notices })
 	match(notices.at(-1)!.text, /cancelled/);
 });
 
+await withUi(async ({ pi, ctx, notices, statuses, refreshModels }) => {
+	// With GPT delegates filtered out by the effective catalog, Grok proxy is
+	// fixed-live and never mutates the session's GPT cached/live preference.
+	globalThis.fetch = async () => modelResponse(["grok-4.20"]);
+	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key: "test" },
+		force: true, signal: new AbortController().signal });
+	ctx.model = { ...ctx.model, id: "glm-5.2", api: "openai-completions" };
+	pi.invoke("model_select", { model: ctx.model }, ctx);
+	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：代理");
+	const before = providerRequest(pi, {});
+	await pi.invokeCommand("tsgw-search", ctx, "cached");
+	match(notices.at(-1)!.text, /固定为实时/);
+	deepStrictEqual(providerRequest(pi, {}), before);
+	equal(pi.activeTools.includes("tsgw_search"), true);
+});
+
 await withUi(async ({ pi, ctx, notices }) => {
 	// A model can change in another client while the mode picker is open.
 	ctx.ui.select = async () => {
@@ -200,7 +221,30 @@ await withUi(async ({ pi, ctx, notices }) => {
 });
 
 await withUi(async ({ pi, ctx, statuses, refreshModels }) => {
+	// Proxy activation follows the effective catalog after background refreshes.
+	ctx.model = { ...ctx.model, id: "glm-5.2", api: "openai-completions" };
+	pi.invoke("model_select", { model: ctx.model }, ctx);
+	equal(pi.activeTools.includes("tsgw_search"), true);
+	globalThis.fetch = async () => modelResponse(["glm-5.2"]);
+	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key: "test" },
+		force: true, signal: new AbortController().signal });
+	equal(pi.activeTools.includes("tsgw_search"), false);
+	globalThis.fetch = async () => modelResponse(["gpt-6-luna"]);
+	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key: "test" },
+		force: true, signal: new AbortController().signal });
+	equal(pi.activeTools.includes("tsgw_search"), true);
+	ctx.hasUI = false;
+	const setStatus = ctx.ui.setStatus;
+	ctx.ui.setStatus = () => { throw new Error("headless refresh touched UI"); };
+	pi.invoke("agent_start", {}, ctx);
+	globalThis.fetch = async () => modelResponse(["glm-5.2"]);
+	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key: "test" },
+		force: true, signal: new AbortController().signal });
+	equal(pi.activeTools.includes("tsgw_search"), false);
 	// Background /model refreshes also update the status without using the command.
+	ctx.ui.setStatus = setStatus;
+	ctx.hasUI = true;
+	pi.invoke("agent_start", {}, ctx);
 	globalThis.fetch = async () => modelResponse();
 	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key: "test" },
 		force: true, signal: new AbortController().signal });

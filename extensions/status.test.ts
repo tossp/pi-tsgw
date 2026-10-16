@@ -196,6 +196,9 @@ function testBuiltinSearchSupport(): void {
 function testSearchLabels(): void {
 	for (const mode of ["cached", "live"] as const) {
 		strictEqual(searchLabel(mode, undefined), "⚪ 内置联网：不支持");
+		strictEqual(searchLabel(mode, "proxy-gpt"), mode === "cached"
+			? "🟡 内置联网：代理缓存" : "🟢 内置联网：代理");
+		strictEqual(searchLabel(mode, "proxy-grok"), "🟢 内置联网：代理");
 		strictEqual(searchLabel(mode, "gpt"), mode === "cached"
 			? "🟡 内置联网：缓存" : "🟢 内置联网：实时");
 		strictEqual(searchLabel(mode, "grok"), "🟢 内置联网：实时");

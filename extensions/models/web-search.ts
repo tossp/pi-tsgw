@@ -9,7 +9,7 @@
  * - Grok（openai-completions）：追加 `search_parameters: { mode: "on" }`
  *   （xAI 文档：https://docs.x.ai/developers/tools/web-search）
  *
- * 独立搜索由外部工具提供，与本模块的内置查询注入无关。
+ * 名单外主模型通过 tsgw_search 调用目录内支持模型；注入逻辑保持共用。
  */
 
 import {
@@ -49,6 +49,45 @@ export function builtinSearchSupport(
 		return "gpt";
 	if (api === OPENAI_COMPLETIONS && GROK_SEARCH_MODELS.has(modelId))
 		return "grok";
+	return undefined;
+}
+
+/** 内置联网搜索代理：主模型不支持原生联网时的代理执行模型。 */
+export interface SearchDelegate {
+	modelId: string;
+	/** 代理协议族；请求和响应处理复用宿主 adapter。 */
+	kind: "gpt" | "grok";
+}
+
+// 搜索任务优先 Luna；其余仅在优先候选不在生效目录时依序候补。
+const DELEGATE_PREFERENCE = [
+	"gpt-6-luna",
+	"gpt-6-sol",
+	"gpt-6.1-sol",
+	"gpt-6-astra",
+	"grok-4.20",
+	"grok-4.20-fast",
+	"grok-4.3-low",
+	"grok-4.3-medium",
+	"grok-4.3-high",
+	"grok-4.5",
+] as const;
+
+/**
+ * Resolve the search-proxy model from the effective (three-layer filtered)
+ * catalog, with Luna first and a fixed fallback preference order. Delegates still have to
+ * pass `builtinSearchSupport`, so the exact-ID + protocol contract stays the
+ * single source of truth. Returns undefined when no supporting model remains.
+ */
+export function resolveSearchDelegate(
+	models: ReadonlyArray<{ id: string; api?: string }>,
+): SearchDelegate | undefined {
+	for (const id of DELEGATE_PREFERENCE) {
+		const model = models.find((candidate) => candidate.id === id);
+		if (!model) continue;
+		const kind = builtinSearchSupport(model.id, model.api ?? "");
+		if (kind) return { modelId: model.id, kind };
+	}
 	return undefined;
 }
 

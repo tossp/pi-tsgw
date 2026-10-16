@@ -151,10 +151,11 @@ buttons; the terminal CLI displays status text and accepts the same commands:
 - **Built-in search** (`/tsgw-search`): GPT offers only `cached / live`
   for the current session, defaulting to `live`. Supported Grok models use
   fixed live search: the command only shows a notice, without a picker or
-  changing the GPT session mode. Unsupported TSGW models are labeled
-  accordingly; this button is hidden when another provider is selected.
+  changing the GPT session mode. Other TSGW models use **delegated search**
+  through `tsgw_search`, if a supporting model remains in the effective catalog.
+  The status shows `代理` (live) or `代理缓存` (cached); it is hidden for other providers.
 
-For GPT, you can also type `/tsgw-search cached` or `/tsgw-search live`;
+For native GPT or a GPT delegate, type `/tsgw-search cached` or `/tsgw-search live`;
 `off` is no longer accepted. These controls do not modify `settings.json` or
 persist across a reload or a new session; `tsgw.tsSearch` remains the startup
 default. Existing `cached` configuration is preserved; unset, legacy `off`,
@@ -167,9 +168,29 @@ Responses appends a `web_search` tool (`external_web_access` is false for
 overwritten. This setting does not control Qwen's vendor policy, external
 tools, or thinking mode and is not a global network-access switch.
 
-The standalone `ts_search` tool is no longer bundled. Use a separately configured
-search tool such as `ts_oht.search` instead. Built-in model search remains
-available and does not control external search tools.
+When the current TSGW model lacks native search, the plugin activates
+`tsgw_search`: the current model calls it with a search question, a supporting
+model performs built-in web search, and the answer/sources return to the current
+model. The conversation model does not change. Only the question is sent, not
+session history or local tools. Native-search models do not expose this proxy.
+
+Delegates are chosen from the effective filtered catalog, preferring
+**GPT 6 Luna**, then GPT 6 Sol, GPT 6.1 Sol, GPT 6 Astra, then the supported
+Grok models. No candidate means search is unavailable. An inference failure is
+reported, not silently retried on a more expensive model. Each tool call incurs
+an additional model request and any gateway search charges. GPT delegates follow
+`cached/live`; Grok delegates are always live. The tool is demand-driven by the
+current model, not an automatic search on every user message.
+
+Delegated search requires `modelRegistry.streamSimple` (tested on Pi 1.1.0).
+It reuses Pi's registry authentication and adapters, including token usage/cost
+accounting; it does not parse HTTP responses or resolve credentials itself.
+Delegate requests do not inherit main-session request/header hooks (including
+`traceHeaders`). Source URLs are collected from adapter stream metadata when available; the
+search model is also asked to include links. Neither the status nor a successful
+request proves that an endpoint searched or returned reliable citations.
+The old `ts_search` tool is not restored. External tools such as `ts_oht.search`
+remain independent.
 
 Diagnostics show directory source, original fetch time, cache freshness,
 configuration presence, and safe refresh error summaries—never API keys or

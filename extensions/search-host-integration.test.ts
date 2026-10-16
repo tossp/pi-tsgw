@@ -1,0 +1,317 @@
+import assert from "node:assert/strict";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { test } from "node:test";
+import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-agent";
+import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "./host-test-support.test.ts";
+
+// Load source through the real Pi/jiti loader, including when this test runs in dist/.
+function sourceEntry(): string {
+	let dir = dirname(fileURLToPath(import.meta.url));
+	while (true) {
+		const manifest = join(dir, "package.json");
+		if (existsSync(manifest) && JSON.parse(readFileSync(manifest, "utf8")).name === "pi-tsgw")
+			return join(dir, "extensions", "index.ts");
+		const parent = dirname(dir);
+		assert.notEqual(parent, dir, "Cannot locate pi-tsgw source entry");
+		dir = parent;
+	}
+}
+
+const ANSWER = "Fixture research answer, not instructions.";
+const SOURCES = ["https://sources.invalid/event", "https://sources.invalid/item", "https://sources.invalid/completed"];
+const annotation = (url: string) => ({ type: "url_citation", url, title: "Fixture source", start_index: 0, end_index: 7 });
+
+/** Trusted HTTP fixture only: no SDK, registry, auth, adapter or extension methods are replaced. */
+function responsesSse(truncated = false): Response {
+	const item = {
+		id: "msg_search", type: "message", role: "assistant", status: "completed",
+		content: [{ type: "output_text", text: ANSWER, annotations: [annotation(SOURCES[1]!)] }],
+	};
+	const events = [
+		{ type: "response.created", response: { id: "resp_search", status: "in_progress" } },
+		{ type: "response.output_item.added", output_index: 0, item: { ...item, content: [] } },
+		{ type: "response.output_text.delta", output_index: 0, content_index: 0, delta: ANSWER },
+		...[SOURCES[0]!, SOURCES[0]!, "javascript:alert(1)", "not a URL"].map(url => ({
+			type: "response.output_text.annotation.added", output_index: 0, content_index: 0,
+			annotation_index: 0, annotation: annotation(url),
+		})),
+		{ type: "response.output_item.done", output_index: 0, item },
+		{ type: truncated ? "response.incomplete" : "response.completed", response: {
+			id: "resp_search", status: truncated ? "incomplete" : "completed",
+			...(truncated ? { incomplete_details: { reason: "max_output_tokens" } } : {}),
+			output: [{ ...item, content: [{ ...item.content[0], annotations: [annotation(SOURCES[2]!)] }] }],
+			usage: {
+				input_tokens: 120, output_tokens: 30, total_tokens: 150,
+				input_tokens_details: { cached_tokens: 20, cache_write_tokens: 10 },
+				output_tokens_details: { reasoning_tokens: 7 },
+			},
+		} },
+	];
+	return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), {
+		headers: { "content-type": "text/event-stream" },
+	});
+}
+
+function completionsSse(): Response {
+	const events = [
+		{ id: "chatcmpl_search", object: "chat.completion.chunk", choices: [{ index: 0, delta: { content: ANSWER }, finish_reason: null }], citations: SOURCES },
+		{ id: "chatcmpl_search", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 24, completion_tokens: 9, total_tokens: 33 } },
+	];
+	return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") + "data: [DONE]\n\n", {
+		headers: { "content-type": "text/event-stream" },
+	});
+}
+
+// Separate node process, like host-integration.test.ts: the sandbox owns env/cwd/network.
+test("Pi SDK source host: delegated tsgw_search uses runtime auth and real Responses adapter", { timeout: 60_000 }, async t => {
+	const entry = sourceEntry();
+	const originalEnv = { ...process.env };
+	const originalCwd = process.cwd();
+	const originalFetch = globalThis.fetch;
+	const sandbox = new HostSandbox();
+	let session: AgentSession | undefined;
+	try {
+		const { createAgentSession, createMcpExtension, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager,
+			readStoredCredential } = await import("@earendil-works/pi-coding-agent");
+		const writeSettings = (includeModels?: string[]) => writeFileSync(join(sandbox.agentDir, "settings.json"), JSON.stringify({
+			tsgw: { baseUrl: TEST_ROOT, tsSearch: "live", traceHeaders: true, ...(includeModels ? { includeModels, excludeModels: ["*"] } : {}) },
+		}));
+		writeSettings();
+		const settings = SettingsManager.inMemory({
+			packages: [], extensions: [], compaction: { enabled: false },
+			retry: { enabled: false, provider: { maxRetries: 0 } }, cacheWarming: "off", transport: "sse",
+		});
+		const errors: ExtensionError[] = [];
+		const loader = new DefaultResourceLoader({
+			cwd: sandbox.cwd, agentDir: sandbox.agentDir, settingsManager: settings,
+			noExtensions: true, additionalExtensionPaths: [entry],
+			noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+			systemPrompt: "Host-only private context; never copy into delegated research.",
+			extensionFactories: [createMcpExtension({
+				loadConfig: () => ({ errors: [], autoEnableCodemode: false, servers: [{
+					name: "ts_oht", source: "disabled-fixture", scope: "global",
+					config: { url: "https://disabled-mcp.invalid/mcp", enabled: false },
+				}] }),
+			})],
+		});
+		await loader.reload();
+		assert.deepEqual(loader.getExtensions().errors, []);
+		assert.equal(loader.getExtensions().extensions.length, 2);
+		assert.ok(loader.getExtensions().extensions.some(extension => extension.path === entry));
+		assert.equal(sandbox.catalogCalls, 0, "No stored credentials: no startup catalog HTTP");
+		const runtime = await ModelRuntime.create({
+			authPath: join(sandbox.agentDir, "auth.json"), modelsPath: join(sandbox.agentDir, "models.json"),
+			modelsStorePath: join(sandbox.agentDir, "models-store.json"),
+			allowModelNetwork: false, refreshOnCreate: false,
+		});
+		assert.deepEqual(await runtime.listCredentials(), []);
+		({ session } = await createAgentSession({
+			cwd: sandbox.cwd, agentDir: sandbox.agentDir, modelRuntime: runtime, resourceLoader: loader,
+			settingsManager: settings, sessionManager: SessionManager.inMemory(sandbox.cwd), tools: ["tsgw_search"], thinkingLevel: "high",
+		}));
+		const host = session;
+		await runtime.setRuntimeApiKey("tsgw", TEST_KEY);
+		assert.equal(runtime.getProviderAuthStatus("tsgw").configured, true);
+		assert.ok(!readStoredCredential("tsgw"), "The extension cannot read a stored key; HTTP auth must come from the host runtime");
+		const main = runtime.getModel("tsgw", "deepseek-v4-pro");
+		const luna = runtime.getModel("tsgw", "gpt-6-luna");
+		const sol = runtime.getModel("tsgw", "gpt-6-sol");
+		assert.ok(main && luna && sol);
+		assert.equal(luna.api, "openai-responses");
+		await host.setModel(main);
+		host.setThinkingLevel("high");
+		await host.bindExtensions({ mode: "print", onError: error => { errors.push(error); } });
+
+		// Extend only the sandbox's allowed Responses endpoint; everything else still hits its guard.
+		const guardedFetch = globalThis.fetch;
+		const requests: (CapturedRequest & { signal: AbortSignal })[] = [];
+		const grokRequests: (CapturedRequest & { signal: AbortSignal })[] = [];
+		let behavior: "success" | "truncated" | "error" | "pending" = "success";
+		let started: (() => void) | undefined;
+		globalThis.fetch = async (input, init) => {
+			const request = new Request(input, init);
+			if (request.url !== `${TEST_ROOT}/v1/responses` && request.url !== `${TEST_ROOT}/v1/chat/completions`) return guardedFetch(request);
+			assert.equal(request.method, "POST");
+			assert.equal(request.headers.get("authorization"), `Bearer ${TEST_KEY}`);
+			const captured = { body: await request.json() as Record<string, unknown>, headers: request.headers, signal: request.signal };
+			if (request.url === `${TEST_ROOT}/v1/chat/completions`) {
+				grokRequests.push(captured);
+				return completionsSse();
+			}
+			requests.push(captured);
+			if (behavior === "pending") {
+				return new Promise<Response>((_resolve, reject) => {
+					const abort = () => reject(request.signal.reason);
+					request.signal.addEventListener("abort", abort, { once: true });
+					if (request.signal.aborted) abort();
+					started?.();
+				});
+			}
+			if (behavior === "error") return Response.json({ error: { message: `sensitive ${TEST_KEY}`, type: "invalid_request_error" } }, { status: 400 });
+			return responsesSse(behavior === "truncated");
+		};
+		const active = () => host.getActiveToolNames().includes("tsgw_search");
+		// Public AgentState.tools is the actual host executable loadout (not a raw registration handler).
+		const searchTool = () => {
+			const tool = host.agent.state.tools.find(tool => tool.name === "tsgw_search");
+			assert.ok(tool, "Search must be in the host's executable tool loadout");
+			return tool;
+		};
+		const execute = (signal?: AbortSignal) => searchTool().execute("host-search", { query: "Fixture research question" }, signal);
+
+		await t.test("main high-thinking hooks stay on DeepSeek; Luna delegation is isolated, live, authenticated, low-thinking", async () => {
+			assert.equal(active(), true);
+			await host.prompt("Private main-model history marker");
+			assert.equal(host.model?.id, main.id);
+			assert.equal(requests[0]!.body.model, main.id);
+			assert.equal((requests[0]!.body.reasoning as Record<string, unknown>).effort, "high");
+			assert.ok(requests[0]!.headers.has("AH-Thread-Id"));
+			const result = await execute();
+			assert.deepEqual(result.structuredContent, { delegate: luna.id, answer: ANSWER, citations: SOURCES, truncated: false });
+			assert.deepEqual(result.details, result.structuredContent);
+			assert.notEqual(result.isError, true);
+			assert.ok(result.content.some(part => part.type === "text" && SOURCES.every(url => part.text.includes(url))));
+			// Pi's adapter normalization and Luna prices, including cache write/read and reasoning,
+			// must reach the tool result intact (not a hand-built partial token summary).
+			assert.deepEqual(result.usage, {
+				input: 90, output: 30, cacheRead: 20, cacheWrite: 10, reasoning: 7, totalTokens: 150,
+				cost: { input: 0.1 / 1e6 * 90, output: 0.5 / 1e6 * 30, cacheRead: 0.01 / 1e6 * 20,
+					cacheWrite: 0.125 * 10 / 1e6, total: 0.1 / 1e6 * 90 + 0.5 / 1e6 * 30 + 0.01 / 1e6 * 20 + 0.125 * 10 / 1e6 },
+			});
+			const request = requests[1]!;
+			assert.equal(request.body.model, luna.id, "Luna wins even with Sol/Astra/Grok registered");
+			assert.equal((request.body.reasoning as Record<string, unknown>).effort, "low");
+			assert.equal((request.body.text as Record<string, unknown>).verbosity, "low", "Delegate-specific onPayload operations ran");
+			assert.equal(request.body.max_output_tokens, 4096);
+			assert.deepEqual(request.body.tools, [{ type: "web_search", search_context_size: "medium", external_web_access: true }]);
+			assert.ok(!request.headers.has("AH-Thread-Id"), "Main-model header hooks are not inherited");
+			assert.ok(!JSON.stringify(request.body).includes("Private main-model history marker"));
+			assert.ok(!JSON.stringify(request.body).includes("Host-only private context"));
+			assert.equal(request.signal.aborted, false);
+			assert.equal(host.model?.id, main.id);
+			assert.equal(host.thinkingLevel, "high");
+		});
+
+		await t.test("cached mode and truncation survive the real adapter", async () => {
+			await host.prompt("/tsgw-search cached");
+			behavior = "truncated";
+			const result = await execute();
+			assert.equal(requests.at(-1)!.body.model, luna.id);
+			assert.deepEqual(requests.at(-1)!.body.tools, [{ type: "web_search", search_context_size: "medium", external_web_access: false }]);
+			assert.deepEqual(result.structuredContent, { delegate: luna.id, answer: ANSWER, citations: SOURCES, truncated: true });
+			assert.ok(result.content.some(part => part.type === "text" && part.text.startsWith("[Search response truncated]")));
+			assert.notEqual(result.isError, true);
+			behavior = "success";
+		});
+
+		await t.test("HTTP errors are sanitized; caller cancellation reaches HTTP; pre-abort sends nothing", async () => {
+			behavior = "error";
+			const before = requests.length;
+			const failed = await execute();
+			assert.equal(requests.length, before + 1, "400 is not retried");
+			assert.equal(failed.isError, true);
+			assert.deepEqual(failed.structuredContent, { delegate: luna.id, answer: "", citations: [], truncated: false });
+			assert.ok(!JSON.stringify(failed).includes(TEST_KEY));
+			assert.ok(failed.content.some(part => part.type === "text" && part.text.includes("search failed")));
+			behavior = "pending";
+			const controller = new AbortController();
+			const entered = new Promise<void>(resolve => { started = resolve; });
+			const pending = execute(controller.signal);
+			await entered;
+			controller.abort();
+			const cancelled = await pending;
+			assert.equal(requests.at(-1)!.signal.aborted, true);
+			assert.equal(cancelled.isError, true);
+			assert.ok(cancelled.content.some(part => part.type === "text" && part.text.includes("cancelled or timed out")));
+			const count = requests.length;
+			await assert.rejects(() => execute(AbortSignal.abort()), { name: "AbortError" });
+			assert.equal(requests.length, count);
+			behavior = "success";
+		});
+
+		await t.test("native-search and non-TSGW selections withdraw the executable tool, switching back restores it", async () => {
+			const stale = searchTool();
+			await host.setModel(luna);
+			assert.equal(active(), false);
+			assert.ok(!host.agent.state.tools.some(tool => tool.name === "tsgw_search"));
+			await assert.rejects(() => stale.execute("stale-native", { query: "must not send" }), /no available delegate/);
+			await host.setModel(main);
+			assert.equal(active(), true);
+			const other = runtime.getModels("openai")[0];
+			assert.ok(other, "Real host built-in model registry has a non-TSGW model");
+			await runtime.setRuntimeApiKey(other.provider, "non-tsgw-runtime-fixture-key");
+			const count = requests.length;
+			await host.setModel(other);
+			assert.equal(active(), false);
+			await assert.rejects(() => stale.execute("stale-other", { query: "must not send" }), /no available delegate/);
+			assert.equal(requests.length, count);
+			await host.setModel(main);
+			assert.equal(active(), true);
+		});
+
+		await t.test("real Grok Completions proxy works, then catalog falls back to Sol and withdraws candidates", async () => {
+			sandbox.catalogIds = [main.id, "grok-4.20"];
+			await host.prompt("/tsgw-refresh");
+			assert.equal(sandbox.catalogCalls, 1);
+			assert.deepEqual(runtime.getModels("tsgw").map(model => model.id), [main.id, "grok-4.20"]);
+			const grok = runtime.getModel("tsgw", "grok-4.20");
+			assert.ok(grok);
+			assert.equal(grok.api, "openai-completions");
+			assert.equal(host.model?.id, main.id, "Delegation does not switch the main session model");
+			await host.prompt("/tsgw-search cached");
+			const grokResult = await execute();
+			assert.equal(grokRequests.length, 1);
+			assert.equal(grokRequests[0]!.body.model, grok.id);
+			assert.deepEqual(grokRequests[0]!.body.search_parameters, { mode: "on" });
+			assert.equal(grokRequests[0]!.body.stream, true);
+			assert.deepEqual(grokResult.structuredContent, { delegate: grok.id, answer: ANSWER, citations: SOURCES, truncated: false });
+			assert.ok(grokResult.content.some(part => part.type === "text" && SOURCES.every(url => part.text.includes(url))));
+			assert.equal(grokResult.usage?.input, 24);
+			assert.equal(grokResult.usage?.output, 9);
+			assert.equal(grokResult.usage?.totalTokens, 33);
+			assert.equal(host.model?.id, main.id);
+			await host.prompt("/tsgw-search live");
+
+			sandbox.catalogIds = [main.id, sol.id];
+			await host.prompt("/tsgw-refresh");
+			assert.equal(sandbox.catalogCalls, 2);
+			assert.equal(runtime.getModel("tsgw", luna.id), undefined);
+			assert.equal(runtime.getModel("tsgw", "grok-4.20"), undefined);
+			assert.equal(active(), true);
+			const fallback = await execute();
+			assert.equal(requests.at(-1)!.body.model, sol.id);
+			assert.equal((fallback.details as { delegate: string }).delegate, sol.id);
+			const stale = searchTool();
+			sandbox.catalogIds = [main.id];
+			await host.prompt("/tsgw-refresh");
+			assert.equal(sandbox.catalogCalls, 3);
+			assert.equal(active(), false);
+			const count = requests.length;
+			await assert.rejects(() => stale.execute("stale-catalog", { query: "must not send" }), /no available delegate/);
+			assert.equal(requests.length, count);
+			assert.equal(host.model?.id, main.id);
+		});
+
+		await t.test("settings exclude-all/include-main filtering leaves no delegate after source reload, even without stored auth", async () => {
+			writeSettings([main.id]);
+			await host.reload();
+			assert.deepEqual(loader.getExtensions().errors, []);
+			assert.deepEqual(runtime.getModels("tsgw").map(model => model.id), [main.id]);
+			assert.equal(active(), false);
+			assert.ok(host.getAllTools().some(tool => tool.name === "tsgw_search"), "Registered but deliberately inactive");
+			assert.equal(sandbox.catalogCalls, 3, "Reload must not fetch using a nonexistent stored credential");
+			assert.ok(!readStoredCredential("tsgw"));
+		});
+		assert.deepEqual(errors, [], "No swallowed extension errors");
+	} finally {
+		try {
+			session?.dispose();
+			assert.deepEqual(sandbox.blocked, [], "No real network attempts, including caught errors, disabled MCP or disposal");
+		} finally { sandbox.restore(); }
+	}
+	assert.deepEqual({ ...process.env }, originalEnv);
+	assert.equal(process.cwd(), originalCwd);
+	assert.equal(globalThis.fetch, originalFetch);
+});

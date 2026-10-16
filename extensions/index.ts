@@ -20,7 +20,7 @@ import {
 } from "./models/catalog.ts";
 import { getGatewayModelIds } from "./models/gateway-catalog.ts";
 import { applyModelOperations } from "./models/operations.ts";
-import { builtinSearchSupport } from "./models/web-search.ts";
+import { registerSearch } from "./search.ts";
 import {
 	catalogLabel,
 	catalogDiagnostics,
@@ -206,7 +206,6 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 		settings.tsSearch === "cached" || settings.tsSearch === "live"
 			? settings.tsSearch
 			: "live";
-	let tsSearchMode = defaultSearchMode;
 	const traceEnabled = settings.traceHeaders === true;
 	const modelFilter: ModelFilter = {
 		include: settings.includeModels,
@@ -236,8 +235,15 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 	let refreshRevision = 0;
 	let lifecycleRevision = 0;
 	const rootConfigured = root !== DEFAULT_ROOT;
-	const searchSupport = () => requestState?.provider === PROVIDER_ID
-		? builtinSearchSupport(requestState.modelId, requestState.api) : undefined;
+	const search = registerSearch(pi, {
+		defaultMode: defaultSearchMode,
+		state: () => requestState,
+		models: () => latestModels,
+		revision: () => lifecycleRevision,
+		refreshState: refreshRequestState,
+		bindStatus: ctx => bindStatus(ctx),
+		publishStatus: () => publishStatus?.(),
+	});
 	// Retain only the UI sink, never a lifecycle context; disconnect on shutdown.
 	const bindStatus = (ctx: ExtensionContext): void => {
 		if (!ctx.hasUI) {
@@ -251,7 +257,7 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 				catalogLabel(catalog, credentialConfigured, rootConfigured));
 			ui.setStatus("command:/tsgw-search",
 				requestState?.provider === PROVIDER_ID
-					? searchLabel(tsSearchMode, searchSupport()) : undefined);
+					? searchLabel(search.mode(), search.support()) : undefined);
 		};
 		publishStatus();
 	};
@@ -284,6 +290,7 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 					throw new Error("TSGW refresh failed; keeping the last successful catalog.");
 				if (revision === refreshRevision) {
 					latestModels = effectiveModelsForGateway(root, modelFilter, new Set(gateway.ids));
+					search.sync();
 					catalog = {
 						count: latestModels.length,
 						source: gateway.cached ? "cache" : "network",
@@ -375,56 +382,21 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 			}
 		},
 	});
-	pi.registerCommand("tsgw-search", {
-		description: "Change built-in web search for this session only",
-		handler: async (args, ctx) => {
-			const lifecycle = lifecycleRevision;
-			await ctx.waitForIdle();
-			if (lifecycle !== lifecycleRevision) return;
-			refreshRequestState(ctx);
-			bindStatus(ctx);
-			const support = searchSupport();
-			if (!support) {
-				ctx.ui.notify("当前模型不支持插件内置联网。", "info");
-				return;
-			}
-			if (support === "grok") {
-				ctx.ui.notify("当前 Grok 模型内置联网固定为实时；不修改 GPT 会话模式。", "info");
-				return;
-			}
-			const modes: WebSearchMode[] = ["cached", "live"];
-			const labels = modes.map((mode) => searchLabel(mode, support));
-			const input = args.trim();
-			const choice = input || (ctx.hasUI
-				? await ctx.ui.select("内置联网（仅本会话）", labels) : undefined);
-			if (!choice || lifecycle !== lifecycleRevision) return;
-			if (searchSupport() !== support) {
-				ctx.ui.notify("模型支持性已变化，请重新选择内置联网模式。", "warning");
-				return;
-			}
-			const mode = modes.find((mode, index) => mode === choice || labels[index] === choice);
-			if (!mode) {
-				ctx.ui.notify("不支持的模式；GPT 仅支持 cached/live，Grok 固定实时。", "warning");
-				return;
-			}
-			tsSearchMode = mode;
-			publishStatus?.();
-			ctx.ui.notify(`${searchLabel(mode, support)}；仅本会话生效。`, "info");
-		},
-	});
-
 	pi.on("session_start", (_event, ctx) => {
 		lifecycleRevision++;
 		refreshPending = false;
-		tsSearchMode = defaultSearchMode;
+		search.reset();
 		refreshRequestState(ctx);
+		search.sync();
 		bindStatus(ctx);
 	});
 	pi.on("agent_start", (_event, ctx) => {
 		refreshRequestState(ctx);
+		search.sync();
 		bindStatus(ctx);
 	});
 	pi.on("session_shutdown", () => {
+		search.stop();
 		lifecycleRevision++;
 		refreshPending = false;
 		publishStatus = undefined;
@@ -434,6 +406,7 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 			event.model,
 			requestState?.thinkingLevel ?? "off",
 		);
+		search.sync();
 		if (ctx) bindStatus(ctx);
 	});
 	pi.on("thinking_level_select", (event) => {
@@ -449,7 +422,7 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 			modelId: state.modelId,
 			api: state.api,
 			thinkingLevel: state.thinkingLevel,
-			tsSearchMode: tsSearchMode,
+			tsSearchMode: search.mode(),
 		};
 		// 模型模块统一完成请求改写：厂商思维链策略 + 内置查询工具注入。
 		return applyModelOperations(event.payload, context);

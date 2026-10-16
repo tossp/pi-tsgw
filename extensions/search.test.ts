@@ -1,0 +1,40 @@
+import { deepStrictEqual, strictEqual } from "node:assert/strict";
+import { builtinSearchSupport, resolveSearchDelegate } from "./models/web-search.ts";
+
+function testExactCandidateProtocol(): void {
+	for (const [id, api, expected] of [
+		["gpt-6-luna", "openai-responses", "gpt"],
+		["gpt-6-luna", "openai-completions", undefined],
+		["grok-4.20", "openai-completions", "grok"],
+		["grok-4.20", "openai-responses", undefined],
+		["gpt-6-luna-extra", "openai-responses", undefined],
+		["GPT-6-LUNA", "openai-responses", undefined],
+		["grok-4.20 ", "openai-completions", undefined],
+	] as const) {
+		strictEqual(builtinSearchSupport(id, api), expected, `${id}/${api}`);
+	}
+}
+
+function testLunaPriorityAndCandidateFiltering(): void {
+	const candidate = (id: string, api = "openai-responses") => ({ id, api });
+	deepStrictEqual(resolveSearchDelegate([
+		candidate("gpt-6-sol"), candidate("gpt-6-luna"),
+		candidate("grok-4.20", "openai-completions"),
+	]), { modelId: "gpt-6-luna", kind: "gpt" });
+
+	// Candidate order does not supersede policy preference; bad protocols and
+	// unsupported IDs are ignored, then Grok is the fallback.
+	deepStrictEqual(resolveSearchDelegate([
+		candidate("gpt-6-luna", "openai-completions"),
+		candidate("gpt-6-luna-extra"), candidate("grok-4.20", "openai-completions"),
+	]), { modelId: "grok-4.20", kind: "grok" });
+	strictEqual(resolveSearchDelegate([
+		candidate("gpt-6-luna", "openai-completions"),
+		candidate("grok-4.20", "openai-responses"),
+		candidate("gpt-6-sol-extra"),
+	]), undefined);
+}
+
+testExactCandidateProtocol();
+testLunaPriorityAndCandidateFiltering();
+console.log("search.test.ts: all assertions passed");
