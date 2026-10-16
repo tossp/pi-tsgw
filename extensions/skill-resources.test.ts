@@ -40,6 +40,17 @@ test("随包技能声明、资源链接及本机环境隔离完整", () => {
 	}
 });
 
+test("文档技能保持正式来源与迁移授权门槛，不再联动审阅插件", () => {
+	const directory = join(skillsRoot, "tsgw-mk-docs");
+	const body = readFileSync(join(directory, "SKILL.md"), "utf8");
+	for (const text of ["不强制另建标准骨架", "展示全部清单", "明确授权后才写入",
+		"不另建 `PLAN.md`", "普通批注不等于执行审批"])
+		assert.ok(body.includes(text), `文档技能缺少边界：${text}`);
+	assert.ok(existsSync(join(directory, "assets", "000-todo.template.md")));
+	for (const path of markdownFiles(directory))
+		assert.doesNotMatch(readFileSync(path, "utf8"), /plannotator/i);
+});
+
 test("GitHub 技能保留精确上下文、正文回读与已有授权边界", () => {
 	const body = readFileSync(join(skillsRoot, "tsgw-github", "SKILL.md"), "utf8");
 	for (const text of ["--repo OWNER/REPO", "--body-file", "issues/comments/COMMENT_ID",
