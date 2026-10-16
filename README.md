@@ -166,7 +166,16 @@ GPT 6.1 Sol、GPT 6 Astra，然后是受支持的 Grok 模型。没有候选模�
 会话忙碌时按钮不可用。终端 CLI 以文本显示相同状态；请在那里使用斜杠命令。
 Pi Web 可能要等会话运行时启动后才显示扩展状态。
 
-## 子代理编排技能
+## 随包技能
+
+| 技能 | 用途 |
+| --- | --- |
+| [tsgw-git-commit](skills/tsgw-git-commit/SKILL.md) | 暂存内容核验、分批提交与中文提交说明；包含支持 worktree 的只读仓库发现脚本。 |
+
+技能从本地维护的工作流整理并适配 Pi，按本项目 MIT 许可证提供；不包含第三方 gitmoji 数据集。
+项目规则和用户授权优先，不安装 Git hook，不自动推送或发布。已有同类用户级技能时，建议择一启用，避免重复指导。
+
+### 子代理编排与模型选型
 
 本包附带 [tsgw-delegate-model-selection](skills/tsgw-delegate-model-selection/SKILL.md)，
 鼓励适合的任务通过后台子代理执行，并提供模型/思考级别指导，包括独立的 Kimi + Astra 审查。
@@ -177,9 +186,13 @@ Pi Web 可能要等会话运行时启动后才显示扩展状态。
 GLM 指导使用 5.3，并以 Flash 和 FlashX 为备选。思考级别使用 Pi 名称：M3 推荐 `high`，
 与其其他非 off 级别一样，映射为 adaptive。
 
-安装并执行 `/reload` 后，Pi 会通过包清单发现该技能，除非宿主/包设置禁用或过滤了技能。
-仅加载 `extensions/index.ts` 不会加载包内技能。需要宿主提供支持模型选择的子代理工具，
-且有可用的 `tsgw` 模型；本包不提供该工具，也不改变调度设置、用户规则或权限。
+安装并执行 `/reload` 后，Pi 会通过包清单发现随包技能，除非宿主/包设置禁用或过滤了技能。
+可以使用 `/skill:tsgw-git-commit` 等命令显式加载；仅加载 `extensions/index.ts` 不会加载包内技能。
+包设置中的 `skills: []` 可禁用全部技能，`skills: ["skills/tsgw-git-commit"]` 可仅加载指定技能，
+或用 `skills: ["!skills/tsgw-git-commit/**"]` 排除该技能；由宿主处理，不是 `tsgw` 配置项。
+
+只有模型选型技能需要宿主提供支持模型选择的子代理工具及可用的 `tsgw` 模型；通用开发技能不绑定模型 provider。
+本包不提供子代理工具，也不改变调度设置、用户规则或权限。
 
 ## 默认 MCP 注册
 

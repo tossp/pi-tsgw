@@ -11,7 +11,7 @@
 | 依赖、测试命令、包版本 | `package.json`、`package-lock.json` |
 | 配置、provider 注册、生命周期、命令、追踪 | `extensions/index.ts` |
 | 模型规格、价格、thinking 策略 | `extensions/models/vendors/*.ts` |
-| 子代理编排与模型选型技能 | `skills/tsgw-delegate-model-selection/`、`extensions/skills.test.ts` |
+| 随包技能、模型选型与资源验证 | `skills/`、`extensions/skills.test.ts`、`extensions/skill-resources.test.ts` |
 | 目录拼接、过滤与请求调度 | `extensions/models/catalog.ts`、`operations.ts` |
 | 网络目录与缓存 | `extensions/models/gateway-catalog.ts` 及缓存辅助模块 |
 | 内置联网与状态 | `extensions/models/web-search.ts`、`extensions/search.ts`、`extensions/search-proxy.ts`、`extensions/status.ts` |

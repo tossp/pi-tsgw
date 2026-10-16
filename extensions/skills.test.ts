@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
@@ -114,11 +114,24 @@ test("Pi SDK 通过包清单发现随包技能并遵守过滤规则", { timeout:
 			}),
 			noExtensions: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 		});
+		const expectedNames = readdirSync(join(root, "skills"), { withFileTypes: true })
+			.filter(entry => entry.isDirectory() && existsSync(join(root, "skills", entry.name, "SKILL.md")))
+			.map(entry => entry.name).sort();
 		const loader = makeLoader();
 		await loader.reload();
 		assert.deepEqual(loader.getSkills().diagnostics, []);
-		assert.equal(loader.getSkills().skills.length, 1, "仅加载随包技能，不加载个人资源");
-		const skill = loader.getSkills().skills[0]!;
+		assert.deepEqual(loader.getSkills().skills.map(skill => skill.name).sort(), expectedNames,
+			"默认加载所有随包技能，不加载个人资源");
+		for (const loaded of loader.getSkills().skills) {
+			assert.match(loaded.name, /^tsgw-/);
+			assert.equal(loaded.filePath, join(root, "skills", loaded.name, "SKILL.md"));
+			assert.equal(loaded.sourceInfo.origin, "package");
+		}
+		const selected = makeLoader(["skills/tsgw-delegate-model-selection"]);
+		await selected.reload();
+		assert.deepEqual(selected.getSkills().diagnostics, []);
+		assert.equal(selected.getSkills().skills.length, 1, "可仅选择一个随包技能");
+		const skill = selected.getSkills().skills[0]!;
 		assert.equal(skill.name, "tsgw-delegate-model-selection");
 		assert.equal(skill.filePath, skillPath);
 		assert.equal(skill.baseDir, skillDir);
@@ -132,7 +145,12 @@ test("Pi SDK 通过包清单发现随包技能并遵守过滤规则", { timeout:
 			"加载的技能必须包含选型表");
 		await loader.reload();
 		assert.deepEqual(loader.getSkills().diagnostics, []);
-		assert.equal(loader.getSkills().skills.length, 1, "重载不得重复加载技能");
+		assert.deepEqual(loader.getSkills().skills.map(skill => skill.name).sort(), expectedNames, "重载不得重复加载技能");
+		const excluded = makeLoader(["!skills/tsgw-git-commit/**"]);
+		await excluded.reload();
+		assert.deepEqual(excluded.getSkills().diagnostics, []);
+		assert.deepEqual(excluded.getSkills().skills.map(skill => skill.name).sort(),
+			expectedNames.filter(name => name !== "tsgw-git-commit"), "排除指定技能而保留其他资源");
 		const filtered = makeLoader([]);
 		await filtered.reload();
 		assert.deepEqual(filtered.getSkills(), { skills: [], diagnostics: [] });
