@@ -6,6 +6,7 @@ import { type PayloadWriter, type ThinkingApplier } from "../_tools.ts";
  * OpenAI GPT 系列（Responses 协议）。
  * 官方文档：https://platform.openai.com/docs/models
  * GPT-6.1 Sol：https://developers.openai.com/api/docs/models/gpt-6.1-sol
+ * 用户确认网关接入 Codex 对应型号，上下文为 500000；最大输出与价格保持原值。
  * 标准档 ≤272K：输入 $2 / 缓存命中 $0.1 / 缓存写入 $2.5 / 输出 $10（2026-09-30）。
  * GPT-6 Sol：https://developers.openai.com/api/docs/models/gpt-6-sol
  * GPT-6 Luna：https://developers.openai.com/api/docs/models/gpt-6-luna
@@ -53,7 +54,7 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			},
 			input: ["text", "image"],
 			cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
-			contextWindow: 1050000,
+			contextWindow: 500000,
 			maxTokens: 128000,
 		},
 		{

@@ -124,7 +124,7 @@ function testModelCapabilities(): void {
 	strictEqual(sol61?.baseUrl, `${ROOT}/v1`);
 	strictEqual(sol61?.reasoning, true);
 	deepStrictEqual(sol61?.input, ["text", "image"]);
-	strictEqual(sol61?.contextWindow, 1050000);
+	strictEqual(sol61?.contextWindow, 500000);
 	strictEqual(sol61?.maxTokens, 128000);
 	deepStrictEqual(sol61?.thinkingLevelMap, {
 		off: null,
