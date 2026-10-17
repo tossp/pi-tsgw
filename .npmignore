@@ -2,6 +2,8 @@
 *.test.ts
 # 构建产物与开发配置
 dist/
+# 项目设计文档不发布
+docs/
 .github/
 .pi-subagents/
 .pi-lens/
