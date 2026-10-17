@@ -23,6 +23,33 @@ test("Qwen 接入参考仍受网关交集过滤，include 不能恢复已移除 
 	} finally { globalThis.fetch = previousFetch; }
 });
 
+test("分类启动目录：缓存交集与过滤生效，不额外联网；状态计数包含 classifier", async () => {
+	const previousFetch = globalThis.fetch;
+	try {
+		const root = `https://${randomUUID()}.invalid`;
+		await withAgentDir({ tsgw: { baseUrl: root, excludeModels: ["jev-*"], includeModels: ["jev-preview", "SemIf"] } }, async dir => {
+			const key = "classifier-startup-test-key";
+			writeFileSync(join(dir, "auth.json"), JSON.stringify({ tsgw: { type: "api_key", key } }));
+			saveGatewayModelCache(join(dir, "tsgw", "models-cache.json"), gatewayModelCacheScope(root, key),
+				["jev-latest", "jev-preview", "SemIf"], Date.now());
+			let calls = 0;
+			globalThis.fetch = async () => { calls++; throw new Error("分类启动缓存不应联网"); };
+			const pi = new FakePi();
+			await registerTsgw(pi);
+			const provider = pi.providers[0].config as { models: Array<{ id: string; type?: string }> };
+			deepStrictEqual(provider.models.map(({ id, type }) => ({ id, type })), [{ id: "jev-preview", type: "classifier" }]);
+			equal(calls, 0);
+			let label = "";
+			pi.invoke("session_start", { reason: "startup" }, { hasUI: true, model: undefined,
+				modelRegistry: { getProviderAuthStatus: () => ({ configured: true }) },
+				ui: { setStatus: (key: string, text: string) => { if (key === "command:/tsgw") label = text; } },
+			});
+			match(label, /1/);
+			equal(pi.activeTools.includes("tsgw_search"), false);
+		});
+	} finally { globalThis.fetch = previousFetch; }
+});
+
 test("启动目录：7 天缓存、无缓存仅重试一次、失败提示与恢复", async () => {
 	const previousFetch = globalThis.fetch;
 	try {

@@ -35,7 +35,7 @@ async function withUi(
 async function fixture(root: string, dir: string) {
 	const pi = new FakePi();
 	await registerTsgw(pi);
-	const provider = pi.providers[0].config as { models: Array<{ id: string }>; refreshModels: Refresh };
+	const provider = pi.providers[0].config as { models: Array<{ id: string; type?: string }>; refreshModels: Refresh };
 	let models = provider.models;
 	let configured = true;
 	const statuses = new Map<string, string>();
@@ -420,5 +420,27 @@ for (const stale of [false, true]) {
 		} finally { globalThis.fetch = previous; }
 	});
 }
+
+await withUi(async ({ pi, ctx, statuses, notices }) => {
+	// 新宿主按操作类型读取：刷新提示和目录状态必须包含 classifier，而非仅聊天/图片。
+	Object.assign(ctx.modelRegistry, { getModelsOfType: (type: string, provider: string) =>
+		ctx.modelRegistry.getAvailable().filter(model => provider === "tsgw" && (model.type ?? "chat") === type) });
+	const before = ctx.modelRegistry.getAvailable().length;
+	globalThis.fetch = async () => modelResponse(["gpt-6-sol", "gpt-image-2.5-flare", "jev-latest", "jev-preview"]);
+	await pi.invokeCommand("tsgw-refresh", ctx);
+	deepStrictEqual(ctx.modelRegistry.getAvailable().filter(model => model.type === "classifier")
+		.map(model => model.id), ["jev-latest", "jev-preview"]);
+	match(notices.at(-1)!.text, new RegExp(`${before} → 4`));
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 4, source: "network", storedAt: Date.now(), loading: false }, true, true));
+	ctx.model = { ...ctx.model, id: "glm-5.2", api: "openai-completions" };
+	pi.invoke("model_select", { model: ctx.model }, ctx);
+	equal(pi.activeTools.includes("tsgw_search"), true, "有 GPT 候选时先确认代理已激活");
+	globalThis.fetch = async () => modelResponse(["jev-preview"]);
+	await pi.invokeCommand("tsgw-refresh", ctx);
+	match(notices.at(-1)!.text, /4 → 1/);
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "network", storedAt: Date.now(), loading: false }, true, true));
+	// 只余 classifier 时撤下已激活的代理；不能把分类器当聊天候选。
+	equal(pi.activeTools.includes("tsgw_search"), false);
+});
 
 console.log("status-integration.test.ts：全部断言通过");

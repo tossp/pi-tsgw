@@ -4,6 +4,7 @@
 （openai-completions、openai-responses、anthropic-messages、google-generative-ai），
 并按厂商对请求体执行相应操作，使思考级别、推理格式和可选的内置网络搜索在网关上正常工作。
 图片模型通过 Pi 原生图片 API 调度，插件适配网关的 Images 接口，不经过 MCP。
+分类模型通过 Pi 原生 classifier API 和内置 System One 适配器调度，复用同一 tsgw 认证。
 
 本项目不包含私有 API 密钥或网关端点。静态目录包含模型元数据和公开价格估算；
 这些价格并非你的网关计费费率。
@@ -19,6 +20,7 @@ extensions/provider/         # provider 注册、配置、状态及其测试
 extensions/models/           # 模型目录、策略与联网支持
 extensions/search/           # 搜索注册、代理与相邻测试
 extensions/images/           # 原生图片生成适配与宿主集成测试
+extensions/classifiers/      # 分类能力入口与宿主原生适配器桥接
 extensions/prompts.ts        # registerPrompts
 prompts/memory.ts            # 记忆提示词正文
 extensions/upload/           # 本地上传及安全说明
@@ -86,9 +88,11 @@ pi install npm:pi-tsgw
 
 ## 模型目录
 
-目录由各厂商的分片（`extensions/models/vendors/`）组装而成，涵盖 11 个厂商系列：
+模型规格由厂商分片（`extensions/models/vendors/`）维护。聊天目录涵盖 11 个厂商系列：
 DeepSeek、GLM（智谱）、MiMo（小米）、MiniMax、Kimi（Moonshot）、Qwen（阿里巴巴）、
 GPT（OpenAI）、Gemini（Google）、Claude（Anthropic）、LongCat 和 Grok（xAI）。
+另有厂商 **TypeSafe** 的 **Jev** 分类模型系列，规格位于 `vendors/typesafe.ts`，
+由分类能力入口单独组装，不放进聊天目录。
 静态目录会持续调整，不代表网关实时可用模型数量。
 厂商文件包含文档链接和元数据注意事项。别名映射、输出限制和共享思考策略并未全部
 针对网关端点逐项验证；公开价格估算不构成计费保证。
@@ -192,13 +196,52 @@ Pi 1.2+ 可在现有 `tsgw` provider 中注册 `gpt-image-2.5-flare` 和
 图片价格显示为 0 表示尚未映射准确价格，不是免费；usage 只统计上游已报告的有效 tokens。
 隔离测试不替代真实网关对各参数、编辑、流式和图片展示的逐项验收。
 
+## 原生分类模型
+
+厂商为 **TypeSafe**，模型系列为 **Jev**。Pi 1.2.0 及以上稳定版本登记
+`jev-latest`、`jev-preview` 两个 `type: classifier` 模型，复用现有 `tsgw` provider、网关根地址及宿主认证，端点为 `/v1/systemone`。
+旧宿主不登记分类模型，聊天最低兼容版本不变。不将 Jev 放入聊天选择器、图片目录或搜索代理候选；
+它们和其他模型一样受静态目录、网关目录交集及 `includeModels` / `excludeModels` 过滤约束。
+仅登记这两个已验收 ID，不登记 `Kev-4B`、`SemIf` 或 Luna 的 Decisions 身份。
+
+通过宿主 codemode 调用（需启用 codemode；不需要新增 MCP 服务）：
+
+```javascript
+const model = await models.getModelOfType("classifier", "tsgw", "jev-latest");
+if (!model) throw new Error("分类模型未登记，请检查网关目录和过滤配置。");
+const result = await models.classify(model, {
+  state: { message: "订单被重复扣款，请今天处理。" },
+  questions: {
+    urgent: { type: "bool", instructions: "是否需要今天处理？",
+      criteria: { true: "今天处理", false: "可以等待" } },
+    department: { type: "choice", instructions: "由哪个团队处理？",
+      criteria: { billing: "付款和退款", technical: "故障", other: "其他" } },
+    severity: { type: "score", instructions: "严重程度如何？",
+      criteria: ["轻微", "有替代方案", "完全阻塞"] },
+  },
+});
+text(result.stopReason === "stop" ? result.answers : { error: result.errorMessage });
+```
+
+扩展也可直接调用 `ctx.modelRegistry.classify()`，不依赖 codemode。bool 映射为线上的
+`noul` 并返回成立概率；choice 返回选项、概率分布与置信度；score 返回从 0 开始的等级
+索引期望值（可以是小数），不是整数标签。适配器不复制 HTTP 或结果解析，始终禁用自动
+重试、不自动换模型；错误只输出脱敏摘要，调用者应检查 `stopReason`。
+
+当前仅声明文本输入，总请求窗口采用官方 64,000 tokens；官方单题窗口为 32K，不能把总窗口
+当作每题预算。未开启实验图片或长上下文。输入参考价为 $0.042／百万 tokens、输出参考价
+为零（2026-10-18，来源：[TypeSafe Models](https://docs.typesafe.ai/models)，资料见 Blinko 950），
+不代表网关实际扣费。usage 保留上游实际报告的 tokens，不因输出参考价为零就抹去输出量。
+两 ID 都是可移动别名，不推定网关底层版本。此前短文本 bool/choice/score 已经宿主原生
+解析验收；不代表长上下文、中文质量或概率校准已验收。隔离回归不替代真实能力验证。
+
 ## 状态栏与会话控制
 
 支持 `command:/…` 状态的 Pi Web 客户端会将其渲染为可点击按钮；终端 CLI 显示状态文本，
 并接受相同命令：
 
 - **`TSGW · N`**（`/tsgw`）：在同一菜单中**刷新模型目录**和**查看诊断信息**。
-  数量表示过滤后已注册的聊天与图片目录条目数，而非健康推理端点的数量。
+  数量表示过滤后已注册的聊天、图片与分类目录条目数，而非健康推理端点的数量。
   🟢 表示新鲜的目录结果；🟡 表示静态/过期目录或刷新失败；⚠️ 表示缺少凭据或网关配置；
   ⏳ 表示正在刷新。
 - **内置联网**（`/tsgw-search`）：GPT 仅为当前会话提供 `cached / live`，默认为 `live`。
@@ -335,7 +378,9 @@ npm pack --dry-run --json
 
 Pi 作为开发依赖安装；锁文件定义测试基线（Pi SDK 1.2.0，结构约束（schema）测试使用 TypeBox 1.3.37）。
 SDK 保留其自身的 TypeBox 1.3.27 验证器，因此不假设结构约束构造与宿主验证使用相同版本。
-Pi AI/MCP 是明确仅用于测试的开发依赖；运行时依赖和提供商的对等依赖最低版本保持不变。
+Pi AI/MCP 显式列为开发依赖，供类型检查和测试使用；分类功能运行时通过 Pi 宿主的
+loader 映射复用其内置 AI adapter，不由插件安装或携带第二份实现。未新增运行时依赖，
+提供商的对等依赖最低版本保持不变。
 测试使用临时代理目录隔离配置和凭据。单元测试使用模拟宿主；宿主集成测试通过真实 Pi SDK
 加载扩展并模拟 HTTP 响应，不发起生产请求。它们不验证上游推理、原生搜索结果或 Pi Web
 渲染效果。升级 Pi 后请运行完整测试套件。

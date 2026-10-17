@@ -24,6 +24,8 @@ import { applyModelOperations } from "../models/operations.ts";
 import { registerSearch } from "../search/index.ts";
 import { IMAGE_API, imageModelsForRoot, supportsImageModels } from "../images/models.ts";
 import { generateImages } from "../images/adapter.ts";
+import { CLASSIFIER_API, classifierModelsForRoot, supportsClassifierModels } from "../classifiers/models.ts";
+import { classify } from "../classifiers/adapter.ts";
 import {
 	catalogLabel,
 	catalogDiagnostics,
@@ -115,10 +117,12 @@ function effectiveModelsForGateway(
 	filter: ModelFilter | undefined,
 	gatewayIds: ReadonlySet<string> | undefined,
 	imagesEnabled: boolean,
+	classifiersEnabled: boolean,
 ): ProviderModelConfig[] {
 	const staticModels: ProviderModelConfig[] = [
 		...modelsForRoot(root),
 		...(imagesEnabled ? imageModelsForRoot(root) : []),
+		...(classifiersEnabled ? classifierModelsForRoot(root) : []),
 	];
 	const intersected = gatewayIds
 		? staticModels.filter((model) => gatewayHasModel(gatewayIds, model.id))
@@ -135,6 +139,7 @@ async function resolveEffectiveModels(
 	filter: ModelFilter | undefined,
 	cacheFilePath: string,
 	imagesEnabled: boolean,
+	classifiersEnabled: boolean,
 ): Promise<{
 	models: ProviderModelConfig[];
 	gatewayIds: ReadonlySet<string> | undefined;
@@ -175,7 +180,7 @@ async function resolveEffectiveModels(
 		}
 	}
 	if (catalog.error) console.warn(`TSGW: ${catalog.error}`);
-	const models = effectiveModelsForGateway(root, filter, gatewayIds, imagesEnabled);
+	const models = effectiveModelsForGateway(root, filter, gatewayIds, imagesEnabled, classifiersEnabled);
 	return { models, gatewayIds, catalog: { ...catalog, count: models.length } };
 }
 
@@ -184,6 +189,7 @@ export async function registerTsgwProvider(
 ): Promise<void> {
 	const root = rootForRuntime(settings.baseUrl);
 	const imagesEnabled = supportsImageModels(VERSION);
+	const classifiersEnabled = supportsClassifierModels(VERSION);
 	const defaultSearchMode: WebSearchMode =
 		settings.tsSearch === "cached" || settings.tsSearch === "live"
 			? settings.tsSearch
@@ -210,6 +216,7 @@ export async function registerTsgwProvider(
 		modelFilter,
 		cacheFilePath,
 		imagesEnabled,
+		classifiersEnabled,
 	);
 	const { models } = initial;
 	let latestModels = models;
@@ -253,6 +260,7 @@ export async function registerTsgwProvider(
 		apiKey: "$TSGW_API_KEY",
 		models,
 		...(imagesEnabled ? { images: { [IMAGE_API]: { generateImages } } } : {}),
+		...(classifiersEnabled ? { classifiers: { [CLASSIFIER_API]: { classify } } } : {}),
 		async refreshModels(context) {
 			// 启动获取已完成；宿主的额外自动同步不再追加联网请求。
 			// 工具检查 24 小时窗口，必要时与命令一样显式传入 force。
@@ -276,7 +284,7 @@ export async function registerTsgwProvider(
 					throw new Error("TSGW 刷新失败；保留上次成功获取的目录。");
 				if (revision === refreshRevision) {
 					startupNotice = undefined;
-					latestModels = effectiveModelsForGateway(root, modelFilter, new Set(gateway.ids), imagesEnabled);
+					latestModels = effectiveModelsForGateway(root, modelFilter, new Set(gateway.ids), imagesEnabled, classifiersEnabled);
 					search.sync();
 					catalog = {
 						count: latestModels.length,
@@ -323,7 +331,8 @@ export async function registerTsgwProvider(
 			}
 			const count = () => typeof ctx.modelRegistry.getModelsOfType === "function"
 				? ctx.modelRegistry.getModelsOfType("chat", PROVIDER_ID).length +
-					ctx.modelRegistry.getModelsOfType("image", PROVIDER_ID).length
+					ctx.modelRegistry.getModelsOfType("image", PROVIDER_ID).length +
+					ctx.modelRegistry.getModelsOfType("classifier", PROVIDER_ID).length
 				: ctx.modelRegistry.getAvailable().filter((model) => model.provider === PROVIDER_ID).length;
 			const before = count();
 			revision = refreshRevision;
