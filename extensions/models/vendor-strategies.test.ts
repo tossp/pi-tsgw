@@ -103,16 +103,12 @@ for (const [id, support] of Object.entries(glmCases)) {
 const mimoIds = ["mimo-v2.6-pro", "mimo-v2.6-flash"];
 coverage(mimoIds, mimoThinking, mimoModels(root));
 for (const model of mimoModels(root)) {
-	equal(model.name, model.id === "mimo-v2.6-pro" ? "MiMo V2.6 Pro" : "MiMo V2.6 Flash");
 	equal(model.api, "openai-completions");
 	equal(model.baseUrl, `${root}/v1`);
 	equal(model.reasoning, true);
 	deepStrictEqual(model.input, ["text", "image"]);
 	equal(model.contextWindow, 1000000);
 	equal(model.maxTokens, 131072);
-	deepStrictEqual(model.cost, model.id === "mimo-v2.6-pro"
-		? { input: 0.4425, output: 0.885, cacheRead: 0.0036875, cacheWrite: 0 }
-		: { input: 0.1475, output: 0.295, cacheRead: 0.00295, cacheWrite: 0 });
 	deepStrictEqual(model.compat, { supportsDeveloperRole: false });
 	for (const level of levels) {
 		const result = apply(mimoThinking, model.id, level, { ...base(), thinking: { retained: true }, temperature: 0.2, top_p: 0.8 });
@@ -158,7 +154,6 @@ for (const model of kimiModels(root)) {
 	equal(model.maxTokens, 131072);
 	equal(model.thinkingLevelMap?.off, null);
 	equal(model.contextWindow, model.id === "kimi-k3" ? 1000000 : 262144);
-	equal(model.name, model.id === "kimi-k3" ? "Kimi K3" : "Kimi K3 (256K)");
 	for (const level of levels) {
 		const result = apply(kimiThinking, model.id, level, { ...base(), thinking: { type: "disabled" } });
 		equal(Object.hasOwn(result, "thinking"), false);

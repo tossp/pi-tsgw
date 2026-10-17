@@ -177,10 +177,15 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			assert.ok(result.content.some(part => part.type === "text" && SOURCES.every(url => part.text.includes(url))));
 			// Pi 适配器归一化结果与 Luna 价格（含缓存写入、读取及思考用量）
 			// 必须完整传递到工具结果，而非手工拼接的部分令牌摘要。
+			const cost = {
+				input: luna.cost.input / 1e6 * 90,
+				output: luna.cost.output / 1e6 * 30,
+				cacheRead: luna.cost.cacheRead / 1e6 * 20,
+				cacheWrite: luna.cost.cacheWrite * 10 / 1e6,
+			};
 			assert.deepEqual(result.usage, {
 				input: 90, output: 30, cacheRead: 20, cacheWrite: 10, reasoning: 7, totalTokens: 150,
-				cost: { input: 0.1 / 1e6 * 90, output: 0.5 / 1e6 * 30, cacheRead: 0.01 / 1e6 * 20,
-					cacheWrite: 0.125 * 10 / 1e6, total: 0.1 / 1e6 * 90 + 0.5 / 1e6 * 30 + 0.01 / 1e6 * 20 + 0.125 * 10 / 1e6 },
+				cost: { ...cost, total: cost.input + cost.output + cost.cacheRead + cost.cacheWrite },
 			});
 			const request = requests[1]!;
 			assert.equal(request.body.model, luna.id, "即使注册了 Sol/Astra/Grok，也优先选 Luna");
@@ -215,7 +220,7 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			assert.equal(failed.isError, true);
 			assert.deepEqual(failed.structuredContent, { delegate: luna.id, answer: "", citations: [], truncated: false });
 			assert.ok(!JSON.stringify(failed).includes(TEST_KEY));
-			assert.ok(failed.content.some(part => part.type === "text" && part.text.includes("搜索失败")));
+			assert.ok(!JSON.stringify(failed).includes("sensitive"));
 			behavior = "pending";
 			const controller = new AbortController();
 			const entered = new Promise<void>(resolve => { started = resolve; });
@@ -225,7 +230,8 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			const cancelled = await pending;
 			assert.equal(requests.at(-1)!.signal.aborted, true);
 			assert.equal(cancelled.isError, true);
-			assert.ok(cancelled.content.some(part => part.type === "text" && part.text.includes("已取消或超时")));
+			assert.equal(requests.length, before + 2);
+			assert.deepEqual(cancelled.structuredContent, { delegate: luna.id, answer: "", citations: [], truncated: false });
 			const count = requests.length;
 			await assert.rejects(() => execute(AbortSignal.abort()), { name: "AbortError" });
 			assert.equal(requests.length, count);
@@ -237,17 +243,19 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			await host.setModel(luna);
 			assert.equal(active(), false);
 			assert.ok(!host.agent.state.tools.some(tool => tool.name === "tsgw_search"));
-			await assert.rejects(() => stale.execute("stale-native", { query: "must not send" }), /没有可供当前模型使用的代理模型/);
+			const nativeCount = requests.length + grokRequests.length;
+			await assert.rejects(() => stale.execute("stale-native", { query: "must not send" }));
+			assert.equal(requests.length + grokRequests.length, nativeCount);
 			await host.setModel(main);
 			assert.equal(active(), true);
 			const other = runtime.getModels("openai")[0];
 			assert.ok(other, "真实宿主内置模型注册表中应有非 TSGW 模型");
 			await runtime.setRuntimeApiKey(other.provider, "non-tsgw-runtime-fixture-key");
-			const count = requests.length;
+			const count = requests.length + grokRequests.length;
 			await host.setModel(other);
 			assert.equal(active(), false);
-			await assert.rejects(() => stale.execute("stale-other", { query: "must not send" }), /没有可供当前模型使用的代理模型/);
-			assert.equal(requests.length, count);
+			await assert.rejects(() => stale.execute("stale-other", { query: "must not send" }));
+			assert.equal(requests.length + grokRequests.length, count);
 			await host.setModel(main);
 			assert.equal(active(), true);
 		});
@@ -289,9 +297,9 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			await host.prompt("/tsgw-refresh");
 			assert.equal(sandbox.catalogCalls, 3);
 			assert.equal(active(), false);
-			const count = requests.length;
-			await assert.rejects(() => stale.execute("stale-catalog", { query: "must not send" }), /没有可供当前模型使用的代理模型/);
-			assert.equal(requests.length, count);
+			const count = requests.length + grokRequests.length;
+			await assert.rejects(() => stale.execute("stale-catalog", { query: "must not send" }));
+			assert.equal(requests.length + grokRequests.length, count);
 			assert.equal(host.model?.id, main.id);
 		});
 

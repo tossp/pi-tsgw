@@ -2,6 +2,7 @@ import { deepStrictEqual, equal, match, rejects } from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import registerTsgw from "../../index.ts";
+import { catalogLabel, searchLabel } from "./status.ts";
 import { gatewayModelCacheScope, saveGatewayModelCache, DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "../models/gateway-catalog.ts";
 import { FakePi, TSGW_SOL, withAgentDir, providerRequest } from "../test-support.test.ts";
 
@@ -33,7 +34,7 @@ async function fixture(root: string, dir: string) {
 	const updates: string[] = [];
 	const notices: Array<{ text: string; level: string }> = [];
 	const dialogs: Array<{ title: string; options: string[] }> = [];
-	const choices: Array<string | undefined> = [];
+	const choices: Array<number | undefined> = [];
 	let refreshCalls = 0;
 	const ctx = {
 		hasUI: true,
@@ -60,7 +61,10 @@ async function fixture(root: string, dir: string) {
 			notify: (text: string, level: string) => { notices.push({ text, level }); },
 			select: async (title: string, options: string[]) => {
 				dialogs.push({ title, options });
-				return choices.shift();
+				const choice = choices.shift();
+				if (choice === undefined) return undefined;
+				equal(choice >= 0 && choice < options.length, true);
+				return options[choice];
 			},
 		},
 	};
@@ -74,55 +78,61 @@ const modelResponse = (ids = ["gpt-6-sol", "glm-5.2"]) =>
 	new Response(JSON.stringify({ data: ids.map((id) => ({ id })) }), { status: 200 });
 
 await withUi(async ({ pi, ctx, statuses, choices, dialogs, notices, dir }) => {
-	match(statuses.get("command:/tsgw")!, /^🟡 TSGW/); // 静态目录不代表网关健康。
-	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：实时");
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: ctx.modelRegistry.getAvailable().length, source: "static", loading: false }, true, true)); // 静态目录不代表网关健康。
+	equal(statuses.get("command:/tsgw-search"), searchLabel("live", "gpt"));
 	const before = readFileSync(join(dir, "settings.json"), "utf8");
-	choices.push("🟢 内置联网：实时");
+	choices.push(0);
 	await pi.invokeCommand("tsgw-search", ctx);
-	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：实时");
-	const live = providerRequest(pi, {}) as { tools: Array<{ external_web_access: boolean }> };
+	equal(statuses.get("command:/tsgw-search"), searchLabel("cached", "gpt"));
+	const cached = providerRequest(pi, {}) as { tools: Array<{ external_web_access: boolean }> };
+	equal(cached.tools[0].external_web_access, false);
+	await pi.invokeCommand("tsgw-search", ctx, "live");
+	const live = providerRequest(pi, {}) as typeof cached;
 	equal(live.tools[0].external_web_access, true);
 	await pi.invokeCommand("tsgw-search", ctx, "cached");
 	equal((providerRequest(pi, {}) as typeof live).tools[0].external_web_access, false);
 	for (const mode of ["invalid", "off"]) {
+		const count = notices.length;
 		await pi.invokeCommand("tsgw-search", ctx, mode);
+		equal(notices.length, count + 1);
 		equal(notices.at(-1)?.level, "warning");
 		equal((providerRequest(pi, {}) as typeof live).tools[0].external_web_access, false);
 	}
-	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：缓存");
+	equal(statuses.get("command:/tsgw-search"), searchLabel("cached", "gpt"));
 	choices.push(undefined);
 	await pi.invokeCommand("tsgw-search", ctx);
-	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：缓存");
+	equal(statuses.get("command:/tsgw-search"), searchLabel("cached", "gpt"));
 	equal(readFileSync(join(dir, "settings.json"), "utf8"), before);
-	deepStrictEqual(dialogs[0].options, ["🟡 内置联网：缓存", "🟢 内置联网：实时"]);
+	deepStrictEqual(dialogs[0].options, [searchLabel("cached", "gpt"), searchLabel("live", "gpt")]);
 	pi.invoke("session_start", { reason: "new" }, ctx);
-	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：实时");
+	equal(statuses.get("command:/tsgw-search"), searchLabel("live", "gpt"));
 });
 
 await withUi(async ({ pi, ctx, statuses, dialogs, notices, choices }) => {
 	ctx.model = { ...ctx.model, id: "grok-4.5", api: "openai-completions" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
 	// 已有 cached 配置映射到 Grok 实时搜索；不得宣称仅访问缓存。
-	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：实时");
+	equal(statuses.get("command:/tsgw-search"), searchLabel("cached", "grok"));
 	for (const args of ["", "off", "cached", "live", "invalid"]) {
 		await pi.invokeCommand("tsgw-search", ctx, args);
 		equal(dialogs.length, 0);
-		match(notices.at(-1)!.text, /固定为实时/);
+		equal(notices.length, ["", "off", "cached", "live", "invalid"].indexOf(args) + 1);
+		equal(notices.at(-1)!.level, "info");
 		deepStrictEqual((providerRequest(pi, {}) as { search_parameters: unknown }).search_parameters, { mode: "on" });
 	}
 	ctx.model = { ...TSGW_SOL };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
-	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：缓存");
+	equal(statuses.get("command:/tsgw-search"), searchLabel("cached", "gpt"));
 	equal(pi.activeTools.includes("tsgw_search"), false);
 	equal((providerRequest(pi, {}) as { tools: Array<{ external_web_access: boolean }> }).tools[0].external_web_access, false);
 	await pi.invokeCommand("tsgw-search", ctx, "live");
 	pi.invoke("session_start", { reason: "new" }, ctx);
-	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：缓存");
+	equal(statuses.get("command:/tsgw-search"), searchLabel("cached", "gpt"));
 	ctx.model = { ...ctx.model, id: "glm-5.2" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
-	equal(statuses.get("command:/tsgw-search"), "🟡 内置联网：代理缓存");
+	equal(statuses.get("command:/tsgw-search"), searchLabel("cached", "proxy-gpt"));
 	const dialogCount = dialogs.length;
-	choices.push("🟡 内置联网：代理缓存");
+	choices.push(0);
 	await pi.invokeCommand("tsgw-search", ctx);
 	equal(dialogs.length, dialogCount + 1);
 	equal(pi.activeTools.includes("tsgw_search"), true);
@@ -140,33 +150,34 @@ await withUi(async ({ pi, ctx, choices, statuses, updates, dialogs, notices, roo
 	choices.push(undefined);
 	await pi.invokeCommand("tsgw", ctx);
 	equal(requests, 0);
-	choices.push("刷新模型目录");
+	choices.push(0);
 	await pi.invokeCommand("tsgw", ctx);
 	equal(refreshCalls(), 1);
 	equal(requests, 1);
-	equal(statuses.get("command:/tsgw"), "🟢 TSGW · 2");
-	equal(updates.includes("⏳ TSGW"), true);
-	choices.push("查看状态与诊断", undefined);
+	deepStrictEqual(notices.map(notice => notice.level), ["info"]);
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 2, source: "network", storedAt: Date.now(), loading: false }, true, true));
+	equal(updates.includes(catalogLabel({ count: 0, source: "static", loading: true }, true, true)), true);
+	choices.push(1, undefined);
 	await pi.invokeCommand("tsgw", ctx);
+	equal(dialogs.length, 4);
 	const diagnosis = dialogs.at(-1)!.options.join("\n");
-	match(diagnosis, /网关/);
 	match(diagnosis, /\d{4}-\d{2}-\d{2}T/);
 	equal(diagnosis.includes("secret-test-key"), false);
 	equal(diagnosis.includes(root), false);
 	equal(requests, 1); // 诊断仅在本地进行，绝不发起探测。
 	globalThis.fetch = async () => new Response("unavailable", { status: 503 });
 	await pi.invokeCommand("tsgw-refresh", ctx);
-	equal(statuses.get("command:/tsgw"), "🟡 TSGW · 2");
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 2, source: "network", storedAt: Date.now(), loading: false, error: "fixture-error" }, true, true));
 	equal(notices.at(-1)?.level, "error");
 	globalThis.fetch = async () => modelResponse(["glm-5.2"]);
 	await pi.invokeCommand("tsgw-refresh", ctx);
-	equal(statuses.get("command:/tsgw"), "🟢 TSGW · 1");
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "network", storedAt: Date.now(), loading: false }, true, true));
 });
 
 await withUi(async ({ pi, ctx, statuses, setConfigured, refreshCalls, notices }) => {
 	setConfigured(false);
 	pi.invoke("agent_start", {}, ctx);
-	match(statuses.get("command:/tsgw")!, /^⚠️/);
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: ctx.modelRegistry.getAvailable().length, source: "static", loading: false }, false, true));
 	await pi.invokeCommand("tsgw-refresh", ctx);
 	equal(refreshCalls(), 0);
 	equal(notices.at(-1)?.level, "warning");
@@ -175,11 +186,13 @@ await withUi(async ({ pi, ctx, statuses, setConfigured, refreshCalls, notices })
 	ctx.modelRegistry.refresh = async () => ({ errors: new Map([["tsgw", new Error("secret-test-key")]]) });
 	await pi.invokeCommand("tsgw-refresh", ctx);
 	equal(notices.at(-1)?.text.includes("secret-test-key"), false);
-	match(statuses.get("command:/tsgw")!, /^🟡/);
+	equal(notices.at(-1)?.level, "error");
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: ctx.modelRegistry.getAvailable().length, source: "static", loading: false, error: "fixture-error" }, true, true));
 	ctx.modelRegistry.refresh = async () => ({ errors: new Map(), aborted: true });
 	await pi.invokeCommand("tsgw-refresh", ctx);
 	equal(notices.at(-1)?.level, "warning");
-	match(notices.at(-1)!.text, /已取消/);
+	equal(notices.length, 3);
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: ctx.modelRegistry.getAvailable().length, source: "static", loading: false, error: "fixture-cancelled" }, true, true));
 });
 
 await withUi(async ({ pi, ctx, notices, statuses, refreshModels }) => {
@@ -190,23 +203,25 @@ await withUi(async ({ pi, ctx, notices, statuses, refreshModels }) => {
 		force: true, signal: new AbortController().signal });
 	ctx.model = { ...ctx.model, id: "glm-5.2", api: "openai-completions" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
-	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：代理");
+	equal(statuses.get("command:/tsgw-search"), searchLabel("live", "proxy-grok"));
 	const before = providerRequest(pi, {});
 	await pi.invokeCommand("tsgw-search", ctx, "cached");
-	match(notices.at(-1)!.text, /固定为实时/);
+	equal(notices.length, 1);
+	equal(notices.at(-1)!.level, "info");
 	deepStrictEqual(providerRequest(pi, {}), before);
 	equal(pi.activeTools.includes("tsgw_search"), true);
 });
 
 await withUi(async ({ pi, ctx, notices }) => {
 	// 模式选择器打开期间，其他客户端可能切换模型。
-	ctx.ui.select = async () => {
+	ctx.ui.select = async (_title, options) => {
 		ctx.model = { ...ctx.model, id: "grok-4.5", api: "openai-completions" };
 		pi.invoke("model_select", { model: ctx.model }, ctx);
-		return "🟡 内置联网：缓存";
+		return options[0];
 	};
 	await pi.invokeCommand("tsgw-search", ctx);
-	match(notices.at(-1)!.text, /支持性已变化/);
+	equal(notices.length, 1);
+	equal(notices.at(-1)!.level, "warning");
 	deepStrictEqual((providerRequest(pi, {}) as { search_parameters: unknown }).search_parameters, { mode: "on" });
 	// 无界面命令可使用显式参数，不触及 UI 渲染。
 	ctx.hasUI = false;
@@ -247,7 +262,7 @@ await withUi(async ({ pi, ctx, statuses, refreshModels }) => {
 	globalThis.fetch = async () => modelResponse();
 	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key: "test" },
 		force: true, signal: new AbortController().signal });
-	equal(statuses.get("command:/tsgw"), "🟢 TSGW · 2");
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 2, source: "network", storedAt: Date.now(), loading: false }, true, true));
 	let resolveFetch!: (response: Response) => void;
 	globalThis.fetch = () => new Promise((resolve) => { resolveFetch = resolve; });
 	const pending = refreshModels({ allowNetwork: true, credential: { type: "api_key", key: "test" },
@@ -273,7 +288,7 @@ await withUi(async ({ refreshModels, statuses }) => {
 	older.abort();
 	resolvers[0](modelResponse());
 	await rejects(first);
-	equal(statuses.get("command:/tsgw"), "🟢 TSGW · 1");
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "network", storedAt: Date.now(), loading: false }, true, true));
 });
 
 for (const newerFinishesFirst of [false, true]) {
@@ -291,14 +306,14 @@ for (const newerFinishesFirst of [false, true]) {
 			await newer;
 			resolvers[0](new Response("unavailable", { status: 503 }));
 			await command;
-			equal(statuses.get("command:/tsgw"), "🟢 TSGW · 1");
+			equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "network", storedAt: Date.now(), loading: false }, true, true));
 		} else {
 			resolvers[0](modelResponse());
 			await command;
-			equal(statuses.get("command:/tsgw"), "⏳ TSGW");
+			equal(statuses.get("command:/tsgw"), catalogLabel({ count: 2, source: "network", loading: true }, true, true));
 			resolvers[1](modelResponse(["glm-5.2"]));
 			await newer;
-			equal(statuses.get("command:/tsgw"), "🟢 TSGW · 1");
+			equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "network", storedAt: Date.now(), loading: false }, true, true));
 		}
 	});
 }
@@ -318,8 +333,8 @@ for (const commandName of ["tsgw-refresh", "tsgw-search", "tsgw"]) {
 				release = () => resolve(modelResponse()); started();
 			});
 		} else {
-			ctx.ui.select = () => new Promise((resolve) => {
-				release = () => resolve(commandName === "tsgw" ? "刷新模型目录" : "🟢 内置联网：实时");
+			ctx.ui.select = (_title, options) => new Promise((resolve) => {
+				release = () => resolve(options[commandName === "tsgw" ? 0 : 1]);
 				started();
 			});
 		}
@@ -338,14 +353,14 @@ for (const commandName of ["tsgw-refresh", "tsgw-search", "tsgw"]) {
 await withUi(async ({ pi, ctx, statuses, notices }) => {
 	// 上一会话的选择器不能覆盖已恢复的默认值。
 	await pi.invokeCommand("tsgw-search", ctx, "cached");
-	ctx.ui.select = async () => {
+	ctx.ui.select = async (_title, options) => {
 		pi.invoke("session_start", { reason: "new" }, ctx);
-		return "🟡 内置联网：缓存";
+		return options[0];
 	};
 	const count = notices.length;
 	await pi.invokeCommand("tsgw-search", ctx);
 	equal(notices.length, count);
-	equal(statuses.get("command:/tsgw-search"), "🟢 内置联网：实时");
+	equal(statuses.get("command:/tsgw-search"), searchLabel("live", "gpt"));
 	equal((providerRequest(pi, {}) as { tools: Array<{ external_web_access: boolean }> })
 		.tools[0].external_web_access, true);
 });
@@ -363,10 +378,10 @@ for (const stale of [false, true]) {
 		try {
 			const { pi, ctx, statuses, choices, dialogs } = await fixture(root, dir);
 			equal(calls, stale ? 1 : 0);
-			equal(statuses.get("command:/tsgw"), `${stale ? "🟡" : "🟢"} TSGW · 1`);
-			choices.push("查看状态与诊断", undefined);
+			equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "cache", storedAt, loading: false }, true, true));
+			choices.push(1, undefined);
 			await pi.invokeCommand("tsgw", ctx);
-			equal(dialogs.at(-1)!.options.includes(`真实获取时间：${new Date(storedAt).toISOString()}`), true);
+			equal(dialogs.at(-1)!.options.some(line => line.includes(new Date(storedAt).toISOString())), true);
 		} finally { globalThis.fetch = previous; }
 	});
 }

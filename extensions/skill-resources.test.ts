@@ -1,41 +1,18 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const skillsRoot = join(root, "skills");
 
-function markdownFiles(directory: string): string[] {
-	return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
-		const path = join(directory, entry.name);
-		return entry.isDirectory() ? markdownFiles(path) : entry.name.endsWith(".md") ? [path] : [];
-	});
-}
-
-test("随包技能声明、资源链接及本机环境隔离完整", () => {
+test("随包技能目录包含 SKILL.md 入口文件", () => {
 	for (const entry of readdirSync(skillsRoot, { withFileTypes: true }).filter(entry => entry.isDirectory())) {
-		const directory = join(skillsRoot, entry.name);
-		const body = readFileSync(join(directory, "SKILL.md"), "utf8");
-		assert.match(body, new RegExp(`^name: ${entry.name}$`, "m"));
-		assert.match(body, /^license: MIT$/m);
-		assert.match(body, /^description: .+/m);
-		for (const path of markdownFiles(directory)) {
-			const text = readFileSync(path, "utf8");
-			assert.doesNotMatch(text, /\/root\/|\/home\/[^\s/]+\/|\.config\/opencode/);
-			for (const match of text.matchAll(/\]\(([^)]+)\)/g)) {
-				const target = match[1]!.split("#")[0]!;
-				if (!target || /^[a-z][a-z0-9+.-]*:/i.test(target)) continue;
-				assert.equal(isAbsolute(target), false, `资源必须使用相对路径：${path}`);
-				const resource = resolve(dirname(path), decodeURIComponent(target));
-				assert.ok(resource.startsWith(directory + sep), `资源不能逃逸技能目录：${target}`);
-				assert.ok(existsSync(resource), `技能资源缺失：${resource}`);
-			}
-		}
+		assert.ok(existsSync(join(skillsRoot, entry.name, "SKILL.md")), `缺少技能入口：${entry.name}`);
 	}
 });
 

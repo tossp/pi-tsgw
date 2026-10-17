@@ -7,7 +7,7 @@ import { test } from "node:test";
 import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-agent";
 import type { ImageContent } from "@earendil-works/pi-ai";
 import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "../host-test-support.test.ts";
-import { IMAGE_API, IMAGE_MODEL_IDS } from "./models.ts";
+import { IMAGE_API, IMAGE_MODEL_IDS, imageModelsForRoot } from "./models.ts";
 import { modelsForRoot, PROVIDER_ID } from "../models/catalog.ts";
 
 // 已知有效的 1×1 灰度透明 PNG；CRC、像素与完整原始字节都可独立断言。
@@ -148,11 +148,12 @@ test("Pi 1.2 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 		};
 		const tools = () => activeSession.extensionRunner.getAllRegisteredTools().map(tool => tool.definition.name).sort();
 
-		await t.test("混合注册保持 36 chat + 2 image，两个图片工具与原生调用并存", async () => {
-			assert.equal(modelsForRoot(TEST_ROOT).length, 36);
-			assert.deepEqual(runtime.getModels(PROVIDER_ID).map(model => model.id).sort(), modelsForRoot(TEST_ROOT).map(model => model.id).sort());
-			assert.equal(runtime.getAllModels(PROVIDER_ID).length, 38);
-			assert.equal(runtime.getModelsOfType("chat", PROVIDER_ID).length, 36);
+		await t.test("混合注册与当前构造目录一致，图片工具与原生调用并存", async () => {
+			const chatIds = modelsForRoot(TEST_ROOT).map(model => model.id).sort();
+			const imageIds = imageModelsForRoot(TEST_ROOT).map(model => model.id).sort();
+			assert.deepEqual(runtime.getModels(PROVIDER_ID).map(model => model.id).sort(), chatIds);
+			assert.deepEqual(runtime.getAllModels(PROVIDER_ID).map(model => model.id).sort(), [...chatIds, ...imageIds].sort());
+			assert.deepEqual(runtime.getModelsOfType("chat", PROVIDER_ID).map(model => model.id).sort(), chatIds);
 			assert.deepEqual(images().map(model => model.id), [...IMAGE_MODEL_IDS]);
 			for (const id of IMAGE_MODEL_IDS) {
 				assert.equal(runtime.getModel(PROVIDER_ID, id), undefined);
@@ -175,7 +176,8 @@ test("Pi 1.2 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 			assert.equal(imageRequests.length + sandbox.requests.length + sandbox.catalogCalls, 0);
 			await runtime.setRuntimeApiKey(PROVIDER_ID, TEST_KEY);
 			assert.deepEqual(runtime.getProviderAuthStatus(PROVIDER_ID), { configured: true, source: "runtime" });
-			assert.equal((await runtime.getAvailableOfType("chat", PROVIDER_ID)).length, 36);
+			assert.deepEqual((await runtime.getAvailableOfType("chat", PROVIDER_ID)).map(model => model.id).sort(),
+				modelsForRoot(TEST_ROOT).map(model => model.id).sort());
 			assert.deepEqual((await runtime.getAvailableOfType("image", PROVIDER_ID)).map(model => model.id), [...IMAGE_MODEL_IDS]);
 			assert.ok((await runtime.getAvailable(PROVIDER_ID)).every(model => !IMAGE_MODEL_IDS.includes(model.id as typeof IMAGE_MODEL_IDS[number])));
 			const chat = runtime.getModel(PROVIDER_ID, "gpt-6.1-sol");

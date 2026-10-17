@@ -83,9 +83,9 @@ test("代理保存模式快照、向冻结请求体注入参数并保留 Pi 用�
 test("代理在请求前校验当前委托模型与注册表中的实际协议", async () => {
 	const f = fixture();
 	f.delegate(undefined);
-	await assert.rejects(f.run(), /没有可供当前模型使用的代理模型/);
+	await assert.rejects(f.run());
 	f.delegate({ modelId: "gpt-6-luna", kind: "grok" });
-	await assert.rejects(f.run(), /受支持的协议/);
+	await assert.rejects(f.run());
 	assert.equal(f.calls(), 0);
 });
 
@@ -96,21 +96,28 @@ test("代理保留失败用量但绝不暴露提供方原始错误或部分回�
 	assert.equal(result.isError, true);
 	assert.equal(result.usage, usage);
 	assert.doesNotMatch(JSON.stringify(result), /secret-provider-error|partial-private-response/);
+	assert.equal(f.calls(), 1);
 	f.throw();
 	await assert.rejects(f.run(), error => {
-		assert.match(String(error), /代理搜索失败/);
 		assert.doesNotMatch(String(error), /private-provider-response-with-secret/);
 		return true;
 	});
+	assert.equal(f.calls(), 2);
 });
 
 test("代理报告截断与空回答，预先取消时绝不发起请求", async () => {
 	const f = fixture();
 	f.reply({ stopReason: "length" });
 	const truncated = await f.run();
-	assert.match(JSON.stringify(truncated.content), /已截断/);
+	assert.equal((truncated.structuredContent as { truncated: boolean }).truncated, true);
+	assert.equal(truncated.isError, undefined);
+	assert.equal(truncated.usage, usage);
+	assert.equal(f.calls(), 1);
 	f.reply({ content: [] });
-	assert.equal((await f.run()).isError, true);
+	const empty = await f.run();
+	assert.equal(empty.isError, true);
+	assert.equal(empty.usage, usage);
+	assert.equal(f.calls(), 2);
 	const before = f.calls();
 	await assert.rejects(f.run(AbortSignal.abort()));
 	assert.equal(f.calls(), before);

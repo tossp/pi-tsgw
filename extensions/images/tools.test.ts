@@ -61,7 +61,6 @@ test("工具 direct 默认启用；普通生成仅 prompt 必填，编辑要求 
 	for (const tool of f.tools) {
 		assert.equal(tool.exposure, "direct"); assert.equal(tool.defaultActive, true);
 		assert.equal(tool.annotations?.openWorldHint, true);
-		assert.match(tool.description, /Sunburst.*AI 草稿.*Flare/);
 	}
 	const generation = Compile(generateImageSchema), edit = Compile(editImageSchema);
 	assert.equal(generation.Check({ prompt: "test" }), true);

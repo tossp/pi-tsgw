@@ -51,9 +51,6 @@ function toolSse(name: string, args: unknown, sequence: number): Response {
 // 这不是自然语言模型选择技能/工具的验收。
 test("Pi 1.2 图片工具：没有 codemode 也能生成、编辑、展示并记录用量", { timeout: 60_000 }, async t => {
 	const entry = sourceEntry();
-	const skill = readFileSync(join(dirname(entry), "skills/tsgw-image-generation/SKILL.md"), "utf8");
-	const examples = [...skill.matchAll(/```json\n([\s\S]*?)\n```/g)].map(match => JSON.parse(match[1]!) as Record<string, unknown>);
-	assert.equal(examples.length, 3, "技能应提供最简生成、草稿和蒙版编辑示例");
 	const originalEnv = { ...process.env };
 	const originalCwd = process.cwd();
 	const originalFetch = globalThis.fetch;
@@ -160,8 +157,10 @@ test("Pi 1.2 图片工具：没有 codemode 也能生成、编辑、展示并记
 			return results.at(-1)!;
 		};
 
-		await t.test("技能最简生成与草稿示例实际执行；默认Sunburst并直接附图", async () => {
-			for (const [i, args] of examples.slice(0, 2).entries()) {
+		await t.test("默认Sunburst与显式Flare参数实际执行并直接附图", async () => {
+			const cases = [{ prompt: "合成生成测试" },
+				{ prompt: "合成草稿测试", model: "gpt-image-2.5-flare", quality: "low", size: "1024x1024" }];
+			for (const [i, args] of cases.entries()) {
 				const before = imageRequests.length;
 				const result = await invoke(GENERATED, args);
 				assert.equal(result.isError, false, JSON.stringify(result.content));
@@ -177,8 +176,9 @@ test("Pi 1.2 图片工具：没有 codemode 也能生成、编辑、展示并记
 			assert.equal(seenTools.has("codemode"), false);
 		});
 
-		await t.test("技能蒙版编辑示例读取原文件，保留参考图顺序与alpha原字节", async () => {
-			const args = { ...examples[2]!, images: [{ path: "source.png" }, { path: "source.png" }] };
+		await t.test("蒙版编辑读取原文件，保留参考图顺序与alpha原字节", async () => {
+			const args = { prompt: "合成蒙版编辑测试", images: [{ path: "source.png" }, { path: "source.png" }],
+				mask: { path: "mask.png" } };
 			const result = await invoke(EDITED, args);
 			assert.equal(result.isError, false, JSON.stringify(result.content));
 			const request = imageRequests.at(-1)!;

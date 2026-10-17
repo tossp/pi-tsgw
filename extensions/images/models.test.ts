@@ -11,7 +11,6 @@ const root = "https://images.example.test/prefix";
 test("图片目录：仅两个精确 ID，能力、地址与未知价格显式声明", () => {
 	const models = imageModelsForRoot(root);
 	assert.deepEqual(models.map(model => model.id), [...IMAGE_MODEL_IDS]);
-	assert.deepEqual(models.map(model => model.name), ["GPT Image 2.5 Flare", "GPT Image 2.5 Sunburst"]);
 	for (const model of models) {
 		assert.equal(model.type, "image");
 		assert.equal(model.api, IMAGE_API);
@@ -24,6 +23,7 @@ test("图片目录：仅两个精确 ID，能力、地址与未知价格显式�
 		assert.equal("maxTokens" in model, false);
 	}
 	models[0].cost.input = 99;
+	assert.equal(models[1].cost.input, 0, "同一目录的不同模型不共享可变价格对象");
 	assert.equal(imageModelsForRoot(root)[0].cost.input, 0, "每次构造独立目录，不共享可变价格对象");
 	assert.equal(modelsForRoot(root).some(model => model.id.startsWith("gpt-image-")), false,
 		"原聊天目录不混入图片，聊天策略和模型选择不受影响");

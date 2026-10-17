@@ -49,7 +49,7 @@
 - 新增模型前核对网关目录、静态登记和测试，列候选供确认；不自动把全部候选加入用户启用配置，不擅自删旧别名。ID 区分大小写，特别是 `MiniMax-*`。
 - 规格、输入能力、价格与 thinking 支持须有明确证据；有国内/国际站时采用国内站。记录来源和必要的档位、汇率、别名说明；上下文窗口不等于最大输出，同族复用不等于逐型号验证。
 - 新模型改 vendor；新供应商接入 catalog，有策略则接入 operations。补逐 ID、档位及非目标字段保留测试，不只检查总数量。
-- 调整模型目录、规格、thinking 档位、价格或选型依据时，同步检查 `skills/tsgw-delegate-model-selection/SKILL.md` 的选型表与说明是否需要更新，并按需修改对应测试。参考表由插件维护，使用技能的模型直接参考，不承担查榜、实时核验或时效判断职责。
+- 调整模型目录、规格、thinking 档位、价格或选型依据时，同步检查 `skills/tsgw-delegate-model-selection/SKILL.md` 的选型表与说明是否需要更新；只有涉及代码逻辑变更时才调整对应测试，选型表和说明内容通过 diff 审阅。参考表由插件维护，使用技能的模型直接参考，不承担查榜、实时核验或时效判断职责。
 - 静态目录与网关目录取交集后再应用用户过滤，不自动登记未知 ID。include 优先于 exclude，但不能突破该交集；两者只支持精确 ID 和尾部 `*` 前缀匹配。
 - 原生图片仅在 Pi `VERSION` 为 1.2.0 或更高稳定版本时注册 `type: image` 的 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`；低版本不注册图片模型/adapter，但聊天保持原功能，不提高最低 peer，也不以策略说明冒充旧版真实验收。图片走现有 tsgw provider、`baseUrl` 和宿主凭据解析，不增加 MCP 注册、HTTP 客户端 SDK 依赖或服务端改动。生成与编辑共用图片适配器，默认单张 PNG 而不是写死上游能力；不自动登记裸别名或其他图片模型。图片不作为聊天模型或搜索代理候选；状态计数含实际登记的聊天与图片模型。
 - 图片 API 适配 `/v1/images/generations` 和 `/v1/images/edits`；两个直接工具 `tsgw_generate_image` / `tsgw_edit_image` 共用宿主 registry/认证与适配器，不要求 codemode。支持上游明确适用于两款模型的参数及组合，默认值用于减少传参，不作为任意功能限制；旧模型字段不机械搬入。默认请求 600s，支持 signal 和显式 timeout 覆盖；严禁自动重试或自动切模型，不声称取消必然停止上游处理/计费。原生 `models.generateImages` 仍仅两个参数，`context.tsgw` 是本插件扩展，不冒称宿主原生参数。
@@ -88,7 +88,8 @@ npm pack --dry-run --json
 git diff --check
 ```
 
-- 改哪个边界就补对应测试。默认测试隔离 agent-dir、凭据和网络，不读取个人配置、不请求生产网关。检查编译退出码，不把已生成 dist 当作通过。
+- 单元测试只验证代码逻辑，不锁定技能或文档正文、说明措辞、示例数量、展示名称及静态目录快照；这些内容通过 `git diff` 和人工审阅确认。工具测试使用独立夹具；保留加载、过滤、协议、计算、权限及脱敏等功能验证，不以单测或静态检查声称技能实际可用。
+- 改哪个功能边界就补对应测试。默认测试隔离 agent-dir、凭据和网络，不读取个人配置、不请求生产网关。检查编译退出码，不把已生成 dist 当作通过。
 - `TSGW_UPLOAD_LIVE=1 npm run test:upload:live` 是需授权的真实合成上传验收，不属于 `npm test`；复用宿主配置/认证，不修改服务、桶或客户端设置。远端测试对象交由既有生命周期清理，不擅自删除。
 - 升级 Pi 前读目标版本的 extensions、custom-provider、packages 文档与相关示例；同步 package/lock，跑类型检查、单测与真实宿主集成。不要混淆 legacy `ProviderConfig.refreshModels` 返回列表与完整 `Provider` 的 publish 契约。
 - 宿主与开发依赖版本分别核验；SDK 各包的传递依赖也要检查，不能把 coding-agent 1.2 搭配 ai/core 1.3 的混合树当作纯 1.2 验证。测试直接导入的 AI/MCP 声明为 dev 依赖，不依赖偶然提升；schema 构造器与宿主内置验证器版本分开核验。不只因本机升级就提高最低 peer 版本。未实测的上游能力与 UI 明确报告，不用模拟结果代替。
