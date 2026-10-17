@@ -1,32 +1,32 @@
 ---
 name: tsgw-image-generation
-description: 当用户要求生成图片、生图或画图，以及修改图片、参考图创作或蒙版编辑时使用。通过 Code Mode 调用 tsgw_generate_image 或 tsgw_edit_image，根据草稿或成稿选择模型与参数，再按用户意图保存、发送、展示或继续编辑。
+description: 当用户要求生成图片、生图或画图，以及修改图片、参考图创作或蒙版编辑时使用。通过 `codemode` 工具调用 tsgw_generate_image 或 tsgw_edit_image，根据草稿或成稿选择模型与参数，再按用户意图保存、发送、展示或继续编辑。
 license: MIT
-compatibility: 需要 Pi 1.2+、Code Mode、pi-tsgw 图片工具及可用的 tsgw 图片模型。
+compatibility: 需要 Pi 1.2+、`codemode` 工具、pi-tsgw 图片工具及可用的 tsgw 图片模型。
 ---
 
 # 图片生成与编辑
 
 ## 选择工具和模型
 
-- 从文字创建图片：在 Code Mode 中调用 `tools.tsgw_generate_image()`，填写 `prompt`。
-- 根据一张或多张图片修改、参考创作：在 Code Mode 中调用 `tools.tsgw_edit_image()`，填写 `prompt` 和 `images`；局部修改可增加 `mask`。
+- 从文字创建图片：在 `codemode` 工具的脚本中调用 `tools.tsgw_generate_image()`，填写 `prompt`。
+- 根据一张或多张图片修改、参考创作：在 `codemode` 工具的脚本中调用 `tools.tsgw_edit_image()`，填写 `prompt` 和 `images`；局部修改可增加 `mask`。
 - **草稿、构图探索、速度优先**：选择 `gpt-image-2.5-flare`，质量可用 `low`。
 - **正式成图、精细修改、质量优先**：选择 `gpt-image-2.5-sunburst`，这是工具的默认模型；质量按需求从 `auto` 或 `high` 起选。
 
 按用户任务选择模型和参数。`prompt` 写清主体、构图、风格、尺寸意图，以及需要呈现或保留的文字与细节；编辑时区分“修改什么”和“保留什么”。
 
-## 通过 Code Mode 调用
+## 通过 `codemode` 工具调用
 
-生成和编辑统一通过 `codemode` 执行 `tools.tsgw_generate_image()` 或 `tools.tsgw_edit_image()`，不要直接发起图片工具调用。检查状态和返回文件后，**按用户意图处理图片，不强制预览或展示**。Code Mode 不可用时说明调用条件不足，不改用直接调用或擅自修改配置。
+生成和编辑统一通过 `codemode` 工具执行脚本，调用 `tools.tsgw_generate_image()` 或 `tools.tsgw_edit_image()`，不要直接发起图片工具调用。检查状态和返回文件后，**按用户意图处理图片，不强制预览或展示**。`codemode` 工具不可用时说明调用条件不足，不改用直接调用或擅自修改配置。
 
-已实测的路径是 Code Mode 生成后读图并展示；该验证未覆盖编辑或直接调用。这里规定的是技能调用方式，不代表直接调用必然失败，也不代表此前未发出调用的底层原因已修复。
+已实测的路径是通过 `codemode` 工具生成后读图并展示；该验证未覆盖编辑或直接调用。这里规定的是技能调用方式，不代表直接调用必然失败，也不代表此前未发出调用的底层原因已修复。
 
 - 读取技能或说“现在生成”不算执行。收到生成任务后，应实际调用工具并检查结果；没有工具结果，不得声称已生成。
-- 图片工具有 `outputSchema`，Code Mode 内嵌调用返回结构化状态和文件列表。保存、发送或继续编辑可以直接使用返回文件，无需先 `read` 或 `image()`；需要在对话中展示时，才读取文件并显式执行 `image(block)`。`text(result)` 仅报告状态和路径，不等于展示、发送或最终存储已完成；不要打印图片 base64。
-- 工具本身直接调用时会返回图片块，但本技能使用 Code Mode 的结构化返回与文件处理流程；不要把内嵌调用等同于已向对话输出图片。
+- 图片工具有 `outputSchema`，`codemode` 工具内嵌调用返回结构化状态和文件列表。保存、发送或继续编辑可以直接使用返回文件，无需先 `read` 或 `image()`；需要在对话中展示时，才读取文件并显式执行 `image(block)`。`text(result)` 仅报告状态和路径，不等于展示、发送或最终存储已完成；不要打印图片 base64。
+- 工具本身直接调用时会返回图片块，但本技能使用 `codemode` 工具的结构化返回与文件处理流程；不要把内嵌调用等同于已向对话输出图片。
 
-完整生成示例（一次请求，默认 Sunburst）：默认只返回文件；**任务需要在对话中展示时，将 `display` 改为 `true`**。若已有生成结果，只处理已有文件，不要重新运行生图调用。
+完整生成示例（一次请求，默认 Sunburst）：将下方 JavaScript 作为 `code` 参数传给 `codemode` 工具。默认只返回文件；**任务需要在对话中展示时，将 `display` 改为 `true`**。若已有生成结果，只处理已有文件，不要重新运行生图调用。
 
 ```js
 // @options: {"timeout_ms": 660000, "max_output_tokens": 2000}
@@ -83,9 +83,9 @@ text({ generated: true, imagesEmitted: displayed, fileCount: result.files.length
 
 后续读取、展示、保存或发送失败，与图片生成失败分开报告；保留已生成文件，只处理失败的后续步骤，不重新生图。
 
-## Code Mode 参数示例
+## `codemode` 工具内的参数示例
 
-以下是传给 Code Mode 中相应 `tools.*` 调用的参数，不是直接工具调用指令，也不要逐个执行。
+以下是传给 `codemode` 工具脚本中相应 `tools.*` 调用的参数，不是直接工具调用指令，也不要逐个执行。
 
 `tools.tsgw_generate_image()` 的最简参数：
 
@@ -106,7 +106,7 @@ text({ generated: true, imagesEmitted: displayed, fileCount: result.files.length
 }
 ```
 
-在上述 Code Mode 脚本中，将生成调用替换为 `tools.tsgw_edit_image()` 并传入以下参数即可编辑本地图片；蒙版对应第一张原图。沿用状态检查，再按用户意图处理返回文件；仅需展示时使用读图和 `image(block)` 步骤。**这是编辑契约示例，本次 Code Mode 实测未覆盖编辑。**
+在传给 `codemode` 工具的上述脚本中，将生成调用替换为 `tools.tsgw_edit_image()` 并传入以下参数即可编辑本地图片；蒙版对应第一张原图。沿用状态检查，再按用户意图处理返回文件；仅需展示时使用读图和 `image(block)` 步骤。**这是编辑契约示例，本次通过 `codemode` 工具的实测未覆盖编辑。**
 
 ```json
 {
@@ -136,13 +136,13 @@ text({ generated: true, imagesEmitted: displayed, fileCount: result.files.length
 | `partial_images` | `0` | 流式请求中希望收到的过程图数量，`0–3` |
 | `safety_identifier` | 省略 | 应用需要时提供稳定的匿名用户标识，最多 128 字符 |
 | `user` | 省略 | 上游旧用户标识字段；新接入使用 `safety_identifier` |
-| `timeout_ms` | `600000` | 单次调用等待时间，单位毫秒；可按任务覆盖。通过 codemode 包装调用时，脚本截止应留余量，例如默认请求配 `660000` |
+| `timeout_ms` | `600000` | 单次调用等待时间，单位毫秒；可按任务覆盖。通过 `codemode` 工具调用时，脚本截止应留余量，例如默认请求配 `660000` |
 
 自定义尺寸：宽高都是 16 的倍数，单边至多 3840，长短边比例至多 3，总像素为 655360–8294400；超过 3686400 像素属于上游实验范围。
 
 ## 超时、安全与结果
 
-- 生成可能耗时数分钟。工具请求默认 `600000ms`；Code Mode 示例用 `660000ms` 为调用、读图和输出留余量。延长请求的 `timeout_ms` 时，脚本截止也要相应留余量；脚本超时可能无法进入示例的 catch，仍应核对已有结果而不是再次生图。
+- 生成可能耗时数分钟。工具请求默认 `600000ms`；`codemode` 工具的示例脚本用 `660000ms` 为调用、读图和输出留余量。延长请求的 `timeout_ms` 时，脚本截止也要相应留余量；脚本超时可能无法进入示例的 catch，仍应核对已有结果而不是再次生图。
 - 请求失败、取消或超时不代表上游未处理或未计费；不自动重试或换模型。费用显示为 0 表示尚未映射准确价格，不表示免费。
 - `requestStatus: succeeded`、`phase: complete` 和返回文件是生成完成的依据。生成成功不代表展示、发送或指定位置的保存也成功；只有任务要求的后续操作实际完成，才能作相应声明。没有展示要求时，不把未展示视为失败。
 - 实际格式及尺寸以工具返回的 `files[].mimeType/width/height` 为准，不把请求的 `size` 直接当作最终尺寸。`read` 预览可能缩放或转码；继续编辑时使用原始文件的 `images[].path`，不要把预览当作原图。
