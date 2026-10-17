@@ -1,24 +1,93 @@
 ---
 name: tsgw-image-generation
-description: 当用户要求生成图片、生图或画图，以及修改图片、参考图创作或蒙版编辑时使用。使用 tsgw_generate_image 或 tsgw_edit_image，根据草稿或成稿选择模型与参数，并展示图片结果。
+description: 当用户要求生成图片、生图或画图，以及修改图片、参考图创作或蒙版编辑时使用。通过 Code Mode 调用 tsgw_generate_image 或 tsgw_edit_image，根据草稿或成稿选择模型与参数，再按用户意图保存、发送、展示或继续编辑。
 license: MIT
-compatibility: 需要 Pi 1.2+、pi-tsgw 图片工具及可用的 tsgw 图片模型。
+compatibility: 需要 Pi 1.2+、Code Mode、pi-tsgw 图片工具及可用的 tsgw 图片模型。
 ---
 
 # 图片生成与编辑
 
 ## 选择工具和模型
 
-- 从文字创建图片：调用 `tsgw_generate_image`，填写 `prompt`。
-- 根据一张或多张图片修改、参考创作：调用 `tsgw_edit_image`，填写 `prompt` 和 `images`；局部修改可增加 `mask`。
+- 从文字创建图片：在 Code Mode 中调用 `tools.tsgw_generate_image()`，填写 `prompt`。
+- 根据一张或多张图片修改、参考创作：在 Code Mode 中调用 `tools.tsgw_edit_image()`，填写 `prompt` 和 `images`；局部修改可增加 `mask`。
 - **草稿、构图探索、速度优先**：选择 `gpt-image-2.5-flare`，质量可用 `low`。
 - **正式成图、精细修改、质量优先**：选择 `gpt-image-2.5-sunburst`，这是工具的默认模型；质量按需求从 `auto` 或 `high` 起选。
 
 按用户任务选择模型和参数。`prompt` 写清主体、构图、风格、尺寸意图，以及需要呈现或保留的文字与细节；编辑时区分“修改什么”和“保留什么”。
 
-## 最简调用
+## 通过 Code Mode 调用
 
-调用 `tsgw_generate_image`：
+生成和编辑统一通过 `codemode` 执行 `tools.tsgw_generate_image()` 或 `tools.tsgw_edit_image()`，不要直接发起图片工具调用。检查状态和返回文件后，**按用户意图处理图片，不强制预览或展示**。Code Mode 不可用时说明调用条件不足，不改用直接调用或擅自修改配置。
+
+已实测的路径是 Code Mode 生成后读图并展示；该验证未覆盖编辑或直接调用。这里规定的是技能调用方式，不代表直接调用必然失败，也不代表此前未发出调用的底层原因已修复。
+
+- 读取技能或说“现在生成”不算执行。收到生成任务后，应实际调用工具并检查结果；没有工具结果，不得声称已生成。
+- 图片工具有 `outputSchema`，Code Mode 内嵌调用返回结构化状态和文件列表。保存、发送或继续编辑可以直接使用返回文件，无需先 `read` 或 `image()`；需要在对话中展示时，才读取文件并显式执行 `image(block)`。`text(result)` 仅报告状态和路径，不等于展示、发送或最终存储已完成；不要打印图片 base64。
+- 工具本身直接调用时会返回图片块，但本技能使用 Code Mode 的结构化返回与文件处理流程；不要把内嵌调用等同于已向对话输出图片。
+
+完整生成示例（一次请求，默认 Sunburst）：默认只返回文件；**任务需要在对话中展示时，将 `display` 改为 `true`**。若已有生成结果，只处理已有文件，不要重新运行生图调用。
+
+```js
+// @options: {"timeout_ms": 660000, "max_output_tokens": 2000}
+const display = false; // 按用户意图设置；仅需要在对话中展示时改为 true。
+let result;
+try {
+  result = await tools.tsgw_generate_image({
+    prompt: "横版中国水墨山水画，远山、薄雾、一叶扁舟，不要文字、题款、印章或水印。",
+    size: "1536x1024"
+  });
+} catch {
+  text({ error: "图片调用未正常返回；请检查已有工具结果。上游是否已处理或计费可能未知，不自动重试或换模型。" });
+  return;
+}
+text(result);
+
+if (result?.requestStatus !== "succeeded" || result.phase !== "complete") {
+  text({ error: result?.requestStatus === "succeeded"
+    ? "上游已成功，但结果处理或保存未完成；不要重新生成。"
+    : "未确认生成完成；按工具结果说明状态，不自动重试。" });
+  return;
+}
+if (!Array.isArray(result.files) || result.files.length === 0) {
+  text({ error: "工具报告完成但没有返回文件，无法继续交付；不要重新生成。" });
+  return;
+}
+
+if (!display) return; // 返回文件可用于保存、发送或继续编辑，不必读图预览。
+let displayed = 0;
+for (const file of result.files) {
+  try {
+    const block = await tools.read({ path: file.path });
+    if (block && typeof block === "object" && block.type === "image") {
+      image(block);
+      displayed++;
+    } else {
+      text({ error: "文件已生成，但未能读取为图片", path: file.path });
+    }
+  } catch {
+    text({ error: "文件已生成，但读取或展示失败；保留此路径，不要重新生成", path: file.path });
+  }
+}
+text({ generated: true, imagesEmitted: displayed, fileCount: result.files.length });
+```
+
+### 按意图处理返回文件
+
+| 用户意图 | 后续操作 |
+| --- | --- |
+| 展示图片 | 对返回文件执行 `tools.read()`，再 `image(block)`；`imagesEmitted` 只统计已输出的图片块 |
+| 保存图片 | 使用原始文件保存到用户要求的位置；工具返回的是临时路径，不等于已完成指定位置的持久保存 |
+| 发送或上传 | 将文件交给相应的可用工具，在已有授权范围内执行；依据发送或上传结果确认完成 |
+| 继续编辑 | 将原始文件路径用于下一次 `images[].path`，不必先读取预览 |
+
+后续读取、展示、保存或发送失败，与图片生成失败分开报告；保留已生成文件，只处理失败的后续步骤，不重新生图。
+
+## Code Mode 参数示例
+
+以下是传给 Code Mode 中相应 `tools.*` 调用的参数，不是直接工具调用指令，也不要逐个执行。
+
+`tools.tsgw_generate_image()` 的最简参数：
 
 ```json
 {
@@ -37,7 +106,7 @@ compatibility: 需要 Pi 1.2+、pi-tsgw 图片工具及可用的 tsgw 图片模�
 }
 ```
 
-调用 `tsgw_edit_image` 修改本地图片，蒙版对应第一张原图：
+在上述 Code Mode 脚本中，将生成调用替换为 `tools.tsgw_edit_image()` 并传入以下参数即可编辑本地图片；蒙版对应第一张原图。沿用状态检查，再按用户意图处理返回文件；仅需展示时使用读图和 `image(block)` 步骤。**这是编辑契约示例，本次 Code Mode 实测未覆盖编辑。**
 
 ```json
 {
@@ -71,6 +140,11 @@ compatibility: 需要 Pi 1.2+、pi-tsgw 图片工具及可用的 tsgw 图片模�
 
 自定义尺寸：宽高都是 16 的倍数，单边至多 3840，长短边比例至多 3，总像素为 655360–8294400；超过 3686400 像素属于上游实验范围。
 
-## 使用结果
+## 超时、安全与结果
 
-工具返回图片及原始文件的临时路径。根据返回结果展示或交付图片；继续编辑时，可以将该原始文件路径放入下一次 `images[].path`。若结果带 `usage_note`，按其说明报告计量状态；多图流式的逐事件用量可能无法确定汇总值。
+- 生成可能耗时数分钟。工具请求默认 `600000ms`；Code Mode 示例用 `660000ms` 为调用、读图和输出留余量。延长请求的 `timeout_ms` 时，脚本截止也要相应留余量；脚本超时可能无法进入示例的 catch，仍应核对已有结果而不是再次生图。
+- 请求失败、取消或超时不代表上游未处理或未计费；不自动重试或换模型。费用显示为 0 表示尚未映射准确价格，不表示免费。
+- `requestStatus: succeeded`、`phase: complete` 和返回文件是生成完成的依据。生成成功不代表展示、发送或指定位置的保存也成功；只有任务要求的后续操作实际完成，才能作相应声明。没有展示要求时，不把未展示视为失败。
+- 实际格式及尺寸以工具返回的 `files[].mimeType/width/height` 为准，不把请求的 `size` 直接当作最终尺寸。`read` 预览可能缩放或转码；继续编辑时使用原始文件的 `images[].path`，不要把预览当作原图。
+- 本地/内联图片每个小于 50 MB，参考图与蒙版合计不超过 100 MB。原文件读取和外传由图片工具及宿主权限控制，不等于内置 `read` 的审批或沙箱；不绕过宿主对读图或工具的限制。
+- 若结果带 `usage_note`，按其说明报告计量状态；多图流式的逐事件用量可能无法确定汇总值。
