@@ -84,7 +84,7 @@ try {
 			const { url, init } = h.calls[0];
 			assert.equal(url, "https://gateway.example/v1/images/generations");
 			assert.equal(init.method, "POST"); assert.equal(init.redirect, "error"); assert.ok(init.signal instanceof AbortSignal);
-			assert.deepEqual(JSON.parse(String(init.body)), { model: id, prompt: "画猫\n水彩", n: 1, quality: "auto", size: "auto", output_format: "png" });
+			assert.deepEqual(JSON.parse(String(init.body)), { model: id, prompt: "画猫\n水彩", n: 1, quality: "auto", size: "auto", background: "auto", output_format: "png", moderation: "auto", stream: false });
 			const headers = new Headers(init.headers);
 			assert.equal(headers.get("authorization"), `Bearer ${KEY}`); assert.equal(headers.get("content-type"), "application/json");
 		}
@@ -139,7 +139,7 @@ try {
 		});
 		assert.equal(result.stopReason, "stop"); assert.equal(responseHook, true); assert.equal(result.output.length, 1);
 		assert.deepEqual(JSON.parse(String(h.calls[0].init.body)), { model: selected.id, prompt: PROMPT,
-			n: 1, quality: "high", size: "1024x1024", output_format: "png", custom: { keep: true }, user: "test-user" });
+			n: 1, quality: "high", size: "1024x1024", background: "auto", output_format: "png", moderation: "auto", stream: false, custom: { keep: true }, user: "test-user" });
 		const mutate = mockFetch();
 		assert.equal((await generateImages(selected, ctx, { apiKey: KEY, fetch: mutate.fetch, onPayload: payload => {
 			(payload as Record<string, unknown>).quality = "low"; return undefined;
@@ -148,11 +148,10 @@ try {
 		assert.equal(ctx.input[0].type === "text" && ctx.input[0].text, PROMPT);
 	});
 
-	await test("空输入、图片、空文本块、超长 prompt 和非目标模型在发请求前失败", async () => {
+	await test("空输入、无提示词图片、空文本块、超长 prompt 和非目标模型在发请求前失败", async () => {
 		for (const input of [[], [{ type: "text", text: "" }], [{ type: "text", text: " \n" }],
 			[{ type: "image", data: PNG, mimeType: "image/png" }], [{ type: "text", text: "x".repeat(32001) }],
-			[{ type: "text", text: "x".repeat(16000) }, { type: "text", text: "y".repeat(16000) }],
-			[{ type: "text", text: "ok" }, { type: "image", data: PNG, mimeType: "image/png" }]] as ImagesContext["input"][]) await failedInput(input);
+			[{ type: "text", text: "x".repeat(16000) }, { type: "text", text: "y".repeat(16000) }]] as ImagesContext["input"][]) await failedInput(input);
 		for (const changed of [{ id: "gpt-image-unknown" }, { api: "openai-completions" }, { provider: "other" }, { type: "chat" }]) {
 			await failedInput(context().input, {}, { ...model(), ...changed } as ImageModel<ImageApi>);
 		}
@@ -160,9 +159,9 @@ try {
 		assert.equal((await generateImages(model(), { input: [{ type: "text", text: "x".repeat(32000) }] }, { apiKey: KEY, fetch: h.fetch })).stopReason, "stop");
 	});
 
-	await test("最终 payload 固定模型、n=1、PNG、prompt 上限和受限质量/尺寸，不被 toJSON 绕过", async () => {
-		for (const patch of [{ model: IMAGE_MODEL_IDS[1] }, { n: 2 }, { n: "1" }, { output_format: "jpeg" },
-			{ prompt: "" }, { prompt: " " }, { prompt: "x".repeat(32001) }, { quality: "ultra" }, { quality: null },
+	await test("最终 payload 固定模型、合法张数/格式、prompt 上限和受限质量/尺寸，不被 toJSON 绕过", async () => {
+		for (const patch of [{ model: IMAGE_MODEL_IDS[1] }, { n: 11 }, { n: "1" }, { output_format: "gif" },
+			{ prompt: "" }, { prompt: " " }, { prompt: "x".repeat(32001) }, { quality: "ultra" }, { background: "invalid" },
 			{ size: "1024X1024" }, { size: "1024x1024\n" }, { size: "1025x1024" }, { size: "640x1008" }, { size: "640x1936" },
 			{ size: "3856x2048" }, { size: "3840x3840" }, { size: "0x1024" }, { size: "auto " }]) await failedPayload(patch);
 		await failedPayload(() => null);
@@ -372,18 +371,18 @@ try {
 			assert.equal(h.calls.length, stage === "onPayload" ? 0 : 1);
 			if (stage !== "onPayload") assert.equal(h.calls[0].init.signal?.aborted, true);
 		}
-		for (const timeoutMs of [-1, NaN, Infinity]) await failedInput(context().input, { timeoutMs });
+		for (const timeoutMs of [-1, NaN, Infinity, 2_147_483_648]) await failedInput(context().input, { timeoutMs });
 		await failedInput(context().input, { timeoutMs: 0 });
 	});
 
-	await test("默认截止 300000ms；调用方不能延长固定截止", async t => {
+	await test("默认截止 600000ms；调用方可明确延长截止，不把默认值当硬限制", async t => {
 		t.mock.timers.enable({ apis: ["setTimeout"] });
-		for (const timeoutMs of [undefined, 600_000]) {
+		for (const timeoutMs of [undefined, 900_000, 2_147_483_647]) {
 			let entered!: () => void;
 			const started = new Promise<void>(resolve => { entered = resolve; });
 			const h = mockFetch(() => { entered(); return new Promise(() => {}); });
 			const pending = generateImages(model(), context(), { apiKey: KEY, fetch: h.fetch, timeoutMs });
-			await started; t.mock.timers.tick(299_999);
+			await started; t.mock.timers.tick((timeoutMs ?? 600_000) - 1);
 			assert.equal(h.calls[0].init.signal?.aborted, false);
 			t.mock.timers.tick(1);
 			assert.match((await pending).errorMessage!, /超时/); assert.equal(h.calls.length, 1);

@@ -51,8 +51,9 @@
 - 新模型改 vendor；新供应商接入 catalog，有策略则接入 operations。补逐 ID、档位及非目标字段保留测试，不只检查总数量。
 - 调整模型目录、规格、thinking 档位、价格或选型依据时，同步检查 `skills/tsgw-delegate-model-selection/SKILL.md` 的选型表与说明是否需要更新，并按需修改对应测试。参考表由插件维护，使用技能的模型直接参考，不承担查榜、实时核验或时效判断职责。
 - 静态目录与网关目录取交集后再应用用户过滤，不自动登记未知 ID。include 优先于 exclude，但不能突破该交集；两者只支持精确 ID 和尾部 `*` 前缀匹配。
-- 原生图片仅在 Pi `VERSION` 为 1.2.0 或更高稳定版本时注册 `type: image` 的 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`；低版本不注册图片模型/adapter，但聊天保持原功能，不提高最低 peer，也不以策略说明冒充旧版真实验收。图片走现有 tsgw provider、`baseUrl` 和宿主凭据解析，不增加 MCP 注册、HTTP 客户端 SDK 依赖或服务端改动。初版仅文生图、单张 PNG；不自动登记裸别名或其他图片模型。图片不作为聊天模型或搜索代理候选；状态计数含实际登记的聊天与图片模型。
-- 图片 API 最小适配 `POST /v1/images/generations`，默认 300s、支持 signal 和更短的 `options.timeoutMs`；严禁自动重试或自动切模型，不声称取消必然停止上游处理/计费。codemode 的 `models.generateImages` 原生形式仅两个参数；核查 `stopReason` 与 image 内容，再展示图片并取临时路径。没有 MCP 不代表宿主启用了 codemode；文档仅提示必要时手动为 `defaultTools` 加 `+codemode`，不代用户写配置。
+- 原生图片仅在 Pi `VERSION` 为 1.2.0 或更高稳定版本时注册 `type: image` 的 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`；低版本不注册图片模型/adapter，但聊天保持原功能，不提高最低 peer，也不以策略说明冒充旧版真实验收。图片走现有 tsgw provider、`baseUrl` 和宿主凭据解析，不增加 MCP 注册、HTTP 客户端 SDK 依赖或服务端改动。生成与编辑共用图片适配器，默认单张 PNG 而不是写死上游能力；不自动登记裸别名或其他图片模型。图片不作为聊天模型或搜索代理候选；状态计数含实际登记的聊天与图片模型。
+- 图片 API 适配 `/v1/images/generations` 和 `/v1/images/edits`；两个直接工具 `tsgw_generate_image` / `tsgw_edit_image` 共用宿主 registry/认证与适配器，不要求 codemode。支持上游明确适用于两款模型的参数及组合，默认值用于减少传参，不作为任意功能限制；旧模型字段不机械搬入。默认请求 600s，支持 signal 和显式 timeout 覆盖；严禁自动重试或自动切模型，不声称取消必然停止上游处理/计费。原生 `models.generateImages` 仍仅两个参数，`context.tsgw` 是本插件扩展，不冒称宿主原生参数。
+- 编辑本地输入按工具整体权限读取原始文件字节，不借用会缩放/转码的 read 预览；不宣传为内置 read 的路径审批或沙箱。图片 URL/file_id 交上游解析，不自行下载或另建文件上传服务。蒙版与原图的尺寸、格式、alpha 校验按可验证输入执行；远端引用的不可本地验证项明确交上游。工具输出保存原始字节，宿主预览可能转换；流式响应消费不等于 Pi Web 渐进预览。
 - 图片价格 0 表示未映射准确价格，不是免费；usage 只含上游报告的有效 tokens。图片真实端点验收需明确授权，模拟测试不能替代真实端点验证。
 - 缓存按网关与凭据隔离，不存明文凭据。过期/失败回退不得重置 `storedAt`；force 绕过新鲜缓存；迟到请求不得覆盖新缓存。旧格式或不同 scope 的磁盘数据不能直接信任。
 - 带 signal 的请求独立取消，不共享调用者 signal；磁盘写入失败不阻断目录使用。入口和底层缓存分别保护乱序，不能互相替代。

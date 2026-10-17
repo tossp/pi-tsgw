@@ -142,13 +142,18 @@ Pi 1.2+ 可在现有 `tsgw` provider 中注册 `gpt-image-2.5-flare` 和
 `gpt-image-2.5` 或其他图片模型。需要按前缀纳入时可用 `"includeModels": ["gpt-image-2.5*"]`，
 但 include 不能突破目录交集。
 
-初版仅支持文生图：一次生成一张 PNG，不支持图片编辑。图片模型不出现在聊天模型选择器中，
-也不会作为聊天模型提供给搜索代理。使用 Pi codemode 前提是宿主已启用该工具；本扩展不因
-没有 MCP 就自动启用工具。若宿主的 `defaultTools` 未包含 `codemode`，只在确有需要时手动
-启用 `+codemode`。具体调用、超时、结果与价格语义见[图片生成维护与使用说明](extensions/images/README.md)。
+图片能力提供两个直接工具：`tsgw_generate_image` 从文字生成图片，`tsgw_edit_image` 使用原图和可选蒙版编辑。
+它们共用宿主 `modelRegistry.generateImages()` 和同一图片适配器，不要求启用 codemode。
+默认使用 Sunburst 生成一张 PNG，草稿任务可选 Flare；质量、尺寸、格式、压缩、数量、背景及流式参数可按需覆盖。
+工具返回图片和保存原始字节的临时路径；编辑支持本地文件、图片 URL/data URI 或上游文件 ID。
+图片模型不进入聊天选择器或搜索代理。原生 codemode 调用仍可用；调用、文件权限、超时及结果边界见
+[图片生成维护与使用说明](extensions/images/README.md)。
+
+随包 [tsgw-image-generation](skills/tsgw-image-generation/SKILL.md) 技能提供生成、编辑、模型选型和参数示例；
+可以直接描述需要的图片，也可使用 `/skill:tsgw-image-generation` 显式加载技能。
 
 图片价格显示为 0 表示尚未映射准确价格，不是免费；usage 只统计上游已报告的有效 tokens。
-当前说明不代表已完成真实网关图片生成验收。
+隔离测试不替代真实网关对各参数、编辑、流式和图片展示的逐项验收。
 
 ## 状态栏与会话控制
 
@@ -203,6 +208,7 @@ Pi Web 可能要等会话运行时启动后才显示扩展状态。
 
 | 技能 | 用途 |
 | --- | --- |
+| [tsgw-image-generation](skills/tsgw-image-generation/SKILL.md) | 通过两个图片工具生成或编辑图片，按草稿/成稿选择模型，并说明默认值和完整可选参数。 |
 | [tsgw-git-commit](skills/tsgw-git-commit/SKILL.md) | 暂存内容核验、分批提交与中文提交说明；包含支持 worktree 的只读仓库发现脚本。 |
 | [tsgw-github](skills/tsgw-github/SKILL.md) | 使用 gh 查询与维护 issue、PR、CI，安全发布正文并核验 Actions 升级。 |
 | [tsgw-mk-docs](skills/tsgw-mk-docs/SKILL.md) | 需求、设计、执行计划、术语和状态证据的文档治理，含参考清单与模板，不依赖审阅插件。 |
@@ -228,7 +234,7 @@ GLM 指导使用 5.3，并以 Flash 和 FlashX 为备选。思考级别使用 Pi
 包设置中的 `skills: []` 可禁用全部技能，`skills: ["skills/tsgw-git-commit"]` 可仅加载指定技能，
 或用 `skills: ["!skills/tsgw-git-commit/**"]` 排除该技能；由宿主处理，不是 `tsgw` 配置项。
 
-只有模型选型技能需要宿主提供支持模型选择的子代理工具及可用的 `tsgw` 模型；通用开发技能不绑定模型 provider。
+模型选型技能需要宿主提供支持模型选择的子代理工具及可用的 `tsgw` 模型；图片生成技能需要 Pi 1.2+、图片工具与可用的 `tsgw` 图片模型。通用开发技能不绑定模型 provider。
 本包不提供子代理工具，也不改变调度设置、用户规则文件或宿主权限。
 
 ### 记忆规则注入

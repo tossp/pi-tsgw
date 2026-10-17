@@ -14,7 +14,7 @@ import { modelsForRoot, PROVIDER_ID } from "../models/catalog.ts";
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const BYTES = Buffer.from(PNG, "base64");
 const PROMPT = "isolated synthetic pixel, not a paid generation";
-const EXISTING_TOOLS = ["codemode", "tsgw_search", "upload_local_file"];
+const EXISTING_TOOLS = ["codemode", "tsgw_edit_image", "tsgw_generate_image", "tsgw_search", "upload_local_file"];
 const context = { input: [{ type: "text" as const, text: PROMPT }] };
 
 /** 无论运行源码还是 dist，始终交给真实 DefaultResourceLoader/jiti 加载源码入口。 */
@@ -148,7 +148,7 @@ test("Pi 1.2 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 		};
 		const tools = () => activeSession.extensionRunner.getAllRegisteredTools().map(tool => tool.definition.name).sort();
 
-		await t.test("混合注册保持 36 chat + 2 image，聊天选择目录不含 image；图片不注册新工具", async () => {
+		await t.test("混合注册保持 36 chat + 2 image，两个图片工具与原生调用并存", async () => {
 			assert.equal(modelsForRoot(TEST_ROOT).length, 36);
 			assert.deepEqual(runtime.getModels(PROVIDER_ID).map(model => model.id).sort(), modelsForRoot(TEST_ROOT).map(model => model.id).sort());
 			assert.equal(runtime.getAllModels(PROVIDER_ID).length, 38);
@@ -157,11 +157,11 @@ test("Pi 1.2 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 			for (const id of IMAGE_MODEL_IDS) {
 				assert.equal(runtime.getModel(PROVIDER_ID, id), undefined);
 				assert.equal(image(id).api, IMAGE_API);
-				assert.deepEqual(image(id).input, ["text"]);
+				assert.deepEqual(image(id).input, ["text", "image"]);
 			}
-			assert.deepEqual(tools(), EXISTING_TOOLS, "只允许既有搜索/上传工具与显式宿主 codemode");
+			assert.deepEqual(tools(), EXISTING_TOOLS, "仅增加两个明确图片工具，保持既有工具");
 			assert.deepEqual([...loader.getExtensions().extensions.find(extension => extension.path === entry)!.tools.keys()].sort(),
-				["tsgw_search", "upload_local_file"]);
+				["tsgw_edit_image", "tsgw_generate_image", "tsgw_search", "upload_local_file"]);
 		});
 
 		await t.test("无认证图片不可用，失败不发 HTTP；同一个 runtime key 解锁 chat 和 image", async () => {
@@ -224,7 +224,7 @@ test("Pi 1.2 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 				assert.equal(request.body.output_format, "png");
 				assert.equal(request.headers.get("x-host-fixture"), id);
 				assert.equal(request.headers.get("x-host-transform"), "yes");
-				assert.deepEqual(Object.keys(request.body).sort(), ["model", "n", "output_format", "prompt", "quality", "size"],
+				assert.deepEqual(Object.keys(request.body).sort(), ["background", "model", "moderation", "n", "output_format", "prompt", "quality", "size", "stream"],
 					"图片请求不继承聊天历史、工具或思考参数");
 				assert.equal(request.headers.has("AH-Thread-Id"), false, "原生图片不借用主聊天的追踪头");
 				assert.equal(request.headers.has("AH-Trace-Id"), false);
@@ -250,7 +250,7 @@ text("native-images-completed");`;
 			assert.equal(script, undefined, "SSE 必须已由真实聊天适配器消费");
 			assert.equal(imageRequests.length, before + 2, "每个模型恰好一次 HTTP");
 			const results = activeSession.messages.filter(message => message.role === "toolResult");
-			assert.equal(results.length, 1, "不新增图片工具或嵌套 transcript 工具结果");
+			assert.equal(results.length, 1, "原生 codemode 路径保持单个父工具结果");
 			const parent = results[0]!;
 			assert.equal(parent.toolName, "codemode");
 			assert.equal(parent.isError, false, JSON.stringify(parent.content));

@@ -85,6 +85,11 @@ test("Pi SDK 通过包清单发现随包技能并遵守过滤规则", { timeout:
 			assert.equal(loaded.filePath, join(root, "skills", loaded.name, "SKILL.md"));
 			assert.equal(loaded.sourceInfo.origin, "package");
 		}
+		const imageSkill = loader.getSkills().skills.find(skill => skill.name === "tsgw-image-generation");
+		assert.ok(imageSkill, "生图技能必须由包清单发现");
+		assert.equal(imageSkill.disableModelInvocation, false);
+		assert.match(imageSkill.description, /生成图片、生图或画图/);
+		assert.match(formatSkillsForPrompt([imageSkill]), /<name>tsgw-image-generation<\/name>/);
 		const selected = makeLoader(["skills/tsgw-delegate-model-selection"]);
 		await selected.reload();
 		assert.deepEqual(selected.getSkills().diagnostics, []);

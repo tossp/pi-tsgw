@@ -118,7 +118,7 @@ export const OPENAI_IMAGE_MODEL_IDS = ["gpt-image-2.5-flare", "gpt-image-2.5-sun
 export type OpenAIImageModelConfig = Extract<AnyModelConfig, { type: "image" }>;
 
 /**
- * 图片接口依据见记忆系统 942；仅登记本插件已实现的文生图能力，不宣称支持编辑。
+ * 图片接口依据见记忆系统 942；两款模型共用生成与编辑适配。
  * 价格暂未纳入计费映射，0 表示未知而非免费；不混入 openaiModels 的聊天目录。
  */
 export function openaiImageModels(root: string): OpenAIImageModelConfig[] {
@@ -126,7 +126,7 @@ export function openaiImageModels(root: string): OpenAIImageModelConfig[] {
 		type: "image", id,
 		name: index === 0 ? "GPT Image 2.5 Flare" : "GPT Image 2.5 Sunburst",
 		api: OPENAI_IMAGE_API, baseUrl: `${root}/v1`,
-		input: ["text"], output: ["image"],
+		input: ["text", "image"], output: ["image"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 	}));
 }

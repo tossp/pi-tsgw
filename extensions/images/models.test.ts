@@ -16,7 +16,7 @@ test("图片目录：仅两个精确 ID，能力、地址与未知价格显式�
 		assert.equal(model.type, "image");
 		assert.equal(model.api, IMAGE_API);
 		assert.equal(model.baseUrl, `${root}/v1`);
-		assert.deepEqual(model.input, ["text"]);
+		assert.deepEqual(model.input, ["text", "image"]);
 		assert.deepEqual(model.output, ["image"]);
 		assert.deepEqual(model.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
 		assert.equal("reasoning" in model, false);
@@ -58,8 +58,9 @@ test("图片登记：同一个 tsgw 保留聊天模型并复用宿主密钥声�
 	assert.ok(provider.models?.some(model => model.id === "deepseek-flash"));
 	assert.equal(provider.models?.some(model => model.id === "gpt-6-luna"), false);
 	assert.equal(typeof provider.images?.[IMAGE_API]?.generateImages, "function");
-	assert.deepEqual(pi.tools.map(tool => (tool as { name: string }).name), ["upload_local_file", "tsgw_search"],
-		"复用原生图片 API，不新增平行生图工具");
+	assert.deepEqual(pi.tools.map(tool => (tool as { name: string }).name),
+		["upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_search"],
+		"两个图片工具与原生图片 API 共用 provider");
 });
 
 test("图片刷新：include 不突破网关交集，失败与离线保留混合目录", async () => {
