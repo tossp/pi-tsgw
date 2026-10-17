@@ -1,6 +1,6 @@
 import { deepStrictEqual, equal } from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
@@ -9,6 +9,7 @@ import {
 	getGatewayModelIds,
 	gatewayModelCacheScope,
 	loadGatewayModelCache,
+	readGatewayModelCacheSummary,
 	saveGatewayModelCache,
 	type GatewayFetch,
 } from "./gateway-catalog.ts";
@@ -28,6 +29,40 @@ function success(ids: string[]): GatewayFetch {
 			headers: { "content-type": "application/json" },
 		});
 }
+
+test("缓存摘要与启动加载共用格式校验，保留作用域恢复边界", (t) => {
+	const { baseUrl, cacheFilePath } = fixture(t);
+	const scope = gatewayModelCacheScope(baseUrl, "key");
+	saveGatewayModelCache(cacheFilePath, scope, [" known ", "known", "unknown-model"], 123);
+	deepStrictEqual(readGatewayModelCacheSummary(cacheFilePath, 123), {
+		cacheFilePath, count: 2, storedAt: 123,
+	});
+	deepStrictEqual(loadGatewayModelCache(cacheFilePath, scope, 123), {
+		ids: ["known", "unknown-model"], fresh: true,
+	});
+	equal(loadGatewayModelCache(cacheFilePath, "other-scope", 123), undefined);
+	equal(readGatewayModelCacheSummary(cacheFilePath, 124), undefined);
+	// 摘要不对外暴露 scope，且不能用于绕过启动加载的身份校验。
+	equal(JSON.stringify(readGatewayModelCacheSummary(cacheFilePath, 123)).includes(scope), false);
+});
+
+test("缓存摘要拒绝缺失、畸形、空列表及无作用域文件", (t) => {
+	const { cacheFilePath } = fixture(t);
+	equal(readGatewayModelCacheSummary(cacheFilePath, 0), undefined);
+	for (const payload of [
+		"not-json", "null", "[]",
+		JSON.stringify({ storedAt: 123, ids: ["model"] }),
+		JSON.stringify({ scope: "", storedAt: 123, ids: ["model"] }),
+		JSON.stringify({ scope: "scope", storedAt: "123", ids: ["model"] }),
+		JSON.stringify({ scope: "scope", storedAt: -1, ids: ["model"] }),
+		JSON.stringify({ scope: "scope", storedAt: 123, ids: [] }),
+		JSON.stringify({ scope: "scope", storedAt: 123, ids: [" "] }),
+		JSON.stringify({ scope: "scope", storedAt: 123, ids: [1] }),
+	]) {
+		writeFileSync(cacheFilePath, payload);
+		equal(readGatewayModelCacheSummary(cacheFilePath, 0), undefined);
+	}
+});
 
 // 每个请求均注入 fetcher；所有测试均无法访问真实网络。
 function cacheOnly() {

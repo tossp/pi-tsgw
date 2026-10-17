@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ProviderConfig } from "@earendil-works/pi-coding-agent";
 import { filterModels, modelsForRoot } from "../models/catalog.ts";
-import { createPi, TEST_ROOT, withAgentDir, FakePi } from "../test-support.test.ts";
+import { createPiWithCatalog, TEST_ROOT, withAgentDir, FakePi } from "../test-support.test.ts";
 import registerTsgw from "../../index.ts";
 import { IMAGE_API, IMAGE_MODEL_IDS, imageModelsForRoot, supportsImageModels } from "./models.ts";
 
@@ -49,7 +49,7 @@ test("图片宿主基线：Pi 1.2 起启用，不抬高聊天模型最低兼容�
 });
 
 test("图片登记：同一个 tsgw 保留聊天模型并复用宿主密钥声明", async () => {
-	const pi = await createPi({ tsgw: { includeModels: ["gpt-image-2.5*"], excludeModels: ["gpt-*"] } });
+	const pi = await createPiWithCatalog({ tsgw: { includeModels: ["gpt-image-2.5*"], excludeModels: ["gpt-*"] } });
 	assert.equal(pi.providers.length, 1);
 	const provider = pi.providers[0].config as ProviderConfig;
 	assert.equal(provider.apiKey, "$TSGW_API_KEY");
@@ -59,7 +59,7 @@ test("图片登记：同一个 tsgw 保留聊天模型并复用宿主密钥声�
 	assert.equal(provider.models?.some(model => model.id === "gpt-6-luna"), false);
 	assert.equal(typeof provider.images?.[IMAGE_API]?.generateImages, "function");
 	assert.deepEqual(pi.tools.map(tool => (tool as { name: string }).name),
-		["upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_search"],
+		["upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_refresh_models", "tsgw_search"],
 		"两个图片工具与原生图片 API 共用 provider");
 });
 

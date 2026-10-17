@@ -3,7 +3,9 @@ import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS } from "../models/gateway-catalog.ts
 
 export interface CatalogStatus {
 	count: number;
-	source: "static" | "cache" | "network";
+	source: "static" | "empty" | "cache" | "network";
+	/** 当前入口采用的新鲜度窗口；启动为 7 天，运行时为 24 小时。 */
+	ttlMs?: number;
 	/** 网关目录真实获取时间；从缓存读取时保留原值，不重置为读取时间。 */
 	storedAt?: number;
 	loading: boolean;
@@ -13,6 +15,7 @@ export interface CatalogStatus {
 
 const SOURCE_LABELS = {
 	static: "内置静态",
+	empty: "无可用目录",
 	cache: "缓存",
 	network: "网关",
 } as const;
@@ -20,7 +23,7 @@ const SOURCE_LABELS = {
 function fetchedAt(state: CatalogStatus): number | undefined {
 	const time = state.storedAt;
 	if (
-		state.source === "static" ||
+		(state.source === "static" || state.source === "empty") ||
 		time === undefined ||
 		!Number.isFinite(time) ||
 		time < 0 ||
@@ -33,7 +36,7 @@ function freshness(state: CatalogStatus, now: number): "新鲜" | "过期" | "�
 	const time = fetchedAt(state);
 	if (time === undefined || !Number.isFinite(now)) return "未知";
 	// 与目录缓存一致：时钟回拨不判过期，达到 TTL 则过期。
-	return Math.max(0, now - time) < DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS
+	return Math.max(0, now - time) < (state.ttlMs ?? DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS)
 		? "新鲜"
 		: "过期";
 }

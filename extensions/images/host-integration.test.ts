@@ -14,7 +14,7 @@ import { modelsForRoot, PROVIDER_ID } from "../models/catalog.ts";
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const BYTES = Buffer.from(PNG, "base64");
 const PROMPT = "isolated synthetic pixel, not a paid generation";
-const EXISTING_TOOLS = ["codemode", "tsgw_edit_image", "tsgw_generate_image", "tsgw_search", "upload_local_file"];
+const EXISTING_TOOLS = ["codemode", "tsgw_edit_image", "tsgw_generate_image", "tsgw_refresh_models", "tsgw_search", "upload_local_file"];
 const context = { input: [{ type: "text" as const, text: PROMPT }] };
 
 /** 无论运行源码还是 dist，始终交给真实 DefaultResourceLoader/jiti 加载源码入口。 */
@@ -147,6 +147,37 @@ test("Pi 1.2 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 			return model;
 		};
 		const tools = () => activeSession.extensionRunner.getAllRegisteredTools().map(tool => tool.definition.name).sort();
+		const reloadWithCatalog = async () => {
+			const before = sandbox.catalogCalls;
+			await activeSession.reload();
+			assert.deepEqual(runtime.getAllModels(PROVIDER_ID), [], "无已存储凭据的源码重载不得静态恢复模型");
+			assert.equal(sandbox.catalogCalls, before);
+			const result = await runtime.refresh({ providers: [PROVIDER_ID], allowNetwork: true, force: true });
+			assert.equal(result.aborted, false);
+			assert.deepEqual([...result.errors], []);
+			assert.equal(sandbox.catalogCalls, before + 1);
+		};
+
+		await t.test("无凭据真实启动为零模型；仅真实 runtime 刷新建立目录，移除 key 后保留已知模型", async () => {
+			assert.deepEqual(runtime.getModels(PROVIDER_ID), []);
+			assert.deepEqual(runtime.getAllModels(PROVIDER_ID), []);
+			for (const type of ["chat", "image", "classifier"] as const)
+				assert.deepEqual(runtime.getModelsOfType(type, PROVIDER_ID), []);
+			assert.equal(sandbox.catalogCalls, 0);
+			await runtime.setRuntimeApiKey(PROVIDER_ID, TEST_KEY);
+			assert.deepEqual(runtime.getAllModels(PROVIDER_ID), [], "配置 runtime key 本身不恢复静态目录");
+			sandbox.catalogIds = [...modelsForRoot(TEST_ROOT).map(model => model.id), ...IMAGE_MODEL_IDS];
+			const result = await runtime.refresh({ providers: [PROVIDER_ID], allowNetwork: true, force: true });
+			assert.equal(result.aborted, false);
+			assert.deepEqual([...result.errors], []);
+			assert.equal(sandbox.catalogCalls, 1);
+			assert.equal(runtime.getAllModels(PROVIDER_ID).length, sandbox.catalogIds.length);
+			await runtime.removeRuntimeApiKey(PROVIDER_ID);
+			assert.equal(runtime.getProviderAuthStatus(PROVIDER_ID).configured, false);
+			assert.equal(runtime.getAllModels(PROVIDER_ID).length, sandbox.catalogIds.length,
+				"移除认证不抹除已成功获取的目录，以便验证真正的认证失败");
+			assert.equal(sandbox.catalogCalls, 1);
+		});
 
 		await t.test("混合注册与当前构造目录一致，图片工具与原生调用并存", async () => {
 			const chatIds = modelsForRoot(TEST_ROOT).map(model => model.id).sort();
@@ -162,7 +193,7 @@ test("Pi 1.2 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 			}
 			assert.deepEqual(tools(), EXISTING_TOOLS, "仅增加两个明确图片工具，保持既有工具");
 			assert.deepEqual([...loader.getExtensions().extensions.find(extension => extension.path === entry)!.tools.keys()].sort(),
-				["tsgw_edit_image", "tsgw_generate_image", "tsgw_search", "upload_local_file"]);
+				["tsgw_edit_image", "tsgw_generate_image", "tsgw_refresh_models", "tsgw_search", "upload_local_file"]);
 		});
 
 		await t.test("无认证图片不可用，失败不发 HTTP；同一个 runtime key 解锁 chat 和 image", async () => {
@@ -173,7 +204,8 @@ test("Pi 1.2 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 				assert.ok(result.errorMessage);
 				assert.deepEqual(result.output, []);
 			}
-			assert.equal(imageRequests.length + sandbox.requests.length + sandbox.catalogCalls, 0);
+			assert.equal(imageRequests.length + sandbox.requests.length, 0, "无认证生成失败不得发起图片或聊天 HTTP");
+			assert.equal(sandbox.catalogCalls, 1, "认证失败不触发额外目录请求");
 			await runtime.setRuntimeApiKey(PROVIDER_ID, TEST_KEY);
 			assert.deepEqual(runtime.getProviderAuthStatus(PROVIDER_ID), { configured: true, source: "runtime" });
 			assert.deepEqual((await runtime.getAvailableOfType("chat", PROVIDER_ID)).map(model => model.id).sort(),
@@ -298,33 +330,36 @@ text("native-images-completed");`;
 
 		await t.test("include 图片通配覆盖 exclude gpt-*，不恢复其它 image 别名，reload 保持过滤", async () => {
 			configure({ excludeModels: ["gpt-*"], includeModels: ["gpt-image-2.5*"] });
-			await activeSession.reload();
+			await reloadWithCatalog();
 			assert.deepEqual(images().map(model => model.id), [...IMAGE_MODEL_IDS]);
+			assert.ok(runtime.getModels(PROVIDER_ID).length > 0, "过滤仍保留非 GPT 聊天模型");
 			assert.ok(runtime.getModels(PROVIDER_ID).every(model => !model.id.startsWith("gpt-")));
 			for (const alias of ["gpt-image-1", "gpt-image-1.5", "gpt-image-2", "gpt-image-2.5", "dall-e-3"])
 				assert.equal(runtime.getModelOfType("image", PROVIDER_ID, alias), undefined);
 			configure({ excludeModels: ["gpt-*"], includeModels: [IMAGE_MODEL_IDS[0]] });
-			await activeSession.reload();
+			await reloadWithCatalog();
 			assert.deepEqual(images().map(model => model.id), [IMAGE_MODEL_IDS[0]], "不自动拉回另一个图片别名");
 		});
 
-		await t.test("gateway refresh 只保留静态交集，失败保留目录，reload 不丢生效 image", async () => {
+		await t.test("gateway refresh 只保留静态交集，失败保留目录，reload 后 runtime 刷新恢复生效 image", async () => {
 			configure({ excludeModels: ["gpt-*"], includeModels: ["gpt-image-2.5*"] });
-			await activeSession.reload();
+			await reloadWithCatalog();
+			const before = sandbox.catalogCalls;
 			const chatId = modelsForRoot(TEST_ROOT).find(model => !model.id.startsWith("gpt-"))!.id;
 			sandbox.catalogIds = [chatId, IMAGE_MODEL_IDS[0], "gpt-image-unknown", "unknown-chat"];
 			await activeSession.prompt("/tsgw-refresh");
-			assert.equal(sandbox.catalogCalls, 1);
+			assert.equal(sandbox.catalogCalls, before + 1);
 			const expected = [chatId, IMAGE_MODEL_IDS[0]].sort();
 			assert.deepEqual(runtime.getAllModels(PROVIDER_ID).map(model => model.id).sort(), expected);
 			assert.deepEqual(images().map(model => model.id), [IMAGE_MODEL_IDS[0]], "include 不突破网关交集恢复 sunburst");
 			sandbox.catalogFails = true;
 			await activeSession.prompt("/tsgw-refresh");
-			assert.equal(sandbox.catalogCalls, 2);
+			assert.equal(sandbox.catalogCalls, before + 2, "运行时失败不得自动重试");
 			assert.deepEqual(runtime.getAllModels(PROVIDER_ID).map(model => model.id).sort(), expected);
 			sandbox.catalogFails = false;
-			await activeSession.reload();
-			assert.ok(image(IMAGE_MODEL_IDS[0]), "重载后生效图片模型及其实现必须仍可调度");
+			await reloadWithCatalog();
+			assert.deepEqual(runtime.getAllModels(PROVIDER_ID).map(model => model.id).sort(), expected);
+			assert.ok(image(IMAGE_MODEL_IDS[0]), "重载并真实刷新后图片模型及其实现仍可调度");
 			const result = await runtime.generateImages(image(IMAGE_MODEL_IDS[0]), context);
 			assert.equal(result.stopReason, "stop", result.errorMessage ?? "重载后图片应仍可生成");
 			assert.deepEqual(tools(), EXISTING_TOOLS);

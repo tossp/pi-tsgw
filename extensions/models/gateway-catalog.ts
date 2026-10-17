@@ -9,7 +9,8 @@ import {
 import { dirname, resolve } from "node:path";
 
 export const DEFAULT_GATEWAY_MODEL_TIMEOUT_MS = 5_000;
-export const DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS = 5 * 60 * 1_000;
+export const DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
+export const STARTUP_GATEWAY_MODEL_CACHE_TTL_MS = 7 * DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS;
 
 export type GatewayModelFailureReason =
 	| "http"
@@ -34,6 +35,10 @@ export interface FetchGatewayModelIdsOptions {
 export interface GetGatewayModelIdsOptions extends FetchGatewayModelIdsOptions {
 	cacheFilePath?: string;
 	force?: boolean;
+	/** 各入口独立判断新鲜度，但共用原始获取时间与缓存。 */
+	ttlMs?: number;
+	/** 仅启动无有效作用域缓存时允许失败后重试一次。 */
+	retryWithoutCache?: boolean;
 }
 
 export type FetchGatewayModelIdsResult =
@@ -187,10 +192,9 @@ export function gatewayModelCacheScope(baseUrl: string, apiKey: string): string 
 		.digest("hex");
 }
 
-function readGatewayModelCacheEntry(
+function readGatewayModelCacheSnapshot(
 	filePath: string,
-	scope: string,
-): ModelCacheEntry | undefined {
+): (ModelCacheEntry & { scope: string }) | undefined {
 	try {
 		const payload: unknown = JSON.parse(readFileSync(filePath, "utf8"));
 		if (!payload || typeof payload !== "object") return undefined;
@@ -200,21 +204,43 @@ function readGatewayModelCacheEntry(
 			ids?: unknown;
 		};
 		if (
-			!scope || storedScope !== scope ||
+			typeof storedScope !== "string" || !storedScope ||
 			typeof storedAt !== "number" ||
 			!Number.isFinite(storedAt) ||
 			storedAt < 0 ||
-			!Array.isArray(ids) ||
+			!Array.isArray(ids) || ids.length === 0 ||
 			!ids.every((id) => typeof id === "string" && id.trim())
 		)
 			return undefined;
 		return {
+			scope: storedScope,
 			storedAt,
 			ids: Array.from(new Set(ids.map((id) => id.trim()))),
 		};
 	} catch {
 		return undefined;
 	}
+}
+
+function readGatewayModelCacheEntry(
+	filePath: string,
+	scope: string,
+): ModelCacheEntry | undefined {
+	const snapshot = readGatewayModelCacheSnapshot(filePath);
+	if (!scope || snapshot?.scope !== scope) return undefined;
+	return { storedAt: snapshot.storedAt, ids: snapshot.ids };
+}
+
+/** 刷新后的文件摘要；只确认可读性与获取时间，不用于恢复目录或认证作用域。 */
+export function readGatewayModelCacheSummary(
+	cacheFilePath: string,
+	minimumStoredAt: number,
+): { cacheFilePath: string; count: number; storedAt: number } | undefined {
+	if (!Number.isFinite(minimumStoredAt) || minimumStoredAt < 0) return undefined;
+	const snapshot = readGatewayModelCacheSnapshot(cacheFilePath);
+	if (!snapshot || !snapshot.ids.length || snapshot.storedAt < minimumStoredAt)
+		return undefined;
+	return { cacheFilePath, count: snapshot.ids.length, storedAt: snapshot.storedAt };
 }
 
 function isCacheEntryFresh(
@@ -289,7 +315,7 @@ function cacheFor(key: string): ModelCache {
 }
 
 /**
- * 加载网关模型 ID，使用有效期为五分钟的进程内缓存。
+ * 加载网关模型 ID，默认有效期为 24 小时；启动入口可指定 7 天。
  *
  * 缓存未过期时直接返回，不进行输入输出。刷新失败时，若有过期缓存则回退使用；
  * 否则返回获取失败的结果。
@@ -302,9 +328,12 @@ export async function getGatewayModelIds(
 ): Promise<GetGatewayModelIdsResult> {
 	if (opts.signal?.aborted) return { ok: false, reason: "aborted" };
 	const key = gatewayModelCacheScope(baseUrl, apiKey);
+	const ttlMs = opts.ttlMs ?? DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS;
+	if (!Number.isFinite(ttlMs) || ttlMs < 0) throw new RangeError("ttlMs 必须是非负有限数值");
 	const cache = cacheFor(key);
-	if (!opts.force && cache.isFresh(now)) {
-		const entry = cache.get();
+	const memoryEntryBefore = cache.get();
+	if (!opts.force && memoryEntryBefore && isCacheEntryFresh(memoryEntryBefore, now, ttlMs)) {
+		const entry = memoryEntryBefore;
 		if (entry)
 			return {
 				ok: true,
@@ -321,7 +350,7 @@ export async function getGatewayModelIds(
 	if (
 		!opts.force &&
 		diskEntry &&
-		isCacheEntryFresh(diskEntry, now, DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS)
+		isCacheEntryFresh(diskEntry, now, ttlMs)
 	) {
 		cache.set(diskEntry.ids, diskEntry.storedAt);
 		return {
@@ -333,7 +362,8 @@ export async function getGatewayModelIds(
 		};
 	}
 
-	const requestKey = `${key}\0${opts.force ? "force" : "normal"}`;
+	const retry = opts.retryWithoutCache === true && !memoryEntryBefore && !diskEntry;
+	const requestKey = `${key}\0${opts.force ? "force" : "normal"}\0${retry}\0${opts.timeoutMs ?? DEFAULT_GATEWAY_MODEL_TIMEOUT_MS}`;
 	// 共享请求无法安全地继承某个调用者的 AbortSignal：较新的调用者仍在等待时，
 	// Pi 可能已替换该次刷新。只有不带信号的调用共享进行中的请求；
 	// 可取消的调用独立发起获取请求。
@@ -345,11 +375,11 @@ export async function getGatewayModelIds(
 		request = {
 			revision: requestRevision,
 			storedAt: now,
-			promise: fetchGatewayModelIds(baseUrl, apiKey, {
-				fetcher: opts.fetcher,
-				timeoutMs: opts.timeoutMs,
-				signal: opts.signal,
-			}),
+			promise: (async () => {
+				const first = await fetchGatewayModelIds(baseUrl, apiKey, opts);
+				if (first.ok || !retry || first.reason === "aborted" || opts.signal?.aborted) return first;
+				return fetchGatewayModelIds(baseUrl, apiKey, opts);
+			})(),
 		};
 		if (shareRequest) inFlightRequests.set(requestKey, request);
 	}

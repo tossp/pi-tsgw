@@ -40,7 +40,7 @@ function trace(request: CapturedRequest): { thread: string; turn: string } {
 }
 
 // 在独立 Node 进程中运行：环境与网络防护有意作用于整个进程。
-// 不使用 FakePi、模拟 SDK 方法、凭据或真实服务器。
+// 不使用 FakePi、模拟 SDK 方法、个人凭据或真实服务器；只使用合成 runtime key。
 test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆规则与重载", { timeout: 60_000 }, async () => {
 	const entry = sourceEntry();
 	const originalEnv = { ...process.env };
@@ -82,7 +82,7 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		assert.deepEqual(loader.getExtensions().errors, []);
 		assert.equal(loader.getExtensions().extensions.length, 2, "仅加载项目入口和生命周期观察器");
 		assert.ok(loader.getExtensions().extensions.some((extension) => extension.path === entry));
-		assert.equal(sandbox.catalogCalls, 0, "无已存储凭据：静态启动不得发起请求");
+		assert.equal(sandbox.catalogCalls, 0, "无已存储凭据：空目录启动不得发起请求");
 		const runtime = await ModelRuntime.create({
 			authPath: join(sandbox.agentDir, "auth.json"),
 			modelsPath: join(sandbox.agentDir, "models.json"),
@@ -97,15 +97,25 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 			thinkingLevel: "high",
 		}));
 		const staticModels = modelsForRoot(TEST_ROOT);
-		assert.deepEqual(runtime.getModels(PROVIDER_ID).map((model) => model.id).sort(),
-			staticModels.map((model) => model.id).sort());
+		assert.deepEqual(runtime.getModels(PROVIDER_ID), []);
+		assert.deepEqual(runtime.getAllModels(PROVIDER_ID), [], "无凭据启动不得静态恢复聊天或图片模型");
+		for (const type of ["chat", "image", "classifier"] as const)
+			assert.deepEqual(runtime.getModelsOfType(type, PROVIDER_ID), []);
+		const names = session.extensionRunner.getRegisteredCommands().map((command) => command.name).sort();
+		assert.deepEqual(names, ["tsgw", "tsgw-refresh", "tsgw-search"]);
+		await runtime.setRuntimeApiKey(PROVIDER_ID, TEST_KEY);
+		assert.deepEqual(runtime.getAllModels(PROVIDER_ID), [], "仅配置密钥不等于已成功获取目录");
+		sandbox.catalogIds = [...staticModels.map(model => model.id), ...IMAGE_MODEL_IDS];
+		const bootstrap = await runtime.refresh({ providers: [PROVIDER_ID], allowNetwork: true, force: true });
+		assert.equal(bootstrap.aborted, false);
+		assert.deepEqual([...bootstrap.errors], []);
+		assert.equal(sandbox.catalogCalls, 1);
+		assert.deepEqual(runtime.getModels(PROVIDER_ID).map(model => model.id).sort(),
+			staticModels.map(model => model.id).sort());
 		assert.equal(runtime.getAllModels(PROVIDER_ID).length, staticModels.length + IMAGE_MODEL_IDS.length);
 		assert.equal(runtime.getModelsOfType("chat", PROVIDER_ID).length, staticModels.length);
 		assert.deepEqual(runtime.getModelsOfType("image", PROVIDER_ID).map(model => model.id), [...IMAGE_MODEL_IDS]);
 		assert.equal(runtime.getModelsOfType("classifier", PROVIDER_ID).length, 0);
-		const names = session.extensionRunner.getRegisteredCommands().map((command) => command.name).sort();
-		assert.deepEqual(names, ["tsgw", "tsgw-refresh", "tsgw-search"]);
-		await runtime.setRuntimeApiKey(PROVIDER_ID, TEST_KEY);
 		const model = runtime.getModel(PROVIDER_ID, "gpt-6.1-sol");
 		assert.ok(model);
 		await session.setModel(model);
@@ -139,14 +149,14 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		assert.equal(sandbox.requests.length, 0);
 		sandbox.catalogIds = [model.id, "deepseek-v4-pro", "not-in-static-catalog"];
 		await session.prompt("/tsgw-refresh");
-		assert.equal(sandbox.catalogCalls, 1);
+		assert.equal(sandbox.catalogCalls, 2);
 		const expectedIds = staticModels.filter((m) => sandbox.catalogIds.includes(m.id)).map((m) => m.id).sort();
 		assert.deepEqual(runtime.getModels(PROVIDER_ID).map((m) => m.id).sort(), expectedIds);
 		assert.ok(expectedIds.length < staticModels.length);
 		// 不手工构造缓存：失败时复用真实刷新产生的状态。
 		sandbox.catalogFails = true;
 		await session.prompt("/tsgw-refresh");
-		assert.equal(sandbox.catalogCalls, 2);
+		assert.equal(sandbox.catalogCalls, 3, "运行时强制刷新失败不得自动重试");
 		assert.deepEqual(runtime.getModels(PROVIDER_ID).map((m) => m.id).sort(), expectedIds);
 		sandbox.catalogFails = false;
 
@@ -171,6 +181,12 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		assert.notEqual(session.extensionRunner, oldRunner);
 		assert.deepEqual(lifecycle.slice(1), ["shutdown:reload", "start:reload"]);
 		assert.deepEqual(loader.getExtensions().errors, []);
+		assert.equal(sandbox.catalogCalls, 3, "重载无已存储凭据时不得发起启动网络请求");
+		assert.deepEqual(runtime.getAllModels(PROVIDER_ID), [], "无已存储凭据的源码重载不得静态恢复模型");
+		await session.prompt("/tsgw-refresh");
+		assert.equal(sandbox.catalogCalls, 4);
+		assert.deepEqual(runtime.getModels(PROVIDER_ID).map(model => model.id).sort(), expectedIds);
+		await session.setModel(runtime.getModel(PROVIDER_ID, model.id)!);
 		// 已失效运行器的迟到回调仍使用自身标量快照。
 		// 调用真实运行器的分发器，不直接调用扩展处理器。
 		const latePayload = await oldRunner.emitBeforeProviderRequest({ model: model.id, tools: [] });

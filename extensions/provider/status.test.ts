@@ -70,6 +70,13 @@ function testTtlAndTimestamps(): void {
 		}
 	}
 
+	const startup = { ...BASE, source: "cache" as const, ttlMs: 7 * TTL };
+	strictEqual(catalogLabel(startup, true, true, STORED_AT + 6 * TTL), "🟢 TSGW · 42");
+	strictEqual(catalogLabel(startup, true, true, STORED_AT + 7 * TTL), "🟡 TSGW · 42");
+	const empty = { ...BASE, count: 0, source: "empty" as const };
+	strictEqual(catalogLabel(empty, true, true, NOW), "🟡 TSGW · 0");
+	match(catalogDiagnostics(empty, OPTIONS, NOW), /目录来源：无可用目录/);
+
 	// 缺失/无效时间不得冒充新鲜目录，也不应使 ISO 格式化抛错。
 	for (const storedAt of [undefined, NaN, Infinity, -Infinity, -1, 1e20]) {
 		const state = { ...BASE, storedAt };

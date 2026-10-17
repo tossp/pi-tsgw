@@ -3,8 +3,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import registerTsgw from "../../index.ts";
 import { catalogLabel, searchLabel } from "./status.ts";
-import { gatewayModelCacheScope, saveGatewayModelCache, DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "../models/gateway-catalog.ts";
-import { FakePi, TSGW_SOL, withAgentDir, providerRequest } from "../test-support.test.ts";
+import { gatewayModelCacheScope, saveGatewayModelCache, STARTUP_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "../models/gateway-catalog.ts";
+import { FakePi, TSGW_SOL, withAgentDir, providerRequest, seedSuccessfulCatalog } from "../test-support.test.ts";
 
 type Refresh = (context: {
 	allowNetwork: boolean;
@@ -14,12 +14,20 @@ type Refresh = (context: {
 }) => Promise<Array<{ id: string }>>;
 let fixtureId = 0;
 
-async function withUi(run: (context: Awaited<ReturnType<typeof fixture>>) => Promise<void>, search = "live") {
+async function withUi(
+	run: (context: Awaited<ReturnType<typeof fixture>>) => Promise<void>,
+	search = "live",
+	catalog: "cache" | "empty" = "cache",
+) {
 	const root = `https://status-${++fixtureId}.example.test`;
 	await withAgentDir({ tsgw: { baseUrl: root, tsSearch: search } }, async (dir) => {
 		const previousFetch = globalThis.fetch;
 		globalThis.fetch = async () => { throw new Error("意外网络访问"); };
-		try { await run(await fixture(root, dir)); }
+		try {
+			// 搜索代理与目录交互用例显式提供成功目录，不依赖静态回退。
+			if (catalog === "cache") seedSuccessfulCatalog(dir, root);
+			await run(await fixture(root, dir));
+		}
 		finally { globalThis.fetch = previousFetch; }
 	});
 }
@@ -77,8 +85,30 @@ async function fixture(root: string, dir: string) {
 const modelResponse = (ids = ["gpt-6-sol", "glm-5.2"]) =>
 	new Response(JSON.stringify({ data: ids.map((id) => ({ id })) }), { status: 200 });
 
+await withUi(async ({ pi, ctx, statuses, notices, choices, dialogs, setConfigured }) => {
+	deepStrictEqual(ctx.modelRegistry.getAvailable(), [], "无凭据启动不得产生静态目录");
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 0, source: "empty", loading: false }, true, true));
+	equal(notices.length, 1);
+	equal(notices[0].level, "warning");
+	match(notices[0].text, /无可用模型/);
+	pi.invoke("session_start", { reason: "new" }, ctx);
+	equal(notices.length, 1, "启动目录错误只通知一次");
+	ctx.model = { ...ctx.model, id: "glm-5.2", api: "openai-completions" };
+	pi.invoke("model_select", { model: ctx.model }, ctx);
+	equal(pi.activeTools.includes("tsgw_search"), false, "空目录不能静态恢复搜索委托");
+	equal(statuses.get("command:/tsgw-search"), searchLabel("live", undefined));
+	choices.push(1, undefined);
+	await pi.invokeCommand("tsgw", ctx);
+	const diagnosis = dialogs.at(-1)!.options.join("\n");
+	match(diagnosis, /目录来源：无可用目录/);
+	match(diagnosis, /真实获取时间：未知/);
+	setConfigured(false);
+	pi.invoke("agent_start", {}, ctx);
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 0, source: "empty", loading: false }, false, true));
+}, "live", "empty");
+
 await withUi(async ({ pi, ctx, statuses, choices, dialogs, notices, dir }) => {
-	equal(statuses.get("command:/tsgw"), catalogLabel({ count: ctx.modelRegistry.getAvailable().length, source: "static", loading: false }, true, true)); // 静态目录不代表网关健康。
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: ctx.modelRegistry.getAvailable().length, source: "cache", storedAt: Date.now(), loading: false }, true, true)); // 缓存目录不代表推理健康。
 	equal(statuses.get("command:/tsgw-search"), searchLabel("live", "gpt"));
 	const before = readFileSync(join(dir, "settings.json"), "utf8");
 	choices.push(0);
@@ -156,7 +186,7 @@ await withUi(async ({ pi, ctx, choices, statuses, updates, dialogs, notices, roo
 	equal(requests, 1);
 	deepStrictEqual(notices.map(notice => notice.level), ["info"]);
 	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 2, source: "network", storedAt: Date.now(), loading: false }, true, true));
-	equal(updates.includes(catalogLabel({ count: 0, source: "static", loading: true }, true, true)), true);
+	equal(updates.includes(catalogLabel({ count: 0, source: "cache", storedAt: Date.now(), loading: true }, true, true)), true);
 	choices.push(1, undefined);
 	await pi.invokeCommand("tsgw", ctx);
 	equal(dialogs.length, 4);
@@ -177,7 +207,7 @@ await withUi(async ({ pi, ctx, choices, statuses, updates, dialogs, notices, roo
 await withUi(async ({ pi, ctx, statuses, setConfigured, refreshCalls, notices }) => {
 	setConfigured(false);
 	pi.invoke("agent_start", {}, ctx);
-	equal(statuses.get("command:/tsgw"), catalogLabel({ count: ctx.modelRegistry.getAvailable().length, source: "static", loading: false }, false, true));
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: ctx.modelRegistry.getAvailable().length, source: "cache", storedAt: Date.now(), loading: false }, false, true));
 	await pi.invokeCommand("tsgw-refresh", ctx);
 	equal(refreshCalls(), 0);
 	equal(notices.at(-1)?.level, "warning");
@@ -187,12 +217,12 @@ await withUi(async ({ pi, ctx, statuses, setConfigured, refreshCalls, notices })
 	await pi.invokeCommand("tsgw-refresh", ctx);
 	equal(notices.at(-1)?.text.includes("secret-test-key"), false);
 	equal(notices.at(-1)?.level, "error");
-	equal(statuses.get("command:/tsgw"), catalogLabel({ count: ctx.modelRegistry.getAvailable().length, source: "static", loading: false, error: "fixture-error" }, true, true));
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: ctx.modelRegistry.getAvailable().length, source: "cache", storedAt: Date.now(), loading: false, error: "fixture-error" }, true, true));
 	ctx.modelRegistry.refresh = async () => ({ errors: new Map(), aborted: true });
 	await pi.invokeCommand("tsgw-refresh", ctx);
 	equal(notices.at(-1)?.level, "warning");
 	equal(notices.length, 3);
-	equal(statuses.get("command:/tsgw"), catalogLabel({ count: ctx.modelRegistry.getAvailable().length, source: "static", loading: false, error: "fixture-cancelled" }, true, true));
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: ctx.modelRegistry.getAvailable().length, source: "cache", storedAt: Date.now(), loading: false, error: "fixture-cancelled" }, true, true));
 });
 
 await withUi(async ({ pi, ctx, notices, statuses, refreshModels }) => {
@@ -369,16 +399,21 @@ for (const stale of [false, true]) {
 	const root = `https://bootstrap-${++fixtureId}.example.test`;
 	await withAgentDir({ tsgw: { baseUrl: root } }, async (dir) => {
 		writeFileSync(join(dir, "auth.json"), JSON.stringify({ tsgw: { type: "api_key", key: "test-bootstrap-key" } }));
-		const storedAt = Date.now() - (stale ? TTL * 2 : 1000);
+		const storedAt = Date.now() - (stale ? TTL * 2 : 2 * 24 * 60 * 60 * 1000);
 		saveGatewayModelCache(join(dir, "tsgw", "models-cache.json"),
 			gatewayModelCacheScope(root, "test-bootstrap-key"), ["gpt-6-sol"], storedAt);
 		const previous = globalThis.fetch;
 		let calls = 0;
 		globalThis.fetch = async () => { calls++; return new Response("unavailable", { status: 503 }); };
 		try {
-			const { pi, ctx, statuses, choices, dialogs } = await fixture(root, dir);
-			equal(calls, stale ? 1 : 0);
-			equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "cache", storedAt, loading: false }, true, true));
+			const { pi, ctx, statuses, choices, dialogs, notices } = await fixture(root, dir);
+			equal(calls, stale ? 1 : 0, "两天缓存仍新鲜；超过七天失败只请求一次并保留旧缓存");
+			equal(notices.length, stale ? 1 : 0);
+			if (stale) equal(notices[0].level, "warning");
+			pi.invoke("session_start", { reason: "new" }, ctx);
+			equal(notices.length, stale ? 1 : 0, "旧缓存启动告警不重复通知");
+			equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "cache", storedAt, ttlMs: TTL, loading: false,
+				error: stale ? "fixture-error" : undefined }, true, true));
 			choices.push(1, undefined);
 			await pi.invokeCommand("tsgw", ctx);
 			equal(dialogs.at(-1)!.options.some(line => line.includes(new Date(storedAt).toISOString())), true);

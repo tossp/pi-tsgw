@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import registerTsgw from "../index.ts";
+import { modelsForRoot, normalizeRoot } from "./models/catalog.ts";
+import { imageModelsForRoot } from "./images/models.ts";
+import { gatewayModelCacheScope, saveGatewayModelCache } from "./models/gateway-catalog.ts";
 
 type HookName =
 	| "session_start"
@@ -185,6 +188,38 @@ export async function createPi(settings?: unknown): Promise<FakePi> {
 		await registerTsgw(pi);
 	});
 	return pi;
+}
+
+/** 显式构造已成功获取的合成目录；不改变 createPi 的无凭据零模型启动语义。 */
+export async function createPiWithCatalog(settings?: unknown): Promise<FakePi> {
+	const pi = new FakePi();
+	await withAgentDir(settings, async (dir) => {
+		const namespace = (settings as { tsgw?: { baseUrl?: string } } | undefined)?.tsgw;
+		seedSuccessfulCatalog(dir, normalizeRoot(namespace?.baseUrl));
+		const previousFetch = globalThis.fetch;
+		let calls = 0;
+		globalThis.fetch = async () => { calls++; throw new Error("成功缓存夹具禁止联网"); };
+		try {
+			await registerTsgw(pi);
+			if (calls !== 0) throw new Error("成功缓存夹具不应尝试刷新目录");
+		} finally { globalThis.fetch = previousFetch; }
+	});
+	return pi;
+}
+
+/** 仅供目录过滤/宿主交互测试使用。凭据和成功缓存都位于临时 agentDir。 */
+export function seedSuccessfulCatalog(
+	dir: string,
+	root = TEST_ROOT,
+	ids = [...modelsForRoot(root), ...imageModelsForRoot(root)].map(model => model.id),
+	storedAt = Date.now(),
+): { key: string; storedAt: number } {
+	// 不同夹具使用独立 scope，避免进程内目录缓存互相污染。
+	const key = `synthetic-catalog-key:${dir}`;
+	writeFileSync(join(dir, "auth.json"), JSON.stringify({ tsgw: { type: "api_key", key } }));
+	saveGatewayModelCache(join(dir, "tsgw", "models-cache.json"),
+		gatewayModelCacheScope(root, key), ids, storedAt);
+	return { key, storedAt };
 }
 
 export function sessionStart(

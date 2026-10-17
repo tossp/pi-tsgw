@@ -19,7 +19,7 @@ import {
 	normalizeRoot,
 	type ModelFilter,
 } from "../models/catalog.ts";
-import { getGatewayModelIds } from "../models/gateway-catalog.ts";
+import { getGatewayModelIds, STARTUP_GATEWAY_MODEL_CACHE_TTL_MS } from "../models/gateway-catalog.ts";
 import { applyModelOperations } from "../models/operations.ts";
 import { registerSearch } from "../search/index.ts";
 import { IMAGE_API, imageModelsForRoot, supportsImageModels } from "../images/models.ts";
@@ -32,6 +32,7 @@ import {
 } from "./status.ts";
 import type { ThinkingLevel, WebSearchMode } from "../models/_tools.ts";
 import type { TsgwSettings } from "./config.ts";
+import { registerRefreshTool } from "./refresh-tool.ts";
 
 /**
  * 在生命周期上下文仍有效时，复制供应商钩子所需的数据。
@@ -121,13 +122,13 @@ function effectiveModelsForGateway(
 	];
 	const intersected = gatewayIds
 		? staticModels.filter((model) => gatewayHasModel(gatewayIds, model.id))
-		: staticModels;
+		: [];
 	return filterModels(intersected, filter);
 }
 
 /**
  * 三层模型过滤：静态目录 ∩ 网关实际列表 ∩ 用户黑白名单。
- * 网关列表拉取失败/无凭据时跳过网关层（回退静态目录）。
+ * 无网关目录时不登记模型，避免将静态登记误认为网关可用。
  */
 async function resolveEffectiveModels(
 	root: string,
@@ -139,7 +140,7 @@ async function resolveEffectiveModels(
 	gatewayIds: ReadonlySet<string> | undefined;
 	catalog: CatalogStatus;
 }> {
-	// 凭据解析失败不阻塞：无凭据时直接跳过网关层。
+	// 凭据解析失败不阻塞插件加载，但不登记未经网关确认的模型。
 	let apiKey = "";
 	try {
 		const credential = readStoredCredential(PROVIDER_ID);
@@ -149,11 +150,15 @@ async function resolveEffectiveModels(
 	}
 
 	let gatewayIds: ReadonlySet<string> | undefined;
-	let catalog: CatalogStatus = { count: 0, source: "static", loading: false };
+	let catalog: CatalogStatus = { count: 0, source: "empty", loading: false,
+		ttlMs: STARTUP_GATEWAY_MODEL_CACHE_TTL_MS,
+		error: "模型目录获取失败，当前无可用模型；请配置凭据后择机强制刷新。" };
 	if (apiKey) {
 		try {
 			const gateway = await getGatewayModelIds(root, apiKey, {
 				cacheFilePath,
+				ttlMs: STARTUP_GATEWAY_MODEL_CACHE_TTL_MS,
+				retryWithoutCache: true,
 			});
 			if (gateway.ok) {
 				gatewayIds = new Set(gateway.ids);
@@ -162,11 +167,11 @@ async function resolveEffectiveModels(
 					source: gateway.cached ? "cache" : "network",
 					storedAt: gateway.storedAt,
 					error: gateway.stale
-						? `刷新失败（${gateway.fallbackReason ?? "unknown"}），沿用旧目录` : undefined,
+						? "模型目录刷新失败，已沿用缓存，请择机强制刷新。" : undefined,
 				};
-			} else catalog.error = `目录获取失败（${gateway.reason}），使用内置目录`;
+			} else catalog.error = "模型目录获取失败，当前无可用模型，请择机强制刷新。";
 		} catch {
-			catalog.error = "目录获取失败，使用内置目录";
+			catalog.error = "模型目录获取失败，当前无可用模型，请择机强制刷新。";
 		}
 	}
 	if (catalog.error) console.warn(`TSGW: ${catalog.error}`);
@@ -189,6 +194,7 @@ export async function registerTsgwProvider(
 		exclude: settings.excludeModels,
 	};
 	const cacheFilePath = gatewayModelCachePath();
+	registerRefreshTool(pi, cacheFilePath);
 	let requestState: RequestState | undefined;
 
 	const refreshRequestState = (ctx: {
@@ -208,6 +214,7 @@ export async function registerTsgwProvider(
 	const { models } = initial;
 	let latestModels = models;
 	let catalog = initial.catalog;
+	let startupNotice = initial.catalog.error;
 	let credentialConfigured = false;
 	let publishStatus: (() => void) | undefined;
 	let refreshRevision = 0;
@@ -247,7 +254,9 @@ export async function registerTsgwProvider(
 		models,
 		...(imagesEnabled ? { images: { [IMAGE_API]: { generateImages } } } : {}),
 		async refreshModels(context) {
-			if (!context.allowNetwork) return latestModels;
+			// 启动获取已完成；宿主的额外自动同步不再追加联网请求。
+			// 工具检查 24 小时窗口，必要时与命令一样显式传入 force。
+			if (!context.allowNetwork || context.force !== true) return latestModels;
 			context.signal.throwIfAborted();
 			const revision = ++refreshRevision;
 			catalog = { ...catalog, loading: true };
@@ -263,11 +272,10 @@ export async function registerTsgwProvider(
 					signal: context.signal,
 				});
 				context.signal.throwIfAborted();
-				if (!gateway.ok)
-					throw new Error(`TSGW 网关模型刷新失败（${gateway.reason}）。`);
-				if (gateway.stale)
+				if (!gateway.ok || gateway.stale)
 					throw new Error("TSGW 刷新失败；保留上次成功获取的目录。");
 				if (revision === refreshRevision) {
+					startupNotice = undefined;
 					latestModels = effectiveModelsForGateway(root, modelFilter, new Set(gateway.ids), imagesEnabled);
 					search.sync();
 					catalog = {
@@ -370,6 +378,10 @@ export async function registerTsgwProvider(
 		refreshRequestState(ctx);
 		search.sync();
 		bindStatus(ctx);
+		if (startupNotice && ctx.hasUI) {
+			ctx.ui.notify(startupNotice, "warning");
+			startupNotice = undefined;
+		}
 	});
 	pi.on("agent_start", (_event, ctx) => {
 		refreshRequestState(ctx);

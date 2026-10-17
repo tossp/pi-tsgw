@@ -7,7 +7,7 @@ import {
 } from "node:assert";
 import registerTsgw from "../../index.ts";
 import { PROVIDER_ID } from "../models/catalog.ts";
-import { FakeContext, FakePi, createPi, sessionStart, agentStart, providerRequest, providerHeaders, withAgentDir, STALE_ERROR, TEST_ROOT, TSGW_SOL, TSGW_DEEPSEEK, TSGW_GLM } from "../test-support.test.ts";
+import { FakeContext, FakePi, createPi, createPiWithCatalog, sessionStart, agentStart, providerRequest, providerHeaders, withAgentDir, STALE_ERROR, TEST_ROOT, TSGW_SOL, TSGW_DEEPSEEK, TSGW_GLM } from "../test-support.test.ts";
 
 function assertUuid(value: string | null | undefined): void {
 	match(
@@ -17,7 +17,7 @@ function assertUuid(value: string | null | undefined): void {
 }
 
 async function testChatCompletionsCompatibility(): Promise<void> {
-	const pi = await createPi();
+	const pi = await createPiWithCatalog();
 	const provider = pi.providers.find(({ name }) => name === "tsgw");
 	const models =
 		(
@@ -47,7 +47,7 @@ async function testChatCompletionsCompatibility(): Promise<void> {
 
 async function testTsSearchRegistration(): Promise<void> {
 	const pi = await createPi();
-	deepStrictEqual(pi.tools.map(tool => (tool as { name: string }).name), ["upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_search"]);
+	deepStrictEqual(pi.tools.map(tool => (tool as { name: string }).name), ["upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_refresh_models", "tsgw_search"]);
 }
 
 async function testSafeProviderHooksAfterContextStales(): Promise<void> {
@@ -249,7 +249,7 @@ async function testSettingsConfig(): Promise<void> {
 	}
 
 	// `includeModels` 将精确匹配的模型从宽泛的 `excludeModels` 规则中恢复。
-	const piFiltered = await createPi({
+	const piFiltered = await createPiWithCatalog({
 		tsgw: {
 			includeModels: ["glm-5.3"],
 			excludeModels: ["glm-*"],
@@ -282,6 +282,8 @@ async function testDynamicModelRefresh(): Promise<void> {
 		const pi = new FakePi();
 		await registerTsgw(pi);
 		const provider = pi.providers.find(({ name }) => name === PROVIDER_ID);
+		deepStrictEqual((provider?.config as { models: unknown[] }).models, [],
+			"真实无凭据启动必须显式登记零模型");
 		const refreshModels = (
 			provider?.config as
 				| {
@@ -310,7 +312,7 @@ async function testDynamicModelRefresh(): Promise<void> {
 			};
 			const signal = new AbortController().signal;
 			const offline = await refreshModels({ allowNetwork: false, signal });
-			equal(offline.length > 2, true);
+			deepStrictEqual(offline, [], "无凭据且无匹配目录的启动不得回退静态模型");
 			equal(calls, 0);
 
 			const refreshed = await refreshModels({

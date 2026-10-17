@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-agent";
 import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "../host-test-support.test.ts";
+import { modelsForRoot } from "../models/catalog.ts";
 
 // 通过真实 Pi/jiti 加载器加载根入口源码，包括本测试在 dist/ 中运行时。
 function sourceEntry(): string {
@@ -114,7 +115,15 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			settingsManager: settings, sessionManager: SessionManager.inMemory(sandbox.cwd), tools: ["tsgw_search"], thinkingLevel: "high",
 		}));
 		const host = session;
+		assert.deepEqual(runtime.getAllModels("tsgw"), [], "无凭据启动不静态恢复搜索委托或主模型");
 		await runtime.setRuntimeApiKey("tsgw", TEST_KEY);
+		assert.deepEqual(runtime.getAllModels("tsgw"), [], "仅配置 runtime key 不建立目录");
+		sandbox.catalogIds = modelsForRoot(TEST_ROOT).map(model => model.id);
+		const bootstrap = await runtime.refresh({ providers: ["tsgw"], allowNetwork: true, force: true });
+		assert.equal(bootstrap.aborted, false);
+		assert.deepEqual([...bootstrap.errors], []);
+		assert.equal(sandbox.catalogCalls, 1);
+		assert.deepEqual(runtime.getModels("tsgw").map(model => model.id), sandbox.catalogIds);
 		assert.equal(runtime.getProviderAuthStatus("tsgw").configured, true);
 		assert.ok(!readStoredCredential("tsgw"), "扩展无法读取已存储密钥；HTTP 认证必须来自宿主运行时");
 		const main = runtime.getModel("tsgw", "deepseek-v4-pro");
@@ -263,7 +272,7 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 		await t.test("真实 Grok Completions 代理可用，随后目录回退至 Sol 并撤下候选模型", async () => {
 			sandbox.catalogIds = [main.id, "grok-4.20"];
 			await host.prompt("/tsgw-refresh");
-			assert.equal(sandbox.catalogCalls, 1);
+			assert.equal(sandbox.catalogCalls, 2);
 			assert.deepEqual(runtime.getModels("tsgw").map(model => model.id), [main.id, "grok-4.20"]);
 			const grok = runtime.getModel("tsgw", "grok-4.20");
 			assert.ok(grok);
@@ -285,7 +294,7 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 
 			sandbox.catalogIds = [main.id, sol.id];
 			await host.prompt("/tsgw-refresh");
-			assert.equal(sandbox.catalogCalls, 2);
+			assert.equal(sandbox.catalogCalls, 3);
 			assert.equal(runtime.getModel("tsgw", luna.id), undefined);
 			assert.equal(runtime.getModel("tsgw", "grok-4.20"), undefined);
 			assert.equal(active(), true);
@@ -295,7 +304,7 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			const stale = searchTool();
 			sandbox.catalogIds = [main.id];
 			await host.prompt("/tsgw-refresh");
-			assert.equal(sandbox.catalogCalls, 3);
+			assert.equal(sandbox.catalogCalls, 4);
 			assert.equal(active(), false);
 			const count = requests.length + grokRequests.length;
 			await assert.rejects(() => stale.execute("stale-catalog", { query: "must not send" }));
@@ -303,14 +312,20 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			assert.equal(host.model?.id, main.id);
 		});
 
-		await t.test("配置排除全部且仅恢复主模型后，源码重载不留下委托模型，即使没有已存储认证", async () => {
+		await t.test("无已存储认证重载为空；显式 runtime 刷新仍遵守只保留主模型的配置", async () => {
 			writeSettings([main.id]);
 			await host.reload();
 			assert.deepEqual(loader.getExtensions().errors, []);
+			assert.deepEqual(runtime.getAllModels("tsgw"), [], "重载不能将无凭据的静态目录视为成功目录");
+			assert.equal(active(), false);
+			assert.equal(sandbox.catalogCalls, 4, "重载不得使用不存在的已存储凭据发起请求");
+			assert.ok(!readStoredCredential("tsgw"));
+			await host.prompt("/tsgw-refresh");
+			assert.equal(sandbox.catalogCalls, 5);
 			assert.deepEqual(runtime.getModels("tsgw").map(model => model.id), [main.id]);
 			assert.equal(active(), false);
 			assert.ok(host.getAllTools().some(tool => tool.name === "tsgw_search"), "已注册但有意保持未激活");
-			assert.equal(sandbox.catalogCalls, 3, "重载不得使用不存在的已存储凭据发起请求");
+			assert.equal(sandbox.catalogCalls, 5, "恢复目录只来自显式 runtime 认证刷新");
 			assert.ok(!readStoredCredential("tsgw"));
 		});
 		assert.deepEqual(errors, [], "不得吞掉扩展错误");

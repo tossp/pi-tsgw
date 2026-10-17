@@ -9,6 +9,8 @@ import { REAL_IMAGE_FIXTURES } from "./image-fixtures.test.ts";
 import type { ImageToolDetails } from "./tools.ts";
 import { imageToolResultSchema } from "./tool-schema.ts";
 import { Compile } from "typebox/compile";
+import { modelsForRoot } from "../models/catalog.ts";
+import { IMAGE_MODEL_IDS } from "./models.ts";
 
 // 合成的有效透明 PNG；原始字节用于检验编辑与保存，不调用付费服务。
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -141,11 +143,32 @@ test("Pi 1.2 图片工具：没有 codemode 也能生成、编辑、展示并记
 		({ session } = await createAgentSession({ cwd: sandbox.cwd, agentDir: sandbox.agentDir, modelRuntime: runtime,
 			resourceLoader: loader, settingsManager: settings, sessionManager: SessionManager.inMemory(sandbox.cwd), thinkingLevel: "off" }));
 		await session.bindExtensions({ mode: "print", onError: error => errors.push(error) });
+		assert.deepEqual(runtime.getAllModels("tsgw"), [], "无凭据启动不静态登记图片或聊天模型");
+		assert.equal(sandbox.catalogCalls, 0);
 		await runtime.setRuntimeApiKey("tsgw", TEST_KEY);
+		assert.deepEqual(runtime.getAllModels("tsgw"), []);
+		sandbox.catalogIds = [...modelsForRoot(TEST_ROOT).map(model => model.id), ...IMAGE_MODEL_IDS];
+		const bootstrap = await runtime.refresh({ providers: ["tsgw"], allowNetwork: true, force: true });
+		assert.equal(bootstrap.aborted, false);
+		assert.deepEqual([...bootstrap.errors], []);
+		assert.equal(sandbox.catalogCalls, 1);
 		const chat = runtime.getModel("tsgw", "gpt-6.1-sol");
 		assert.ok(chat);
 		await session.setModel(chat);
 		const active = session;
+		const reloadWithCatalog = async () => {
+			const before = sandbox.catalogCalls;
+			await active.reload();
+			assert.deepEqual(runtime.getAllModels("tsgw"), [], "无已存储凭据的重载必须为空目录");
+			assert.equal(sandbox.catalogCalls, before);
+			const result = await runtime.refresh({ providers: ["tsgw"], allowNetwork: true, force: true });
+			assert.equal(result.aborted, false);
+			assert.deepEqual([...result.errors], []);
+			assert.equal(sandbox.catalogCalls, before + 1);
+			const currentChat = runtime.getModel("tsgw", chat.id);
+			assert.ok(currentChat);
+			await active.setModel(currentChat);
+		};
 		const invoke = async (name: string, args: Record<string, unknown>) => {
 			const before = active.messages.filter(message => message.role === "toolResult").length;
 			next = { name, args };
@@ -276,12 +299,12 @@ test("Pi 1.2 图片工具：没有 codemode 也能生成、编辑、展示并记
 			assert.equal(imageRequests.length, before + 1);
 			mode = "ok";
 			configure({ excludeModels: ["gpt-image-2.5-sunburst"] });
-			await active.reload();
+			await reloadWithCatalog();
 			const filtered = await invoke(GENERATED, { prompt: "fixture unavailable" });
 			assert.equal(filtered.isError, true);
 			assert.equal(imageRequests.length, before + 1);
 			configure();
-			await active.reload();
+			await reloadWithCatalog();
 		});
 
 		await t.test("宿主取消传播到图片HTTP，返回后不继续请求", async () => {
