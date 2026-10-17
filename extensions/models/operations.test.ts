@@ -158,8 +158,8 @@ function testCompletionProfiles(): void {
 		}
 	}
 
-	for (const modelId of ["qwen3.7-plus", "qwen3.7-max"]) {
-		for (const level of levels) {
+	for (const modelId of ["qwen3.7-plus"]) {
+		for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const) {
 			const result = apply(
 				{
 					...completionBase(),
@@ -179,7 +179,7 @@ function testCompletionProfiles(): void {
 				preserve_thinking: level !== "off",
 				thinking: { type: "legacy", retained: true },
 			};
-			if (level !== "off") {
+			if (["high", "xhigh", "max"].includes(level)) {
 				expected.thinking_budget = 6000;
 				expected.search_options = { search_strategy: "agent_max" };
 				expected.enable_code_interpreter = true;
@@ -341,6 +341,8 @@ function testNoOpsAndProtectedFields(): void {
 		"MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1", "kimi-for-coding", "kimi-k2.7-code",
 		"kimi-k2.7-code-highspeed", "kimi-k2.6", "kimi-k2.5", "gpt-5.6-sol", "gpt-5.6-terra",
 		"gpt-5.6-luna", "gpt-5.5", "gemini-3.1-pro-low", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
+		"qwen3.7-max", "qwen3.6-plus", "qwen3.5-plus", "claude-fable-5", "grok-4.20", "grok-4.20-fast",
+		"grok-4.3-low", "grok-4.3-medium", "grok-4.3-high",
 	]) {
 		for (const api of ["openai-completions", "openai-responses", "google-generative-ai"]) {
 			const retired = Object.freeze({ ...completionBase(), config: { thinkingConfig: { thinkingBudget: 42 } } });

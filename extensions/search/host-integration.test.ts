@@ -270,11 +270,11 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 		});
 
 		await t.test("真实 Grok Completions 代理可用，随后目录回退至 Sol 并撤下候选模型", async () => {
-			sandbox.catalogIds = [main.id, "grok-4.20"];
+			sandbox.catalogIds = [main.id, "grok-4.5"];
 			await host.prompt("/tsgw-refresh");
 			assert.equal(sandbox.catalogCalls, 2);
-			assert.deepEqual(runtime.getModels("tsgw").map(model => model.id), [main.id, "grok-4.20"]);
-			const grok = runtime.getModel("tsgw", "grok-4.20");
+			assert.deepEqual(runtime.getModels("tsgw").map(model => model.id), [main.id, "grok-4.5"]);
+			const grok = runtime.getModel("tsgw", "grok-4.5");
 			assert.ok(grok);
 			assert.equal(grok.api, "openai-completions");
 			assert.equal(host.model?.id, main.id, "委托不得切换主会话模型");
@@ -296,7 +296,7 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			await host.prompt("/tsgw-refresh");
 			assert.equal(sandbox.catalogCalls, 3);
 			assert.equal(runtime.getModel("tsgw", luna.id), undefined);
-			assert.equal(runtime.getModel("tsgw", "grok-4.20"), undefined);
+			assert.equal(runtime.getModel("tsgw", "grok-4.5"), undefined);
 			assert.equal(active(), true);
 			const fallback = await execute();
 			assert.equal(requests.at(-1)!.body.model, sol.id);

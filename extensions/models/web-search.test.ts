@@ -141,14 +141,7 @@ function testNoOpsAndScope(): void {
 
 function testGrokSearchInjection(): void {
 	// Grok（openai-completions）注入 search_parameters: { mode: "on" }。
-	for (const modelId of [
-		"grok-4.20",
-		"grok-4.5",
-		"grok-4.3-low",
-		"grok-4.3-medium",
-		"grok-4.3-high",
-		"grok-4.20-fast",
-	]) {
+	for (const modelId of ["grok-4.5"]) {
 		const result = applyBuiltinSearchTool(
 			{ messages: [{ role: "user", content: "hi" }] },
 			modelId,
@@ -161,11 +154,11 @@ function testGrokSearchInjection(): void {
 
 	// 两种 GPT 会话模式下 Grok 均固定实时，保留现有搜索字段。
 	for (const mode of ["cached", "live"] as const) {
-		deepStrictEqual(applyBuiltinSearchTool({}, "grok-4.20", "openai-completions", mode),
+		deepStrictEqual(applyBuiltinSearchTool({}, "grok-4.5", "openai-completions", mode),
 			{ search_parameters: { mode: "on" } });
 		for (const input of [{ search_parameters: { mode: "off" } }, { web_search_options: {} }]) {
 			Object.freeze(input);
-			strictEqual(applyBuiltinSearchTool(input, "grok-4.20", "openai-completions", mode), input);
+			strictEqual(applyBuiltinSearchTool(input, "grok-4.5", "openai-completions", mode), input);
 		}
 	}
 }

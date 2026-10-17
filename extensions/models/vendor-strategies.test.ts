@@ -44,6 +44,8 @@ const geminiCases = {
 	"gemini-3.5-flash": "flash-level",
 	"gemini-3.5-flash-low": "flash-level",
 	"gemini-3.5-flash-extra-low": "flash-level",
+	"gemini-3.5-flash-lite": "completions-level",
+	"gemini-3.8-flash-high": "pro-level",
 } as const;
 coverage(Object.keys(geminiCases), geminiThinking, geminiModels(root));
 for (const [id, kind] of Object.entries(geminiCases)) {
@@ -51,6 +53,11 @@ for (const [id, kind] of Object.entries(geminiCases)) {
 		const payload = { ...base(), config: { temperature: 0.2, thinkingConfig: { thinkingLevel: "STALE", thinkingBudget: 999, retained: true } } };
 		const result = apply(geminiThinking, id, level, payload);
 		const expected: Payload = { includeThoughts: level !== "off", retained: true };
+		if (kind === "completions-level") {
+			deepStrictEqual(result.config, payload.config, `${id}/${level}`);
+			equal(result.reasoning_effort, ["off", "minimal"].includes(level) ? "minimal" : ["xhigh", "max"].includes(level) ? "high" : level);
+			continue;
+		}
 		if (kind === "flash-budget") expected.thinkingBudget = level === "off" ? 0 : level === "max" ? 24576 : 16000;
 		if (kind === "flash-level") expected.thinkingLevel = ["off", "minimal"].includes(level) ? "MINIMAL" : level === "low" ? "LOW" : level === "medium" ? "MEDIUM" : "HIGH";
 		if (kind === "pro-level") expected.thinkingLevel = ["off", "minimal", "low"].includes(level) ? "LOW" : level === "medium" ? "MEDIUM" : "HIGH";
@@ -167,15 +174,17 @@ for (const model of kimiModels(root)) {
 	}
 }
 
-// 当前官方推理指南仅确认 grok-4.5 支持思考强度。
-// 下列其他 ID 有意固定旧有策略，不代表对 API 能力的声明。
-const grokIds = ["grok-4.20", "grok-4.5", "grok-4.3-low", "grok-4.3-medium", "grok-4.3-high", "grok-4.20-fast"];
+// Grok 4.5 与 4.7 使用不同协议，均须覆盖逐 ID 档位。
+const grokIds = ["grok-4.5", "grok-4.7"];
 coverage(grokIds, grokThinking, grokModels(root));
 for (const id of grokIds) {
 	for (const level of levels) {
 		const result = apply(grokThinking, id, level, { ...base(), thinking: { type: "enabled" } });
 		equal(Object.hasOwn(result, "thinking"), false);
-		equal(result.reasoning_effort, ["off", "minimal", "low"].includes(level) ? "low" : level === "medium" ? "medium" : "high", `${id}/${level}`);
+		if (id === "grok-4.7") {
+			equal(Object.hasOwn(result, "reasoning_effort"), false);
+			deepStrictEqual(result.reasoning, { effort: ["off", "minimal"].includes(level) ? "low" : level === "max" ? "xhigh" : level });
+		} else equal(result.reasoning_effort, ["off", "minimal", "low"].includes(level) ? "low" : level === "medium" ? "medium" : "high", `${id}/${level}`);
 	}
 }
 console.log("vendor-strategies：逐 ID 七档请求体回归测试通过");

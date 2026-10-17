@@ -4,29 +4,11 @@ import { ANTHROPIC_COMPAT } from "./_protocols.ts";
 /**
  * Anthropic Claude 系列（anthropic-messages 协议）。
  * 官方文档：https://docs.claude.com/en/docs/about-claude/models/
- * 规格/定价以网关目录为准（fable/opus/sonnet 三档）。
+ * 规格/定价以网关目录为准（opus/sonnet 两档）。
  */
 export function anthropicModels(root: string): ProviderModelConfig[] {
 	const anthropic = `${root}/anthropic`;
 	return [
-		{
-			id: "claude-fable-5",
-			name: "Claude Fable 5",
-			api: "anthropic-messages",
-			baseUrl: anthropic,
-			reasoning: true,
-			thinkingLevelMap: {
-				low: "low",
-				medium: "medium",
-				high: "high",
-				max: "max",
-			},
-			input: ["text", "image"],
-			cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.3 },
-			contextWindow: 1000000,
-			maxTokens: 128000,
-			compat: ANTHROPIC_COMPAT,
-		},
 		{
 			id: "claude-opus-5",
 			name: "Claude Opus 5",

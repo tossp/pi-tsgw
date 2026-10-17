@@ -7,6 +7,22 @@ import registerTsgw from "../../index.ts";
 import { FakePi, withAgentDir } from "../test-support.test.ts";
 import { gatewayModelCacheScope, saveGatewayModelCache, STARTUP_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "../models/gateway-catalog.ts";
 
+test("Qwen 接入参考仍受网关交集过滤，include 不能恢复已移除 ID", async () => {
+	const previousFetch = globalThis.fetch;
+	try {
+		const root = `https://${randomUUID()}.invalid`;
+		await withAgentDir({ tsgw: { baseUrl: root, includeModels: ["qwen3.7-plus", "qwen3.7-max"] } }, async dir => {
+			writeFileSync(join(dir, "auth.json"), JSON.stringify({ tsgw: { type: "api_key", key: "qwen-test-key" } }));
+			globalThis.fetch = async () => Response.json({ data: [{ id: "qwen3.7-max" }] });
+			const pi = new FakePi();
+			await registerTsgw(pi);
+			const provider = pi.providers[0].config as { models: Array<{ id: string; api: string }> };
+			deepStrictEqual(provider.models.map(({ id }) => id), [],
+				"静态保留的 qwen3.7-plus 不在网关列表时不可由 include 增加；已删除 ID 也不能通过 include 恢复");
+		});
+	} finally { globalThis.fetch = previousFetch; }
+});
+
 test("启动目录：7 天缓存、无缓存仅重试一次、失败提示与恢复", async () => {
 	const previousFetch = globalThis.fetch;
 	try {

@@ -139,15 +139,13 @@ function testBuiltinSearchSupport(): void {
 	const gptModels = [
 		"gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna",
 	];
-	const grokModels = [
-		"grok-4.20", "grok-4.5", "grok-4.3-low", "grok-4.3-medium",
-		"grok-4.3-high", "grok-4.20-fast",
-	];
+	const grokModels = ["grok-4.5"];
 	const unsupportedModels = [
 		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5",
 		"", "gpt-5.6-k3", "gpt-6.1", "gpt-6.1-sol-extra", "GPT-6.1-SOL",
-		" gpt-6.1-sol", "gpt-6.1-sol ", "grok-4", "grok-4.20-extra",
-		"Grok-4.20", "grok-4.20 ", "claude-sonnet-4.6", "gemini-3-pro",
+		" gpt-6.1-sol", "gpt-6.1-sol ", "grok-4", "grok-4.5-extra",
+		"Grok-4.5", "grok-4.5 ", "claude-sonnet-4.6", "gemini-3-pro",
+		"grok-4.20", "grok-4.20-fast", "grok-4.3-low", "grok-4.3-medium", "grok-4.3-high",
 	];
 	const apis = [
 		"openai-responses", "openai-completions", "anthropic-messages",

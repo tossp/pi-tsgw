@@ -35,7 +35,9 @@ function testCatalogConcatenation(): void {
 	};
 	for (const model of models) {
 		equal(Object.hasOwn(endpoints, model.api!), true, `未知协议：${model.api}`);
-		equal(model.baseUrl, `${ROOT}${endpoints[model.api as keyof typeof endpoints]}`);
+		const endpoint = model.id === "gemini-3.8-flash-high" ? "/gemini/v1beta"
+			: endpoints[model.api as keyof typeof endpoints];
+		equal(model.baseUrl, `${ROOT}${endpoint}`);
 	}
 }
 
@@ -146,14 +148,25 @@ function testModelCapabilities(): void {
 		"MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1", "kimi-for-coding", "kimi-k2.7-code",
 		"kimi-k2.7-code-highspeed", "kimi-k2.6", "kimi-k2.5", "gpt-5.6-sol", "gpt-5.6-terra",
 		"gpt-5.6-luna", "gpt-5.5", "gemini-3.1-pro-low", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
+		"qwen3.7-max", "qwen3.6-plus", "qwen3.5-plus", "claude-fable-5", "grok-4.20", "grok-4.20-fast",
+		"grok-4.3-low", "grok-4.3-medium", "grok-4.3-high",
 	];
 	for (const id of removed) equal(ids.includes(id), false, `已移除的 ID：${id}`);
 	// 用户 include 规则不能恢复已移除的静态 ID。
 	deepStrictEqual(modelsForRoot(ROOT, { exclude: ["*"], include: removed }), []);
 	const gemini = models.find(({ id }) => id === "gemini-flash");
 	strictEqual(gemini?.baseUrl, `${ROOT}/gemini`);
-	const claude = models.find(({ id }) => id === "claude-fable-5");
-	strictEqual(claude?.baseUrl, `${ROOT}/anthropic`);
+	const qwen = models.find(({ id }) => id === "qwen3.7-plus");
+	strictEqual(qwen?.api, "openai-completions");
+	strictEqual(qwen?.baseUrl, `${ROOT}/v1`);
+	strictEqual(qwen?.reasoning, true);
+	deepStrictEqual(qwen?.input, ["text", "image"]);
+	strictEqual(qwen?.maxTokens, 64000);
+	for (const id of ["claude-opus-5", "claude-sonnet-5"]) {
+		const claude = models.find(model => model.id === id);
+		strictEqual(claude?.api, "anthropic-messages");
+		strictEqual(claude?.baseUrl, `${ROOT}/anthropic`);
+	}
 }
 
 function testFilterModels(): void {

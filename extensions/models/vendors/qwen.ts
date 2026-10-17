@@ -4,6 +4,7 @@ import { isAtLeastHigh, type PayloadWriter, type ThinkingApplier, type ThinkingL
 
 /**
  * 阿里云通义（Alibaba Qwen）系列。
+ * 当前仅保留 qwen3.7-plus 及策略作为厂商接入参考；实际登记仍须命中网关目录。
  * 官方文档：https://help.aliyun.com/zh/model-studio/
  */
 export function qwenModels(root: string): ProviderModelConfig[] {
@@ -24,44 +25,6 @@ export function qwenModels(root: string): ProviderModelConfig[] {
 			},
 			contextWindow: 1000000,
 			maxTokens: 64000,
-			compat: OPENAI_COMPLETIONS_COMPAT,
-		},
-		{
-			id: "qwen3.7-max",
-			name: "Qwen3.7 Max",
-			api: "openai-completions",
-			baseUrl: v1,
-			reasoning: true,
-			input: ["text"],
-			cost: { input: 1.77, output: 5.31, cacheRead: 0.354, cacheWrite: 2.2125 },
-			contextWindow: 1000000,
-			maxTokens: 64000,
-			compat: OPENAI_COMPLETIONS_COMPAT,
-		},
-		{
-			id: "qwen3.6-plus",
-			name: "Qwen3.6 Plus",
-			api: "openai-completions",
-			baseUrl: v1,
-			reasoning: true,
-			input: ["text", "image"],
-			// 阿里云百炼 CNY 定价按 0.1475 USD/CNY 换算（与 qwen3.7 系列一致）。
-			cost: { input: 0.295, output: 1.77, cacheRead: 0.0295, cacheWrite: 0.36875 },
-			contextWindow: 1000000,
-			maxTokens: 65536,
-			compat: OPENAI_COMPLETIONS_COMPAT,
-		},
-		{
-			id: "qwen3.5-plus",
-			name: "Qwen3.5 Plus",
-			api: "openai-completions",
-			baseUrl: v1,
-			reasoning: true,
-			input: ["text", "image"],
-			// 阿里云百炼 CNY 定价按 0.1475 USD/CNY 换算（与 qwen3.7 系列一致）。
-			cost: { input: 0.118, output: 0.708, cacheRead: 0.0118, cacheWrite: 0.1475 },
-			contextWindow: 1000000,
-			maxTokens: 65536,
 			compat: OPENAI_COMPLETIONS_COMPAT,
 		},
 	];
@@ -96,7 +59,4 @@ function applyQwen(writer: PayloadWriter, level: ThinkingLevel): void {
 
 export const qwenThinking: Record<string, ThinkingApplier> = {
 	"qwen3.7-plus": (w, c) => applyQwen(w, c.thinkingLevel),
-	"qwen3.7-max": (w, c) => applyQwen(w, c.thinkingLevel),
-	"qwen3.6-plus": (w, c) => applyQwen(w, c.thinkingLevel),
-	"qwen3.5-plus": (w, c) => applyQwen(w, c.thinkingLevel),
 };

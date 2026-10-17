@@ -89,7 +89,7 @@ pi install npm:pi-tsgw
 目录由各厂商的分片（`extensions/models/vendors/`）组装而成，涵盖 11 个厂商系列：
 DeepSeek、GLM（智谱）、MiMo（小米）、MiniMax、Kimi（Moonshot）、Qwen（阿里巴巴）、
 GPT（OpenAI）、Gemini（Google）、Claude（Anthropic）、LongCat 和 Grok（xAI）。
-当前静态目录包含 36 个聊天模型 ID（含保留的别名）；这不是实时可用模型数量。
+静态目录会持续调整，不代表网关实时可用模型数量。
 厂商文件包含文档链接和元数据注意事项。别名映射、输出限制和共享思考策略并未全部
 针对网关端点逐项验证；公开价格估算不构成计费保证。
 MiMo 使用 `mimo-v2.6-pro` 和 `mimo-v2.6-flash`；不再注册原有 V2.5 ID。
@@ -97,9 +97,32 @@ MiMo 使用 `mimo-v2.6-pro` 和 `mimo-v2.6-flash`；不再注册原有 V2.5 ID�
 
 精选目录保留 DeepSeek `deepseek-flash` 和 V4 Pro；GLM 5.2+，以及明确例外
 `glm-4.5-air`；MiniMax M3+；Kimi K3；GPT 6+；以及 Gemini 3.5+ 和无版本号的
-`gemini-flash` / `gemini-pro` 别名。Qwen、MiMo、LongCat、Claude 和 Grok 保留现有注册。
-已移除的 ID 及其专用请求策略不再注册；即使网关仍列出这些 ID，纳入规则也无法恢复它们。
+`gemini-flash` / `gemini-pro` 别名。当前裁剪移除了 Qwen `qwen3.7-max`、`qwen3.6-plus`、
+`qwen3.5-plus`，Claude `claude-fable-5`，以及 Grok `grok-4.20`、`grok-4.20-fast`、
+`grok-4.3-low`、`grok-4.3-medium`、`grok-4.3-high`。Qwen 仅保留 `qwen3.7-plus` 及其
+完整请求策略，作为厂商最后一个接入参考；它仍须命中网关目录才会登记，并非可绕过网关
+交集的默认模型。Grok 保留 `grok-4.5` 并新增 `grok-4.7`；Claude 当前仅保留 Opus 和 Sonnet。
+其他已移除的 ID 及其专用请求策略不再注册；即使网关仍列出这些 ID，纳入规则也无法恢复它们。
 现有显式模型选择若引用了已移除的 ID，需要更新。
+
+新增 `grok-4.7`、`gemini-3.5-flash-lite`、`gemini-3.8-flash-high` 和 `longcat-2.5-preview`：
+
+| ID | 协议与端点后缀 | 思考映射 | 2026-10-17 最小真实验收 |
+| --- | --- | --- | --- |
+| `grok-4.7` | Responses，`/v1` | low/medium/high/xhigh；不支持 off，max→xhigh | 文本通过；函数调用未通过；原生搜索无事件/来源，故不加入搜索支持名单 |
+| `gemini-3.5-flash-lite` | Completions，`/v1` | minimal/low/medium/high；off→minimal，xhigh/max→high | 文本、函数调用与默认工具选择下的结果往返通过；显式 tool_choice:none 的结果轮曾超时 |
+| `gemini-3.8-flash-high` | Google，`/gemini/v1beta` | low/medium/high；off/minimal→low，xhigh/max→high | 文本、函数调用与工具结果往返通过 |
+| `longcat-2.5-preview` | Completions，`/v1` | off 关闭，其他档开启；无已确认深度映射 | 上游额度耗尽，推理及工具验收阻塞 |
+
+上述验收仅覆盖短文本与最小工具夹具，不代表全部模态、上下文容量或七档已逐项验证。
+两款 Gemini 的旧 `/gemini` 路径均不可用；仅新型号按实测选择协议与版本路径，不修改旧型号。
+3.8 的网关 ID 后缀 `high` 不作为已确认的固定档位契约；规格/价格继承官方基础型号。
+3.8 采用截至 2026-12-31 的介绍价，2027-01-01 起应复核更新；Grok 4.7 采用输入少于
+200K 的公开价，达到 200K 后输入、缓存与输出均加倍。LongCat 使用国内限时价并按
+固定 0.1475 USD/CNY 折算；公开价格只用于估算，不代表网关实际计费。
+Grok 4.7 的官方文本输出不设独立上限，目录以 500K 上下文作为输出容量上界，
+不代表可同时填满输入与输出。LongCat 2.5 输出上限按逐型号参数页采用 256K；
+官方快速开始仍写 128K，图像更新说明也与纯文本 API schema 存在差异，当前保守登记文本输入。
 
 Kimi 提供 `kimi-k3` 和网关变体 `kimi-k3-256k`，后者显示为
 **Kimi K3 (256K)**，上下文窗口为 262,144 个 token。其余元数据、价格估算和思考策略

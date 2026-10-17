@@ -6,7 +6,7 @@
  * `before_provider_request` 中应用。
  *
  * - GPT（openai-responses）：追加 `tools: [{ type: "web_search", ... }]`
- * - Grok（openai-completions）：追加 `search_parameters: { mode: "on" }`
+ * - Grok 4.5（Completions）：追加 `search_parameters: { mode: "on" }`
  *   （xAI 文档：https://docs.x.ai/developers/tools/web-search）
  *
  * 名单外主模型通过 tsgw_search 调用目录内支持模型；注入逻辑保持共用。
@@ -31,14 +31,7 @@ const BUILTIN_SEARCH_MODELS = new Set([
 ]);
 
 // 支持内置查询的 Grok 系列（openai-completions 协议，search_parameters 模式）。
-const GROK_SEARCH_MODELS = new Set([
-	"grok-4.20",
-	"grok-4.5",
-	"grok-4.3-low",
-	"grok-4.3-medium",
-	"grok-4.3-high",
-	"grok-4.20-fast",
-]);
+const GROK_SEARCH_MODELS = new Set(["grok-4.5"]);
 
 /** 精确判定模型/协议支持性，由请求注入与展示代码共用。 */
 export function builtinSearchSupport(
@@ -65,11 +58,6 @@ const DELEGATE_PREFERENCE = [
 	"gpt-6-sol",
 	"gpt-6.1-sol",
 	"gpt-6-astra",
-	"grok-4.20",
-	"grok-4.20-fast",
-	"grok-4.3-low",
-	"grok-4.3-medium",
-	"grok-4.3-high",
 	"grok-4.5",
 ] as const;
 

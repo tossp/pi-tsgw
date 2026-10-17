@@ -228,7 +228,7 @@ await withUi(async ({ pi, ctx, statuses, setConfigured, refreshCalls, notices })
 await withUi(async ({ pi, ctx, notices, statuses, refreshModels }) => {
 	// 生效目录滤除 GPT 委托模型后，Grok 代理固定为实时，
 	// 绝不修改会话的 GPT cached/live 偏好。
-	globalThis.fetch = async () => modelResponse(["grok-4.20"]);
+	globalThis.fetch = async () => modelResponse(["grok-4.5"]);
 	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key: "test" },
 		force: true, signal: new AbortController().signal });
 	ctx.model = { ...ctx.model, id: "glm-5.2", api: "openai-completions" };

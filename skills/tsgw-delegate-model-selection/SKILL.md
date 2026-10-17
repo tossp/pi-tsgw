@@ -41,6 +41,11 @@ compatibility: 需要宿主提供子代理工具及可用的 tsgw 模型。
 - DeepSeek 采用国内价（2026-10-16 核验，Blinko #604）：输入 1–2 元、输出 4–8 元／百万 tokens，按固定 0.1475 USD/CNY 折算；区间为低谷／高峰价。静态目录采用区间高端，不自动按时段切换；高峰为北京时间工作日（不含中国法定节假日）9–12、14–18。
 - GLM 依据 Blinko #929，同样以固定 0.1475 USD/CNY 折算国内人民币标价。其余数值沿用既有选型资料。
 
+新增目录候选 `grok-4.7`、`gemini-3.5-flash-lite`、`gemini-3.8-flash-high`、
+`longcat-2.5-preview` 暂不进入上表排序：Grok 工具完整往返尚未通过，
+LongCat 受上游额度阻塞；两款 Gemini 仅通过最小文本/工具往返，尚无本表同口径评分。
+登记不等于适合长期工程委派，不借用同族评分。
+
 ## 必要边界
 
 - **MiniMax-M3** 只承担步骤明确的小任务。参考使用 Pi 的 high；非 off 档位均映射为 adaptive，不代表不同能力档。adaptive 不是 Pi 档位，此映射不适用于 M3.1 Flash Preview。
