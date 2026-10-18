@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI, ProviderConfig } from "@earendil-works/pi-coding-agent";
 import registerTsgw from "../index.ts";
-import { modelsForRoot, normalizeRoot } from "./models/catalog.ts";
-import { imageModelsForRoot } from "./images/models.ts";
-import { gatewayModelCacheScope, saveGatewayModelCache } from "./models/gateway-catalog.ts";
+import { modelsForRoot, normalizeRoot } from "#tsgw/models/catalog";
+import { openaiImageModels as imageModelsForRoot } from "#tsgw/models/vendors/openai";
+import { gatewayModelCacheScope, saveGatewayModelCache } from "#tsgw/models/gateway-catalog";
 
 type HookName =
 	| "session_start"

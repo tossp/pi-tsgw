@@ -4,8 +4,8 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import registerTsgw from "../../index.ts";
-import { FakePi, withAgentDir } from "../test-support.test.ts";
-import { gatewayModelCacheScope, saveGatewayModelCache, STARTUP_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "../models/gateway-catalog.ts";
+import { FakePi, withAgentDir } from "#tsgw/test-support.test";
+import { gatewayModelCacheScope, saveGatewayModelCache, STARTUP_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "#tsgw/models/gateway-catalog";
 
 test("Qwen 接入参考仍受网关交集过滤，include 不能恢复已移除 ID", async () => {
 	const previousFetch = globalThis.fetch;

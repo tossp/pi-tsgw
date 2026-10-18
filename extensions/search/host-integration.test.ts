@@ -4,8 +4,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-agent";
-import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "../host-test-support.test.ts";
-import { modelsForRoot } from "../models/catalog.ts";
+import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "#tsgw/host-test-support.test";
+import { modelsForRoot } from "#tsgw/models/catalog";
 
 // 通过真实 Pi/jiti 加载器加载根入口源码，包括本测试在 dist/ 中运行时。
 function sourceEntry(): string {

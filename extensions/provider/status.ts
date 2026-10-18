@@ -1,5 +1,5 @@
-import type { WebSearchMode } from "../models/_tools.ts";
-import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS } from "../models/gateway-catalog.ts";
+import type { WebSearchMode } from "#tsgw/models/_tools";
+import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS } from "#tsgw/models/gateway-catalog";
 
 export interface CatalogStatus {
 	count: number;

@@ -1,6 +1,7 @@
 import { deepStrictEqual, equal, strictEqual, throws } from "node:assert";
 import {
 	DEFAULT_ROOT,
+	effectiveModelsForGateway,
 	filterModels,
 	modelsForRoot,
 	normalizeRoot,
@@ -16,7 +17,8 @@ import { kimiModels } from "./vendors/kimi.ts";
 import { longcatModels } from "./vendors/longcat.ts";
 import { mimoModels } from "./vendors/mimo.ts";
 import { minimaxModels } from "./vendors/minimax.ts";
-import { openaiModels } from "./vendors/openai.ts";
+import { openaiImageModels, openaiModels } from "./vendors/openai.ts";
+import { typesafeClassifierModels } from "./vendors/typesafe.ts";
 import { qwenModels } from "./vendors/qwen.ts";
 
 const ROOT = "https://aih.example.com";
@@ -215,8 +217,43 @@ function testNormalizeRoot(): void {
 	equal(PROVIDER_ID, "tsgw");
 }
 
+function testEffectiveCatalog(): void {
+	const chats = modelsForRoot(ROOT);
+	const images = openaiImageModels(ROOT);
+	const classifiers = typesafeClassifierModels(ROOT);
+	const all = [...chats, ...images, ...classifiers];
+	const gateway = new Set(all.map(model => model.id));
+	const before = [...gateway];
+	for (const imagesEnabled of [false, true]) {
+		for (const classifiersEnabled of [false, true]) {
+			const expected = [...chats, ...(imagesEnabled ? images : []), ...(classifiersEnabled ? classifiers : [])];
+			deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, gateway, imagesEnabled, classifiersEnabled), expected);
+		}
+	}
+	deepStrictEqual([...gateway], before, "不修改传入网关集合");
+	const filter = Object.freeze({ exclude: Object.freeze(["*"]), include: Object.freeze(["*"]) });
+	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, undefined, true, true), [], "没有网关目录不能回退静态目录");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, new Set(), true, true), [], "include 不能突破空网关交集");
+	const selected = [chats[0].id, images[0].id, classifiers[0].id];
+	const prefixed = new Set(selected.map(id => `vendor/${id}`));
+	prefixed.add("vendor/not-registered");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, prefixed, true, true).map(model => model.id), selected,
+		"精确登记的型号可匹配网关厂商前缀，未知型号不自动登记");
+	const mixed = new Set([chats[0].id, images[0].id, classifiers[0].id]);
+	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["*"], include: [images[0].id] }, mixed, true, true).map(model => model.id),
+		[images[0].id], "include 在交集中优先拉回，但不拉回其他型号");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["*"], include: [images[1].id] }, mixed, true, true), [],
+		"include 不能恢复网关缺席的静态型号");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, mixed, false, false).map(model => model.id), [chats[0].id],
+		"include 不能突破宿主能力门");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, new Set([`vendor/${classifiers[0].id.toUpperCase()}`, `${images[0].id}-extra`]), true, true), [],
+		"匹配区分大小写且不接受型号后缀扩展");
+	deepStrictEqual(modelsForRoot(ROOT), chats, "混合目录调用不污染聊天目录");
+}
+
 testCatalogConcatenation();
 testModelCapabilities();
 testFilterModels();
 testNormalizeRoot();
+testEffectiveCatalog();
 console.log("catalog.test.ts：全部断言通过");

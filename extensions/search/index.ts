@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { builtinSearchSupport, resolveSearchDelegate } from "../models/web-search.ts";
-import type { WebSearchMode } from "../models/_tools.ts";
-import { searchLabel, type SearchSupport } from "../provider/status.ts";
+import { builtinSearchSupport, resolveSearchDelegate } from "#tsgw/models/web-search";
+import type { WebSearchMode } from "#tsgw/models/_tools";
+import { searchLabel, type SearchSupport } from "#tsgw/provider/status";
 import { registerSearchProxyTool, SEARCH_PROXY_TOOL } from "./proxy.ts";
 
 interface SearchOptions {

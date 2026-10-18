@@ -9,7 +9,11 @@
     "noEmitOnError": true,
     "skipLibCheck": true,
     "outDir": "dist",
-    "rootDir": "."
+    "rootDir": ".",
+    "paths": {
+      "#tsgw/*": ["./extensions/*.ts"],
+      "#tsgw-prompts/*": ["./prompts/*.ts"]
+    }
   },
   "include": ["index.ts", "extensions", "prompts"],
   "exclude": ["**/*.test.ts"]

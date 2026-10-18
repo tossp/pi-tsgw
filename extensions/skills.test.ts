@@ -3,7 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
-import { HostSandbox } from "./host-test-support.test.ts";
+import { HostSandbox } from "#tsgw/host-test-support.test";
 
 function packageRoot(): string {
 	let dir = dirname(fileURLToPath(import.meta.url));

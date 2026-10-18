@@ -3,8 +3,8 @@ import { mkdtemp, open, realpath, rm, stat, unlink, type FileHandle } from "node
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import type { ImageContent } from "@earendil-works/pi-ai";
-import { inspectImage } from "./image-data.ts";
-import { MAX_IMAGE_INPUT_BYTES, MAX_IMAGE_INPUT_TOTAL_BYTES, type ImageFormat, type ImageReference } from "./parameters.ts";
+import { inspectImage } from "#tsgw/models/adapter/images/image-data";
+import { MAX_IMAGE_INPUT_BYTES, MAX_IMAGE_INPUT_TOTAL_BYTES, type ImageFormat, type ImageReference } from "#tsgw/models/adapter/images/parameters";
 import { plainObject } from "./tool-schema.ts";
 
 // 与适配器共用十进制字节预算；保留工具测试的导出入口。

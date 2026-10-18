@@ -2,8 +2,8 @@ import { deepStrictEqual, equal, match, rejects } from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { FakePi } from "../test-support.test.ts";
-import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "../models/gateway-catalog.ts";
+import { FakePi } from "#tsgw/test-support.test";
+import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "#tsgw/models/gateway-catalog";
 import { registerRefreshTool } from "./refresh-tool.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "refresh-tool-"));

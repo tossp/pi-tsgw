@@ -1,6 +1,6 @@
 import type { AssistantImages, ImageContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { normalizeImageParameters, type ImageOperation, type TsgwImagesContext, type TsgwImagesResult, type ImageUsageReport } from "./parameters.ts";
+import { normalizeImageParameters, type ImageOperation, type TsgwImagesContext, type TsgwImagesResult, type ImageUsageReport } from "#tsgw/models/adapter/images/parameters";
 import { DEFAULT_IMAGE_MODEL, editImageSchema, generateImageSchema, imageToolResultSchema, prepareImageToolParameters } from "./tool-schema.ts";
 import { ImageToolFileError, resolveImageSources, saveImageOutput, validateImageOutput, type ImageFileResult } from "./tool-files.ts";
 

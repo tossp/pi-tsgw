@@ -4,10 +4,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { AgentSession, BuildSystemPromptOptions, ExtensionError } from "@earendil-works/pi-coding-agent";
-import { modelsForRoot, PROVIDER_ID } from "./extensions/models/catalog.ts";
-import { MEMORY_RULES } from "./prompts/memory.ts";
-import { IMAGE_MODEL_IDS } from "./extensions/images/models.ts";
-import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "./extensions/host-test-support.test.ts";
+import { modelsForRoot, PROVIDER_ID } from "#tsgw/models/catalog";
+import { MEMORY_RULES } from "#tsgw-prompts/memory";
+import { OPENAI_IMAGE_MODEL_IDS as IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
+import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "#tsgw/host-test-support.test";
 
 // 同时兼容源码执行与 tsc 的 dist 输出，不依赖 cwd 或机器特定路径。
 // 始终通过 Pi/jiti 加载源码入口。
@@ -38,6 +38,20 @@ function trace(request: CapturedRequest): { thread: string; turn: string } {
 	assert.match(turn ?? "", /^[0-9a-f-]{36}$/);
 	return { thread: thread!, turn: turn! };
 }
+
+test("目录别名按当前包作用域解析，不让编译后测试静默加载源码", () => {
+	const extension = import.meta.url.endsWith(".ts") ? ".ts" : ".js";
+	for (const [specifier, target] of [
+		["#tsgw/models/catalog", "./extensions/models/catalog"],
+		["#tsgw-prompts/memory", "./prompts/memory"],
+	] as const) {
+		assert.equal(import.meta.resolve(specifier), new URL(`${target}${extension}`, import.meta.url).href);
+	}
+	if (extension === ".js") {
+		assert.notEqual(dirname(sourceEntry()), dirname(fileURLToPath(import.meta.url)),
+			"编译后包清单不能阻断源码入口的向上查找");
+	}
+});
 
 // 在独立 Node 进程中运行：环境与网络防护有意作用于整个进程。
 // 不使用 FakePi、模拟 SDK 方法、个人凭据或真实服务器；只使用合成 runtime key。

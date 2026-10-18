@@ -1,7 +1,8 @@
 # 测试文件不发布
 *.test.ts
-# 构建产物与开发配置
+# 构建产物与根开发脚本（保留 skills/**/scripts）
 dist/
+/scripts/
 # 项目设计文档不发布
 docs/
 .github/

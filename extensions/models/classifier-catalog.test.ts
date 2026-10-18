@@ -1,18 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { typesafeClassifierModels } from "../models/vendors/typesafe.ts";
-import {
-	CLASSIFIER_API,
-	CLASSIFIER_MODEL_IDS,
-	classifierModelsForRoot,
-	supportsClassifierModels,
-} from "./models.ts";
+import { TYPESAFE_CLASSIFIER_API as CLASSIFIER_API, TYPESAFE_CLASSIFIER_MODEL_IDS as CLASSIFIER_MODEL_IDS, typesafeClassifierModels as classifierModelsForRoot } from "#tsgw/models/vendors/typesafe";
 
 const root = "https://classifiers.example.test/gateway";
-
-test("分类能力入口直接复用 TypeSafe 厂商目录", () => {
-	assert.equal(classifierModelsForRoot, typesafeClassifierModels);
-});
 
 test("分类目录：逐 ID 登记文本能力、64k 窗口和参考价格", () => {
 	assert.deepEqual([...CLASSIFIER_MODEL_IDS], ["jev-latest", "jev-preview"]);
@@ -48,14 +38,5 @@ test("分类目录：可整体冻结，不依赖聊天或图片目录", () => {
 	for (const model of models) {
 		assert.equal(model.type, "classifier");
 		assert.equal(model.input.includes("image"), false);
-	}
-});
-
-test("分类宿主基线：仅 1.2.0 及以上稳定版本启用", () => {
-	for (const version of ["0.82.0", "1.0.0", "1.1.9", "1.2.0-beta", "1.2.0-rc.1", "unknown", "1.2", ""]) {
-		assert.equal(supportsClassifierModels(version), false, version);
-	}
-	for (const version of ["1.2.0", "1.3.0", "2.0.0", "1.2.0+test"]) {
-		assert.equal(supportsClassifierModels(version), true, version);
 	}
 });

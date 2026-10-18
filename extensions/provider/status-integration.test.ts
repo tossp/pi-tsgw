@@ -3,8 +3,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import registerTsgw from "../../index.ts";
 import { catalogLabel, searchLabel } from "./status.ts";
-import { gatewayModelCacheScope, saveGatewayModelCache, STARTUP_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "../models/gateway-catalog.ts";
-import { FakePi, TSGW_SOL, withAgentDir, providerRequest, seedSuccessfulCatalog } from "../test-support.test.ts";
+import { gatewayModelCacheScope, saveGatewayModelCache, STARTUP_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "#tsgw/models/gateway-catalog";
+import { FakePi, TSGW_SOL, withAgentDir, providerRequest, seedSuccessfulCatalog } from "#tsgw/test-support.test";
 
 type Refresh = (context: {
 	allowNetwork: boolean;

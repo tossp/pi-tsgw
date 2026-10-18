@@ -5,8 +5,8 @@ import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-agent";
 import type { ClassifierContext } from "@earendil-works/pi-ai";
-import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "../host-test-support.test.ts";
-import { CLASSIFIER_MODEL_IDS } from "../classifiers/models.ts";
+import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "#tsgw/host-test-support.test";
+import { TYPESAFE_CLASSIFIER_MODEL_IDS as CLASSIFIER_MODEL_IDS } from "#tsgw/models/vendors/typesafe";
 
 function sourceEntry(): string {
 	let dir = dirname(fileURLToPath(import.meta.url));

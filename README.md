@@ -11,16 +11,26 @@
 
 ## 项目结构
 
-包清单的 `pi.extensions` 指向根 `./index.ts`，作为约 15 行的总入口；provider 注册与生命周期位于 `extensions/provider/`，模型模块位于 `extensions/models/`。搜索模块及相邻测试位于 `extensions/search/`，提示词由 `extensions/prompts.ts` 的 `registerPrompts` 统一注册，正文位于 `prompts/`。宿主集成总测试为根 `index.test.ts`；provider 和搜索测试与对应模块相邻，共享测试夹具仍位于 `extensions/`。技能及其测试路径保持在 `skills/` 和 `extensions/`。
+包清单的 `pi.extensions` 指向根 `./index.ts`，作为约 15 行的总入口；provider 注册与生命周期位于 `extensions/provider/`，模型模块位于 `extensions/models/`，图片协议实现位于该目录下的 `adapter/images/`，分类桥接位于 `adapter/classifiers/`，图片工具、参数 schema 与本地文件仍由 `extensions/images/` 承担。搜索模块及相邻测试位于 `extensions/search/`，提示词由 `extensions/prompts.ts` 的 `registerPrompts` 统一注册，正文位于 `prompts/`。宿主集成总测试为根 `index.test.ts`；provider、模型与搜索的测试与对应模块相邻，图片工具测试与 `extensions/images/` 中的实现相邻，共享测试夹具仍位于 `extensions/`。技能及其测试路径保持在 `skills/` 和 `extensions/`。
+
+跨模块源码引用统一使用 package 子路径别名 `#tsgw/*`（映射到 `extensions/`）与 `#tsgw-prompts/*`（映射到 `prompts/`），别名不带 `.ts` 后缀；模块内部继续用相对 `.ts` 路径，由 tsc 改写为 `.js`。真实入口文件（含各 `index.ts`）继续承担实际装配职责，不为聚合再导出新增 barrel 索引。
 
 ```text
 index.ts                    # 包总入口
 index.test.ts               # 宿主集成总测试
-extensions/provider/         # provider 注册、配置、状态及其测试
-extensions/models/           # 模型目录、策略与联网支持
+extensions/provider/         # provider 注册、配置、状态与刷新
+extensions/models/
+  catalog.ts                # 聊天目录与最终混合目录的纯汇总/过滤
+  capabilities.ts           # 图片与分类的宿主版本门
+  gateway-catalog.ts        # 网关网络/磁盘缓存
+  operations.ts             # 聊天请求改写
+  web-search.ts             # 内置联网
+  vendors/                  # 厂商规格（含 openai 图片、typesafe 分类）
+  adapter/
+    images/                 # 图片协议实现与对应测试
+    classifiers/            # 分类桥接与对应测试
 extensions/search/           # 搜索注册、代理与相邻测试
-extensions/images/           # 原生图片生成适配与宿主集成测试
-extensions/classifiers/      # 分类能力入口与宿主原生适配器桥接
+extensions/images/           # 图片工具、schema、本地文件与宿主集成测试
 extensions/prompts.ts        # registerPrompts
 prompts/memory.ts            # 记忆提示词正文
 extensions/upload/           # 本地上传及安全说明
@@ -188,7 +198,7 @@ Pi 1.2+ 可在现有 `tsgw` provider 中注册 `gpt-image-2.5-flare` 和
 默认使用 Sunburst 生成一张 PNG，草稿任务可选 Flare；质量、尺寸、格式、压缩、数量、背景及流式参数可按需覆盖。
 工具返回图片和保存原始字节的临时路径；编辑支持本地文件、图片 URL/data URI 或上游文件 ID。
 图片模型不进入聊天选择器或搜索代理。原生 codemode 调用仍可用；调用、文件权限、超时及结果边界见
-[图片生成维护与使用说明](extensions/images/README.md)。
+[图片生成维护与使用说明](extensions/images/README.md)；该说明描述工具与文件层，协议实现位于 `extensions/models/adapter/images/`。
 
 随包 [tsgw-image-generation](skills/tsgw-image-generation/SKILL.md) 技能提供生成、编辑、模型选型和参数示例；
 可以直接描述需要的图片，也可使用 `/skill:tsgw-image-generation` 显式加载技能。
@@ -225,8 +235,9 @@ text(result.stopReason === "stop" ? result.answers : { error: result.errorMessag
 
 扩展也可直接调用 `ctx.modelRegistry.classify()`，不依赖 codemode。bool 映射为线上的
 `noul` 并返回成立概率；choice 返回选项、概率分布与置信度；score 返回从 0 开始的等级
-索引期望值（可以是小数），不是整数标签。适配器不复制 HTTP 或结果解析，始终禁用自动
-重试、不自动换模型；错误只输出脱敏摘要，调用者应检查 `stopReason`。
+索引期望值（可以是小数），不是整数标签。分类适配由 `extensions/models/adapter/classifiers/adapter.ts`
+桥接宿主内置 SystemOne，登记能力门位于 `extensions/models/capabilities.ts`；适配器不复制 HTTP 或结果解析，
+始终禁用自动重试、不自动换模型，错误只输出脱敏摘要，调用者应检查 `stopReason`。
 
 当前仅声明文本输入，总请求窗口采用官方 64,000 tokens；官方单题窗口为 32K，不能把总窗口
 当作每题预算。未开启实验图片或长上下文。输入参考价为 $0.042／百万 tokens、输出参考价
@@ -391,6 +402,7 @@ loader 映射复用其内置 AI adapter，不由插件安装或携带第二份�
 - [请求操作](https://github.com/tossp/pi-tsgw/blob/main/extensions/models/operations.ts)：写时复制分派；DeepSeek/Claude 响应仍由 Pi 的适配器处理。
 - [内置搜索](https://github.com/tossp/pi-tsgw/blob/main/extensions/models/web-search.ts)：精确的模型/协议支持范围和仅追加注入。
 - [扩展总入口](https://github.com/tossp/pi-tsgw/blob/main/index.ts)：包加载入口；[provider 集成](https://github.com/tossp/pi-tsgw/tree/main/extensions/provider)：注册、配置、刷新、命令和生命周期快照。延迟执行的请求回调不得访问过期的会话上下文。
+- [图片协议实现](extensions/models/adapter/images/) 与 [分类桥接](extensions/models/adapter/classifiers/)：图片六个协议文件与分类适配器；工具注册与参数 schema 仍位于 [images](extensions/images/)，[能力门](extensions/models/capabilities.ts) 判定图片与分类各自的宿主最低版本。
 - [提示词注册](https://github.com/tossp/pi-tsgw/blob/main/extensions/prompts.ts)：`registerPrompts` 统一入口；记忆正文位于 `prompts/memory.ts`。
 
 这些源码链接描述仓库当前的 main 分支；已安装的发行版可能有所不同。

@@ -1,5 +1,5 @@
 import type { ProviderHeaders, ProviderImages } from "@earendil-works/pi-ai";
-import { IMAGE_API, IMAGE_MODEL_IDS } from "./models.ts";
+import { OPENAI_IMAGE_API as IMAGE_API, OPENAI_IMAGE_MODEL_IDS as IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
 import { abortable, ImageFailure, parseUsage, record } from "./response.ts";
 import type { TsgwImagesResult } from "./parameters.ts";
 import { createImageRequest, serializeImageRequest } from "./request.ts";

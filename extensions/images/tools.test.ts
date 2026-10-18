@@ -5,11 +5,11 @@ import { tmpdir } from "node:os";
 import { test } from "node:test";
 import type { AssistantImages } from "@earendil-works/pi-ai";
 import type { Static } from "typebox";
-import type { TsgwImagesContext } from "./parameters.ts";
+import type { TsgwImagesContext } from "#tsgw/models/adapter/images/parameters";
 import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { registerImageTools, type ImageToolDetails } from "./tools.ts";
 import { DEFAULT_IMAGE_MODEL, editImageSchema, generateImageSchema, imageToolResultSchema } from "./tool-schema.ts";
-import { IMAGE_API, imageModelsForRoot } from "./models.ts";
+import { OPENAI_IMAGE_API as IMAGE_API, openaiImageModels as imageModelsForRoot } from "#tsgw/models/vendors/openai";
 import { Compile } from "typebox/compile";
 
 type Tool = Parameters<ExtensionAPI["registerTool"]>[0];

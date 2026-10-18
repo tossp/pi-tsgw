@@ -6,9 +6,9 @@ import { inflateSync } from "node:zlib";
 import { test } from "node:test";
 import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-agent";
 import type { ImageContent } from "@earendil-works/pi-ai";
-import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "../host-test-support.test.ts";
-import { IMAGE_API, IMAGE_MODEL_IDS, imageModelsForRoot } from "./models.ts";
-import { modelsForRoot, PROVIDER_ID } from "../models/catalog.ts";
+import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "#tsgw/host-test-support.test";
+import { OPENAI_IMAGE_API as IMAGE_API, OPENAI_IMAGE_MODEL_IDS as IMAGE_MODEL_IDS, openaiImageModels as imageModelsForRoot } from "#tsgw/models/vendors/openai";
+import { modelsForRoot, PROVIDER_ID } from "#tsgw/models/catalog";
 
 // 已知有效的 1×1 灰度透明 PNG；CRC、像素与完整原始字节都可独立断言。
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";

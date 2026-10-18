@@ -6,11 +6,7 @@ import type {
 	ClassifierModel,
 } from "@earendil-works/pi-ai";
 import { classify } from "./adapter.ts";
-import {
-	CLASSIFIER_API,
-	CLASSIFIER_MODEL_IDS,
-	classifierModelsForRoot,
-} from "./models.ts";
+import { TYPESAFE_CLASSIFIER_API as CLASSIFIER_API, TYPESAFE_CLASSIFIER_MODEL_IDS as CLASSIFIER_MODEL_IDS, typesafeClassifierModels as classifierModelsForRoot } from "#tsgw/models/vendors/typesafe";
 
 const root = "https://classifiers.example.test/gateway";
 const KEY = "fake-classifier-api-key";

@@ -3,7 +3,7 @@ import test from "node:test";
 import { deflateSync } from "node:zlib";
 import type { ImageApi, ImageModel, ImagesContext, ImagesOptions } from "@earendil-works/pi-ai";
 import { generateImages } from "./adapter.ts";
-import { IMAGE_API, IMAGE_MODEL_IDS } from "./models.ts";
+import { OPENAI_IMAGE_API as IMAGE_API, OPENAI_IMAGE_MODEL_IDS as IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
 import { MAX_RESPONSE_BYTES } from "./response.ts";
 
 const KEY = "fake-test-api-key";

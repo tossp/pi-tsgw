@@ -7,7 +7,7 @@
 
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 
-// Pi 1.x 还包含图像/分类器配置；本目录仅包含聊天模型。
+// Pi 1.x 还包含图片/分类配置；此类型仅提取聊天模型。
 // 通过结构提取，保持与旧版仅含聊天模型的类型兼容。
 export type ChatModelConfig = Extract<ProviderModelConfig, { reasoning: boolean }>;
 

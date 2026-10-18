@@ -1,5 +1,5 @@
 import { deepStrictEqual, strictEqual } from "node:assert/strict";
-import { builtinSearchSupport, resolveSearchDelegate } from "../models/web-search.ts";
+import { builtinSearchSupport, resolveSearchDelegate } from "#tsgw/models/web-search";
 
 function testExactCandidateProtocol(): void {
 	for (const [id, api, expected] of [

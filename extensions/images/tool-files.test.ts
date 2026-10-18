@@ -4,7 +4,7 @@ import { mkdtemp, open, readFile, rm, stat, symlink, truncate, writeFile } from 
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { test } from "node:test";
-import { inspectImage } from "./image-data.ts";
+import { inspectImage } from "#tsgw/models/adapter/images/image-data";
 import { ImageToolFileError, MAX_INPUT_FILE_BYTES, MAX_INPUT_TOTAL_BYTES, resolveImageSources, saveImageOutput, validateImageOutput } from "./tool-files.ts";
 
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";

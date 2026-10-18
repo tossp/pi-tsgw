@@ -11,15 +11,18 @@
 | 依赖、测试命令、包版本 | `package.json`、`package-lock.json` |
 | 扩展总入口与包清单 | 根 `index.ts`（`package.json` 的 `pi.extensions` 指向 `./index.ts`） |
 | provider 注册、生命周期、命令、追踪 | `extensions/provider/index.ts`；配置读取 `extensions/provider/config.ts`，状态 `extensions/provider/status.ts` |
-| 模型规格、价格、thinking 策略 | `extensions/models/vendors/*.ts` |
+| 模型规格、价格、thinking 策略 | `extensions/models/vendors/*.ts`（图片见 `openai.ts`，分类见 `typesafe.ts`） |
+| 宿主能力版本门 | `extensions/models/capabilities.ts`（图片与分类分别独立判定） |
 | 随包技能、模型选型与资源验证 | `skills/`、`extensions/skills.test.ts`、`extensions/skill-resources.test.ts` |
 | 提示词注册与正文 | `extensions/prompts.ts`（`registerPrompts`）、`prompts/memory.ts`（含原有维护授权） |
 | 记忆规则注入与详细维护流程 | `extensions/prompts.ts`、`skills/tsgw-smemo/` |
-| 目录拼接、过滤与请求调度 | `extensions/models/catalog.ts`、`operations.ts` |
+| 目录拼接、过滤与混合目录汇总 | `extensions/models/catalog.ts`（聊天目录 `modelsForRoot` 与混合 `effectiveModelsForGateway`） |
+| 聊天请求改写 | `extensions/models/operations.ts` |
 | 网络目录与缓存 | `extensions/models/gateway-catalog.ts` 及缓存辅助模块 |
 | 内置联网 | `extensions/models/web-search.ts`、`extensions/search/`（`index.ts`、`proxy.ts` 及相邻测试） |
-| 原生分类目录与适配器、宿主集成 | 厂商规格 `extensions/models/vendors/typesafe.ts`；能力入口与适配 `extensions/classifiers/`；`extensions/provider/classifier-host.test.ts` |
-| 原生图片生成、适配与维护说明 | `extensions/images/`、`extensions/images/README.md`；宿主集成测试 `extensions/images/host-integration.test.ts` |
+| 原生图片协议实现 | `extensions/models/adapter/images/`（`adapter.ts` / `parameters.ts` / `request.ts` / `response.ts` / `stream-response.ts` / `image-data.ts` 及对应单测） |
+| 原生图片工具、schema、文件与维护说明 | `extensions/images/`（`tools.ts` / `tool-schema.ts` / `tool-files.ts` 与工具/宿主集成测试）、`extensions/images/README.md` |
+| 原生分类适配与版本门判定 | 厂商规格 `extensions/models/vendors/typesafe.ts`；适配 `extensions/models/adapter/classifiers/adapter.ts` 及对应单测；能力门同 `capabilities.ts` |
 | provider 状态与测试 | `extensions/provider/status.ts`、`extensions/provider/` 中 provider 单测、状态单测和状态集成测试 |
 | MCP 配置与宿主认证边界 | `README.md` 的 MCP 服务配置、`extensions/upload/README.md` |
 | 宿主集成总测试 | 根 `index.test.ts`；其他共享测试夹具仍在 `extensions/` |
@@ -29,7 +32,9 @@
 ## 开发边界
 
 - 本插件用于自用，功能、随包技能与工作流以用户自身环境、需求和明确授权为设计依据；公开仓库与 npm 发布不代表面向通用用户设计。不得仅因公开发布就要求将个人工作流通用化、拆出既有授权或增加多用户兼容层；仍须遵守既有授权范围、凭据保护与宿主权限边界。
-- 扩展总入口是根 `index.ts`；provider 的 Pi 运行时注册、生命周期、命令、追踪集中在 `extensions/provider/index.ts`，配置读取与状态分别由 `config.ts`、`status.ts` 承载。模型模块只使用 Pi 类型。目录拼接、过滤、请求改写、状态格式化保持纯逻辑；网络/磁盘缓存独立，不自行读取 Pi 配置。
+- 扩展总入口是根 `index.ts`；provider 的 Pi 运行时注册、生命周期、命令、追踪集中在 `extensions/provider/index.ts`，配置读取与状态分别由 `config.ts`、`status.ts` 承载。模型模块只使用 Pi 类型。目录拼接、过滤、请求改写、状态格式化保持纯逻辑；网络/磁盘缓存独立，不自行读取 Pi 配置。`capabilities.ts` 只做版本解析与门判定，不读 `VERSION` 全局、不依赖宿主运行时。
+- 图片协议实现（`adapter.ts` / `parameters.ts` / `request.ts` / `response.ts` / `stream-response.ts` / `image-data.ts`）归属 `extensions/models/adapter/images/`，分类桥接归属 `extensions/models/adapter/classifiers/adapter.ts`；图片工具注册、参数 schema 与本地文件处理仍由 `extensions/images/` 承担。两者共用 `extensions/models/capabilities.ts` 的版本门，互不引用对方内部状态。
+- 跨模块源码统一用 `#tsgw/*` 与 `#tsgw-prompts/*` 别名（不带 `.ts` 后缀，由 `package.json` 的 `imports` 与 `tsconfig.json` 的 `paths` 同时解析）；同模块内部继续用相对 `.ts` 路径，由 tsc 改写为 `.js`。`index.ts` 等真实入口继续保留为真实装配，不为聚合再导出新增 `index.ts`，不存在 barrel 索引。
 - 厂商策略写在对应 vendor 分片；`operations.ts` 只汇总调度，不新增模型族 switch。共享工具在 `_tools.ts`；公共 compat 在 `vendors/_protocols.ts`，厂商特例留在分片。
 - 复用宿主的 Completions、Responses、Anthropic、Google adapter；不复制 stream/response 实现，不引入通用 JSON Patch、消息历史或 token-limit 改写。
 - 新增运行时依赖、协议或公共接口前先确认必要性。新能力以 Pi 架构为基础，能力模块可独立复用，MCP 只是可能的调用接口。
@@ -53,8 +58,8 @@
 - 新模型改 vendor；新供应商接入 catalog，有策略则接入 operations。补逐 ID、档位及非目标字段保留测试，不只检查总数量。
 - 调整模型目录、规格、thinking 档位、价格或选型依据时，同步检查 `skills/tsgw-delegate-model-selection/SKILL.md` 的选型表与说明是否需要更新；只有涉及代码逻辑变更时才调整对应测试，选型表和说明内容通过 diff 审阅。参考表由插件维护，使用技能的模型直接参考，不承担查榜、实时核验或时效判断职责。
 - 静态目录与网关目录取交集后再应用用户过滤，不自动登记未知 ID。include 优先于 exclude，但不能突破该交集；两者只支持精确 ID 和尾部 `*` 前缀匹配。
-- 原生图片仅在 Pi `VERSION` 为 1.2.0 或更高稳定版本时注册 `type: image` 的 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`；低版本不注册图片模型/adapter，但聊天保持原功能，不提高最低 peer，也不以策略说明冒充旧版真实验收。图片走现有 tsgw provider、`baseUrl` 和宿主凭据解析，不增加 MCP 注册、HTTP 客户端 SDK 依赖或服务端改动。生成与编辑共用图片适配器，默认单张 PNG 而不是写死上游能力；不自动登记裸别名或其他图片模型。图片不作为聊天模型或搜索代理候选；状态计数含实际登记的聊天、图片与分类模型。
-- TypeSafe 是厂商，Jev 是模型系列；厂商规格归 `extensions/models/vendors/typesafe.ts`，`extensions/classifiers/models.ts` 仅导出能力入口与宿主门。分类以 Pi 1.2.0 及以上稳定版为已验证登记基线，仅 `jev-latest`、`jev-preview`，`type: classifier`、`typesafe-system-one`，复用同 tsgw provider/认证及网关交集/用户过滤；低版本不登记分类器，不提高聊天最低 peer。目录与刷新状态计数包含分类项，但聊天选择器与搜索代理必须排除；不因网关列出就登记 Kev、SemIf 或 Luna Decisions。通过宿主可解析的 `@earendil-works/pi-ai/providers/all` 懒加载复用内置 TypeSafe classify，不复制 HTTP/解析、不增运行时依赖。始终关闭自动重试、不自动切模型，透传取消/钩子/usage，原生错误先脱敏。仅文本，总窗口 64K 与每题 32K 分开说明；公开价不是网关实扣价，输出参考价为零不等于丢弃输出 tokens。不额外开启实验头或宣称全部质量已验收。
+- 原生图片仅在 Pi `VERSION` 为 1.2.0 或更高稳定版本时注册 `type: image` 的 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`；低版本不注册图片模型/adapter，但聊天保持原功能，不提高最低 peer，也不以策略说明冒充旧版真实验收。图片走现有 tsgw provider、`baseUrl` 和宿主凭据解析，不增加 MCP 注册、HTTP 客户端 SDK 依赖或服务端改动。生成与编辑共用 `extensions/models/adapter/images/` 下的图片适配器，默认单张 PNG 而不是写死上游能力；不自动登记裸别名或其他图片模型。图片不作为聊天模型或搜索代理候选；状态计数含实际登记的聊天、图片与分类模型。
+- TypeSafe 是厂商，Jev 是模型系列；厂商规格归 `extensions/models/vendors/typesafe.ts`，分类适配与能力门由 `extensions/models/adapter/classifiers/adapter.ts` 与 `extensions/models/capabilities.ts` 共同承担。分类以 Pi 1.2.0 及以上稳定版为已验证登记基线，仅 `jev-latest`、`jev-preview`，`type: classifier`、`typesafe-system-one`，复用同 tsgw provider/认证及网关交集/用户过滤；低版本不登记分类器，不提高聊天最低 peer。目录与刷新状态计数包含分类项，但聊天选择器与搜索代理必须排除；不因网关列出就登记 Kev、SemIf 或 Luna Decisions。通过宿主可解析的 `@earendil-works/pi-ai/providers/all` 懒加载复用内置 TypeSafe classify，不复制 HTTP/解析、不增运行时依赖。始终关闭自动重试、不自动切模型，透传取消/钩子/usage，原生错误先脱敏。仅文本，总窗口 64K 与每题 32K 分开说明；公开价不是网关实扣价，输出参考价为零不等于丢弃输出 tokens。不额外开启实验头或宣称全部质量已验收。
 - 图片 API 适配 `/v1/images/generations` 和 `/v1/images/edits`；两个直接工具 `tsgw_generate_image` / `tsgw_edit_image` 共用宿主 registry/认证与适配器，不要求 codemode。支持上游明确适用于两款模型的参数及组合，默认值用于减少传参，不作为任意功能限制；旧模型字段不机械搬入。默认请求 600s，支持 signal 和显式 timeout 覆盖；严禁自动重试或自动切模型，不声称取消必然停止上游处理/计费。原生 `models.generateImages` 仍仅两个参数，`context.tsgw` 是本插件扩展，不冒称宿主原生参数。
 - 编辑本地输入按工具整体权限读取原始文件字节，不借用会缩放/转码的 read 预览；不宣传为内置 read 的路径审批或沙箱。图片 URL/file_id 交上游解析，不自行下载或另建文件上传服务。蒙版与原图的尺寸、格式、alpha 校验按可验证输入执行；远端引用的不可本地验证项明确交上游。工具输出保存原始字节，宿主预览可能转换；流式响应消费不等于 Pi Web 渐进预览。
 - 图片价格 0 表示未映射准确价格，不是免费；usage 只含上游报告的有效 tokens。图片真实端点验收需明确授权，模拟测试不能替代真实端点验证。
@@ -97,7 +102,7 @@ git diff --check
 - 升级 Pi 前读目标版本的 extensions、custom-provider、packages 文档与相关示例；同步 package/lock，跑类型检查、单测与真实宿主集成。不要混淆 legacy `ProviderConfig.refreshModels` 返回列表与完整 `Provider` 的 publish 契约。
 - 宿主与开发依赖版本分别核验；SDK 各包的传递依赖也要检查，不能把 coding-agent 1.2 搭配 ai/core 1.3 的混合树当作纯 1.2 验证。测试直接导入的 AI/MCP 声明为 dev 依赖，不依赖偶然提升；schema 构造器与宿主内置验证器版本分开核验。不只因本机升级就提高最低 peer 版本。未实测的上游能力与 UI 明确报告，不用模拟结果代替。
 - `.npmrc` 的 dev 依赖覆盖配置有历史原因；修改前确认实际 npm 配置与安装结果，不按旧 npm 版本的假设处理。
-- 检查打包清单：发布 TS 源码，不包含 dist、测试、规则或开发配置。修改 `package.json.files` 会改变 `.npmignore` 的作用，必须重查。
+- 检查打包清单：发布 TS 源码，不包含 dist、测试、规则或开发配置。`scripts/prepare-test-runtime.mjs` 用于 tsc 之后为 `dist/` 写入仅含 `type` 与别名 JS 映射的 `package.json`，必须加入 `.npmignore`；技能目录下的 `scripts/` 不被排除。`scripts/` 与 tsconfig 仅用于开发，发布时随 `.npmignore` 排除。`package.json` 的 `imports` 与 `tsconfig.json` 的 `paths` 是同一套别名的两段：前者用于 Node 解析，后者用于编辑器与 tsc。修改 `package.json.files` 会改变 `.npmignore` 的作用，必须重查。
 - 完成时报告关键改动、验证结果与阻塞，检查工作区及 HEAD 与远端 main 的关系；不能为制造干净状态擅自提交或丢弃修改。
 
 ## 发布

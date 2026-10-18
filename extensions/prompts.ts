@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { MEMORY_RULES } from "../prompts/memory.ts";
+import { MEMORY_RULES } from "#tsgw-prompts/memory";
 
 export function registerPrompts(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", (event) => {

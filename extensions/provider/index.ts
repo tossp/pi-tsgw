@@ -14,25 +14,25 @@ import { randomUUID } from "node:crypto";
 import {
 	DEFAULT_ROOT,
 	PROVIDER_ID,
-	filterModels,
-	modelsForRoot,
+	effectiveModelsForGateway,
 	normalizeRoot,
 	type ModelFilter,
-} from "../models/catalog.ts";
-import { getGatewayModelIds, STARTUP_GATEWAY_MODEL_CACHE_TTL_MS } from "../models/gateway-catalog.ts";
-import { applyModelOperations } from "../models/operations.ts";
-import { registerSearch } from "../search/index.ts";
-import { IMAGE_API, imageModelsForRoot, supportsImageModels } from "../images/models.ts";
-import { generateImages } from "../images/adapter.ts";
-import { CLASSIFIER_API, classifierModelsForRoot, supportsClassifierModels } from "../classifiers/models.ts";
-import { classify } from "../classifiers/adapter.ts";
+} from "#tsgw/models/catalog";
+import { getGatewayModelIds, STARTUP_GATEWAY_MODEL_CACHE_TTL_MS } from "#tsgw/models/gateway-catalog";
+import { applyModelOperations } from "#tsgw/models/operations";
+import { registerSearch } from "#tsgw/search/index";
+import { supportsClassifierModels, supportsImageModels } from "#tsgw/models/capabilities";
+import { OPENAI_IMAGE_API as IMAGE_API } from "#tsgw/models/vendors/openai";
+import { TYPESAFE_CLASSIFIER_API as CLASSIFIER_API } from "#tsgw/models/vendors/typesafe";
+import { generateImages } from "#tsgw/models/adapter/images/adapter";
+import { classify } from "#tsgw/models/adapter/classifiers/adapter";
 import {
 	catalogLabel,
 	catalogDiagnostics,
 	searchLabel,
 	type CatalogStatus,
 } from "./status.ts";
-import type { ThinkingLevel, WebSearchMode } from "../models/_tools.ts";
+import type { ThinkingLevel, WebSearchMode } from "#tsgw/models/_tools";
 import type { TsgwSettings } from "./config.ts";
 import { registerRefreshTool } from "./refresh-tool.ts";
 
@@ -98,36 +98,9 @@ function isTsgwTraceTarget(state: RequestState, root: string): boolean {
 	}
 }
 
-/** 网关 id 匹配：精确匹配，或允许带供应商前缀变体（google/gemini-3.5-flash 匹配 gemini-3.5-flash）。 */
-function gatewayHasModel(gatewayIds: ReadonlySet<string>, id: string): boolean {
-	if (gatewayIds.has(id)) return true;
-	const suffix = `/${id}`;
-	for (const gatewayId of gatewayIds)
-		if (gatewayId.endsWith(suffix)) return true;
-	return false;
-}
-
 /** 模型缓存文件：<agent-dir>/tsgw/models-cache.json。 */
 function gatewayModelCachePath(): string {
 	return join(getAgentDir(), "tsgw", "models-cache.json");
-}
-
-function effectiveModelsForGateway(
-	root: string,
-	filter: ModelFilter | undefined,
-	gatewayIds: ReadonlySet<string> | undefined,
-	imagesEnabled: boolean,
-	classifiersEnabled: boolean,
-): ProviderModelConfig[] {
-	const staticModels: ProviderModelConfig[] = [
-		...modelsForRoot(root),
-		...(imagesEnabled ? imageModelsForRoot(root) : []),
-		...(classifiersEnabled ? classifierModelsForRoot(root) : []),
-	];
-	const intersected = gatewayIds
-		? staticModels.filter((model) => gatewayHasModel(gatewayIds, model.id))
-		: [];
-	return filterModels(intersected, filter);
 }
 
 /**

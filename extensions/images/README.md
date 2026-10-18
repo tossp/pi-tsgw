@@ -1,6 +1,6 @@
 # 图片生成与编辑
 
-本目录维护 `tsgw` 的原生图片适配及两个直接工具。两者都复用 Pi 模型注册表、供应商认证与同一套请求/响应实现，不另建凭据解析或 HTTP SDK。
+本目录维护 `tsgw` 的两个直接图片工具、参数 schema 与本地文件处理。工具通过 Pi 模型注册表和供应商认证，调用 `extensions/models/adapter/images/` 的同一套请求/响应实现，不另建凭据解析或 HTTP SDK。
 
 ## 入口与模型
 
@@ -10,7 +10,7 @@
 - 只登记 `gpt-image-2.5-flare` 和 `gpt-image-2.5-sunburst` 两款 `type: image` 模型，输入为文本/图片，输出为图片。草稿/速度优先选 Flare，成稿/质量优先选 Sunburst；工具默认 Sunburst，不自动选择另一型号重试。
 - 图片目录仍取静态目录与网关目录的交集，再应用 include/exclude。`includeModels: ["gpt-image-2.5*"]` 不能突破交集；图片不进入聊天模型选择器或联网代理候选。
 
-工具输入示例及完整可选参数表见随包[图片技能](../../skills/tsgw-image-generation/SKILL.md)。技能用于任务选型与参数使用，不代替实际工具执行。
+工具输入示例及完整可选参数表见随包[图片技能](../../skills/tsgw-image-generation/SKILL.md)。技能用于任务选型与参数使用，不代替实际工具执行；图片目录是否登记由 `extensions/models/capabilities.ts` 的版本门判定。
 
 ## 请求与参数
 
@@ -72,10 +72,8 @@ usage 仅取上游报告的有效 tokens；坏图、断流等失败路径仍尽�
 
 ## 维护与验证
 
-- `tools.ts` / `tool-schema.ts` / `tool-files.ts`：工具、参数声明、原图与输出文件。
-- `parameters.ts` / `request.ts`：参数、引用、生成/编辑请求及最终序列化验证。
-- `adapter.ts`：宿主凭据、HTTP、钩子与取消/超时。
-- `response.ts` / `image-data.ts` / `stream-response.ts`：用量、格式校验、普通/流式响应。
-- `host-integration.test.ts`：原生模型与 codemode 回归；`tools-host.test.ts`：无 codemode 的真实 SDK 工具回归，HTTP 使用隔离 fixture。
+- 本目录只承担图片工具与文件处理：`tools.ts` / `tool-schema.ts` / `tool-files.ts` 与对应 `tools.test.ts` / `tool-files.test.ts` / `tools-host.test.ts` / `host-integration.test.ts`。
+- 图片协议实现位于 `extensions/models/adapter/images/`：`adapter.ts`（宿主凭据、HTTP、钩子与取消/超时）、`parameters.ts` / `request.ts`（参数、引用、生成/编辑请求及序列化）、`response.ts` / `image-data.ts` / `stream-response.ts`（用量、格式校验、普通/流式响应）及对应单测；共享原图夹具 `image-fixtures.test.ts` 随协议层迁移，工具层继续跨目录复用而不复制数据。
+- `extensions/models/capabilities.ts` 提供纯版本判断，由根入口和 provider 决定图片工具、模型与适配器是否登记；它不读 `VERSION` 全局，不将模块加载与能力登记混为一谈。
 
 接口与模型证据见记忆系统 942；用户确认网关编辑端点兼容，不替代本插件新组合的独立验收。测试不读取个人配置或请求真实网关，真实推理另需授权。

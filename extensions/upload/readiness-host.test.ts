@@ -5,7 +5,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { test } from "node:test";
 import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-agent";
 import type { JsonRpcMessage } from "@earendil-works/pi-mcp";
-import { HostSandbox, TEST_KEY, TEST_ROOT } from "../host-test-support.test.ts";
+import { HostSandbox, TEST_KEY, TEST_ROOT } from "#tsgw/host-test-support.test";
 
 const OUTER = "upload_local_file";
 const UPLOAD = "mcp__ts_oht__upload_file";

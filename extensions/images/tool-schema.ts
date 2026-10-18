@@ -1,5 +1,5 @@
 import { Type } from "typebox";
-import { normalizeImageParameters, type ImageOperation } from "./parameters.ts";
+import { normalizeImageParameters, type ImageOperation } from "#tsgw/models/adapter/images/parameters";
 
 export const DEFAULT_IMAGE_MODEL = "gpt-image-2.5-sunburst";
 export const DEFAULT_IMAGE_TIMEOUT_MS = 600_000;

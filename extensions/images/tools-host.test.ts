@@ -4,13 +4,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-agent";
-import { HostSandbox, TEST_KEY, TEST_ROOT } from "../host-test-support.test.ts";
-import { REAL_IMAGE_FIXTURES } from "./image-fixtures.test.ts";
+import { HostSandbox, TEST_KEY, TEST_ROOT } from "#tsgw/host-test-support.test";
+import { REAL_IMAGE_FIXTURES } from "#tsgw/models/adapter/images/image-fixtures.test";
 import type { ImageToolDetails } from "./tools.ts";
 import { imageToolResultSchema } from "./tool-schema.ts";
 import { Compile } from "typebox/compile";
-import { modelsForRoot } from "../models/catalog.ts";
-import { IMAGE_MODEL_IDS } from "./models.ts";
+import { modelsForRoot } from "#tsgw/models/catalog";
+import { OPENAI_IMAGE_MODEL_IDS as IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
 
 // 合成的有效透明 PNG；原始字节用于检验编辑与保存，不调用付费服务。
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";

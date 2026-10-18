@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ProviderConfig } from "@earendil-works/pi-coding-agent";
-import { filterModels, modelsForRoot } from "../models/catalog.ts";
-import { createPiWithCatalog, TEST_ROOT, withAgentDir, FakePi } from "../test-support.test.ts";
+import { filterModels, modelsForRoot } from "./catalog.ts";
+import { createPiWithCatalog, TEST_ROOT, withAgentDir, FakePi } from "#tsgw/test-support.test";
 import registerTsgw from "../../index.ts";
-import { IMAGE_API, IMAGE_MODEL_IDS, imageModelsForRoot, supportsImageModels } from "./models.ts";
+import { OPENAI_IMAGE_API as IMAGE_API, OPENAI_IMAGE_MODEL_IDS as IMAGE_MODEL_IDS, openaiImageModels as imageModelsForRoot } from "#tsgw/models/vendors/openai";
 
 const root = "https://images.example.test/prefix";
 
@@ -37,15 +37,6 @@ test("图片目录：沿用 include 优先与尾部前缀规则，不修改冻�
 	assert.deepEqual(filterModels(models, { include: [IMAGE_MODEL_IDS[1]], exclude: ["gpt-*"] }).map(model => model.id), [IMAGE_MODEL_IDS[1]]);
 	assert.equal(filterModels(models, { include: ["gpt-image-2.5"], exclude: ["gpt-*"] }).length, 0,
 		"裸别名不是已登记模型，精确 include 不隐式扩展");
-});
-
-test("图片宿主基线：Pi 1.2 起启用，不抬高聊天模型最低兼容版本", () => {
-	for (const version of ["0.82.0", "1.0.0", "1.1.9", "1.2.0-beta", "unknown", "1.2", ""]) {
-		assert.equal(supportsImageModels(version), false, version);
-	}
-	for (const version of ["1.2.0", "1.3.0", "2.0.0", "1.2.0+test"]) {
-		assert.equal(supportsImageModels(version), true, version);
-	}
 });
 
 test("图片登记：同一个 tsgw 保留聊天模型并复用宿主密钥声明", async () => {

@@ -4,7 +4,7 @@ import type {
 	ClassifierResult,
 	ProviderClassifier,
 } from "@earendil-works/pi-ai";
-import { CLASSIFIER_API, CLASSIFIER_MODEL_IDS } from "./models.ts";
+import { TYPESAFE_CLASSIFIER_API as CLASSIFIER_API, TYPESAFE_CLASSIFIER_MODEL_IDS as CLASSIFIER_MODEL_IDS } from "#tsgw/models/vendors/typesafe";
 
 type Classify = ProviderClassifier["classify"];
 

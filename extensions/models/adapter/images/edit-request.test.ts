@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ImageApi, ImageModel } from "@earendil-works/pi-ai";
 import { generateImages } from "./adapter.ts";
-import { IMAGE_API, IMAGE_MODEL_IDS } from "./models.ts";
+import { OPENAI_IMAGE_API as IMAGE_API, OPENAI_IMAGE_MODEL_IDS as IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
 import { createImageRequest, serializeImageRequest } from "./request.ts";
 import type { ImageFormat, TsgwImagesContext } from "./parameters.ts";
 import { ImageFailure } from "./response.ts";

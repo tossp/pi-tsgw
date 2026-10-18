@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { registerSearchProxyTool } from "./proxy.ts";
-import type { SearchDelegate } from "../models/web-search.ts";
-import { modelsForRoot } from "../models/catalog.ts";
+import type { SearchDelegate } from "#tsgw/models/web-search";
+import { modelsForRoot } from "#tsgw/models/catalog";
 
 type Tool = Parameters<ExtensionAPI["registerTool"]>[0];
 type Registry = ExtensionToolContext["modelRegistry"];

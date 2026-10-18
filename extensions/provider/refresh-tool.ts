@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { PROVIDER_ID } from "../models/catalog.ts";
-import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS, readGatewayModelCacheSummary } from "../models/gateway-catalog.ts";
+import { PROVIDER_ID } from "#tsgw/models/catalog";
+import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS, readGatewayModelCacheSummary } from "#tsgw/models/gateway-catalog";
 
 /** 默认检查缓存时间；需要联网时复用宿主 provider 的强制刷新。 */
 export function registerRefreshTool(pi: ExtensionAPI, cacheFilePath: string): void {

@@ -1,3 +1,4 @@
+import type { ProviderModelConfig as AnyModelConfig } from "@earendil-works/pi-coding-agent";
 import type { ChatModelConfig as ProviderModelConfig } from "./_tools.ts";
 import { anthropicModels } from "./vendors/anthropic.ts";
 import { deepseekModels } from "./vendors/deepseek.ts";
@@ -8,7 +9,8 @@ import { kimiModels } from "./vendors/kimi.ts";
 import { longcatModels } from "./vendors/longcat.ts";
 import { mimoModels } from "./vendors/mimo.ts";
 import { minimaxModels } from "./vendors/minimax.ts";
-import { openaiModels } from "./vendors/openai.ts";
+import { openaiImageModels, openaiModels } from "./vendors/openai.ts";
+import { typesafeClassifierModels } from "./vendors/typesafe.ts";
 import { qwenModels } from "./vendors/qwen.ts";
 
 export const PROVIDER_ID = "tsgw";
@@ -76,7 +78,7 @@ export function filterModels<T extends { id: string }>(
 }
 
 /**
- * TSGW 的权威模型目录：按固定顺序拼接各厂商分片，
+ * TSGW 的聊天模型目录：按固定顺序拼接各厂商分片，
  * 然后根据配置的黑白名单进行过滤。
  *
  * 新增模型 → 改对应 vendors 文件；新增供应商 → 这里增加导入与展开。
@@ -99,4 +101,32 @@ export function modelsForRoot(
 		...grokModels(root),
 	];
 	return filterModels(models, filter);
+}
+
+/** 网关允许精确 ID 或带厂商前缀的同名 ID，匹配区分大小写。 */
+function gatewayHasModel(gatewayIds: ReadonlySet<string>, id: string): boolean {
+	if (gatewayIds.has(id)) return true;
+	const suffix = `/${id}`;
+	for (const gatewayId of gatewayIds)
+		if (gatewayId.endsWith(suffix)) return true;
+	return false;
+}
+
+/** 全类型目录：按宿主能力拼接，再取网关交集并应用用户过滤。 */
+export function effectiveModelsForGateway(
+	root: string,
+	filter: ModelFilter | undefined,
+	gatewayIds: ReadonlySet<string> | undefined,
+	imagesEnabled: boolean,
+	classifiersEnabled: boolean,
+): AnyModelConfig[] {
+	const staticModels: AnyModelConfig[] = [
+		...modelsForRoot(root),
+		...(imagesEnabled ? openaiImageModels(root) : []),
+		...(classifiersEnabled ? typesafeClassifierModels(root) : []),
+	];
+	const intersected = gatewayIds
+		? staticModels.filter((model) => gatewayHasModel(gatewayIds, model.id))
+		: [];
+	return filterModels(intersected, filter);
 }
