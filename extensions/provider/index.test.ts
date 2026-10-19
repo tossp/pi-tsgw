@@ -5,6 +5,7 @@ import {
 	rejects,
 	strictEqual,
 } from "node:assert";
+import { randomUUID } from "node:crypto";
 import registerTsgw from "../../index.ts";
 import { PROVIDER_ID } from "#tsgw/models/catalog";
 import { FakeContext, FakePi, createPi, createPiWithCatalog, sessionStart, agentStart, providerRequest, providerHeaders, withAgentDir, STALE_ERROR, TEST_ROOT, TSGW_SOL, TSGW_DEEPSEEK, TSGW_GLM } from "#tsgw/test-support.test";
@@ -300,6 +301,15 @@ async function testDynamicModelRefresh(): Promise<void> {
 
 		const previousFetch = globalThis.fetch;
 		let calls = 0;
+		// 新策略只允许 session_start 启用网络；缺少该生命周期时 callback 保持纯本地。
+		const sessionContext = {
+			hasUI: false,
+			model: undefined,
+			thinkingLevel: "off",
+			modelRegistry: {
+				getProviderAuthStatus: () => ({ configured: true }),
+			},
+		};
 		try {
 			globalThis.fetch = async () => {
 				calls += 1;
@@ -311,6 +321,14 @@ async function testDynamicModelRefresh(): Promise<void> {
 				);
 			};
 			const signal = new AbortController().signal;
+			const beforeStart = await refreshModels({
+				credential: { type: "api_key", key: "test-key" },
+				allowNetwork: true,
+				signal,
+			});
+			deepStrictEqual(beforeStart, [], "session_start 前非 force 不得联网");
+			equal(calls, 0);
+			pi.invoke("session_start", { type: "session_start", reason: "startup" }, sessionContext);
 			const offline = await refreshModels({ allowNetwork: false, signal });
 			deepStrictEqual(offline, [], "无凭据且无匹配目录的启动不得回退静态模型");
 			equal(calls, 0);
@@ -354,6 +372,64 @@ async function testDynamicModelRefresh(): Promise<void> {
 			});
 			deepStrictEqual(curated.map(({ id }) => id), ["deepseek-flash", "glm-5.2", "kimi-k3-256k"]);
 		} finally {
+			pi.invoke("session_shutdown", { type: "session_shutdown" }, sessionContext);
+			globalThis.fetch = previousFetch;
+		}
+	});
+}
+
+async function testPreSessionExplicitForce(): Promise<void> {
+	await withAgentDir(undefined, async () => {
+		const pi = new FakePi();
+		await registerTsgw(pi);
+		const provider = pi.providers.find(({ name }) => name === PROVIDER_ID);
+		const refreshModels = (
+			provider?.config as
+				| {
+						refreshModels?: (context: {
+							credential?: { type: string; key?: string };
+							allowNetwork: boolean;
+							force?: boolean;
+							signal: AbortSignal;
+						}) => Promise<Array<{ id: string }>>;
+				  }
+				| undefined
+		)?.refreshModels;
+		if (!refreshModels) throw new Error("应提供动态模型刷新功能");
+
+		const previousFetch = globalThis.fetch;
+		const key = `presession-force-${randomUUID()}`;
+		let calls = 0;
+		try {
+			globalThis.fetch = async () => {
+				calls += 1;
+				return new Response(
+					JSON.stringify({ data: [{ id: "deepseek-flash" }, { id: "glm-5.2" }] }),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				);
+			};
+			const signal = new AbortController().signal;
+			const local = await refreshModels({
+				credential: { type: "api_key", key },
+				allowNetwork: true,
+				signal,
+			});
+			deepStrictEqual(local, [], "未显式 force 时预 session 不联网");
+			equal(calls, 0);
+
+			const forced = await refreshModels({
+				credential: { type: "api_key", key },
+				allowNetwork: true,
+				force: true,
+				signal,
+			});
+			deepStrictEqual(
+				forced.map(({ id }) => id),
+				["deepseek-flash", "glm-5.2"],
+				"预 session 显式 force 仍可联网，兼容无会话 CLI",
+			);
+			equal(calls, 1);
+		} finally {
 			globalThis.fetch = previousFetch;
 		}
 	});
@@ -381,12 +457,12 @@ async function testRefreshCommand(): Promise<void> {
 			},
 		},
 	});
-	deepStrictEqual(refreshOptions, {
-		providers: [PROVIDER_ID],
-		force: true,
-	});
+	const passed = refreshOptions as { providers: string[]; force: boolean; signal: AbortSignal };
+	deepStrictEqual(passed.providers, [PROVIDER_ID]);
+	strictEqual(passed.force, true);
+	strictEqual(passed.signal instanceof AbortSignal, true);
 	strictEqual(notifications.length, 1);
-	strictEqual(notifications[0].level, "info");
+	strictEqual(notifications[0].level, "warning", "宿主未执行 provider 刷新时不能误报成功");
 }
 
 async function main(): Promise<void> {
@@ -399,6 +475,7 @@ async function main(): Promise<void> {
 	await testOldInstanceCallbacksKeepOwnSnapshot();
 	await testSettingsConfig();
 	await testDynamicModelRefresh();
+	await testPreSessionExplicitForce();
 	await testRefreshCommand();
 	console.log("index.test.ts：全部断言通过");
 }

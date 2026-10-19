@@ -10,7 +10,6 @@ import { dirname, resolve } from "node:path";
 
 export const DEFAULT_GATEWAY_MODEL_TIMEOUT_MS = 5_000;
 export const DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
-export const STARTUP_GATEWAY_MODEL_CACHE_TTL_MS = 7 * DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS;
 
 export type GatewayModelFailureReason =
 	| "http"
@@ -37,8 +36,6 @@ export interface GetGatewayModelIdsOptions extends FetchGatewayModelIdsOptions {
 	force?: boolean;
 	/** 各入口独立判断新鲜度，但共用原始获取时间与缓存。 */
 	ttlMs?: number;
-	/** 仅启动无有效作用域缓存时允许失败后重试一次。 */
-	retryWithoutCache?: boolean;
 }
 
 export type FetchGatewayModelIdsResult =
@@ -66,6 +63,13 @@ export interface LoadedGatewayModelCache {
 	fresh: boolean;
 }
 
+export type CachedGatewayModelIds = ModelCacheEntry & { fresh: boolean };
+
+export interface GetCachedGatewayModelIdsOptions {
+	cacheFilePath?: string;
+	ttlMs?: number;
+}
+
 export type GetGatewayModelIdsResult =
 	| {
 			ok: true;
@@ -74,11 +78,18 @@ export type GetGatewayModelIdsResult =
 			stale: boolean;
 			storedAt: number;
 			fallbackReason?: GatewayModelFailureReason;
+			fallbackStatus?: number;
 	  }
 	| Extract<FetchGatewayModelIdsResult, { ok: false }>;
 
 function errorDetail(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function checkedTtl(ttlMs = DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS): number {
+	if (!Number.isFinite(ttlMs) || ttlMs < 0)
+		throw new RangeError("ttlMs 必须是非负有限数值");
+	return ttlMs;
 }
 
 function modelsUrl(baseUrl: string): string {
@@ -165,8 +176,7 @@ export async function fetchGatewayModelIds(
 export function createModelCache(
 	ttlMs = DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
 ): ModelCache {
-	if (!Number.isFinite(ttlMs) || ttlMs < 0)
-		throw new RangeError("ttlMs 必须是非负有限数值");
+	const ttl = checkedTtl(ttlMs);
 	let entry: ModelCacheEntry | undefined;
 
 	return {
@@ -180,7 +190,7 @@ export function createModelCache(
 		},
 		isFresh(now = Date.now()) {
 			if (!entry) return false;
-			return Math.max(0, now - entry.storedAt) < ttlMs;
+			return Math.max(0, now - entry.storedAt) < ttl;
 		},
 	};
 }
@@ -192,7 +202,7 @@ export function gatewayModelCacheScope(baseUrl: string, apiKey: string): string 
 		.digest("hex");
 }
 
-function readGatewayModelCacheSnapshot(
+function readStoredGatewayModelCache(
 	filePath: string,
 ): (ModelCacheEntry & { scope: string }) | undefined {
 	try {
@@ -226,20 +236,26 @@ function readGatewayModelCacheEntry(
 	filePath: string,
 	scope: string,
 ): ModelCacheEntry | undefined {
-	const snapshot = readGatewayModelCacheSnapshot(filePath);
+	const snapshot = readStoredGatewayModelCache(filePath);
 	if (!scope || snapshot?.scope !== scope) return undefined;
 	return { storedAt: snapshot.storedAt, ids: snapshot.ids };
 }
 
-/** 刷新后的文件摘要；只确认可读性与获取时间，不用于恢复目录或认证作用域。 */
+/** 刷新后的文件摘要；可同时核对当前配置及已应用的完整模型 ID 快照。 */
 export function readGatewayModelCacheSummary(
 	cacheFilePath: string,
 	minimumStoredAt: number,
+	expectedScope?: string,
+	expectedIds?: readonly string[],
 ): { cacheFilePath: string; count: number; storedAt: number } | undefined {
 	if (!Number.isFinite(minimumStoredAt) || minimumStoredAt < 0) return undefined;
-	const snapshot = readGatewayModelCacheSnapshot(cacheFilePath);
+	const snapshot = readStoredGatewayModelCache(cacheFilePath);
 	if (!snapshot || !snapshot.ids.length || snapshot.storedAt < minimumStoredAt)
 		return undefined;
+	if (expectedScope !== undefined && snapshot.scope !== expectedScope)
+		return undefined;
+	if (expectedIds && (snapshot.ids.length !== expectedIds.length ||
+		snapshot.ids.some((id, index) => id !== expectedIds[index]))) return undefined;
 	return { cacheFilePath, count: snapshot.ids.length, storedAt: snapshot.storedAt };
 }
 
@@ -283,13 +299,12 @@ export function loadGatewayModelCache(
 	now = Date.now(),
 	ttlMs = DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
 ): LoadedGatewayModelCache | undefined {
-	if (!Number.isFinite(ttlMs) || ttlMs < 0)
-		throw new RangeError("ttlMs 必须是非负有限数值");
+	const ttl = checkedTtl(ttlMs);
 	const entry = readGatewayModelCacheEntry(filePath, scope);
 	if (!entry) return undefined;
 	return {
 		ids: [...entry.ids],
-		fresh: isCacheEntryFresh(entry, now, ttlMs),
+		fresh: isCacheEntryFresh(entry, now, ttl),
 	};
 }
 
@@ -305,6 +320,10 @@ const latestRequests = new Map<string, number>();
 const latestDiskRequests = new Map<string, number>();
 let revision = 0;
 
+function memoryCacheKey(scope: string, filePath?: string): string {
+	return filePath ? `${scope}\0${resolve(filePath)}` : scope;
+}
+
 function cacheFor(key: string): ModelCache {
 	let cache = gatewayCaches.get(key);
 	if (!cache) {
@@ -314,11 +333,59 @@ function cacheFor(key: string): ModelCache {
 	return cache;
 }
 
+function selectLatestGatewayModelCacheEntry(
+	key: string,
+	cacheFilePath: string | undefined,
+	ttlMs: number,
+	now: number,
+): { entry: ModelCacheEntry; fresh: boolean } | undefined {
+	const memory = gatewayCaches.get(memoryCacheKey(key, cacheFilePath))?.get();
+	const disk = cacheFilePath
+		? readGatewayModelCacheEntry(cacheFilePath, key)
+		: undefined;
+	const entry =
+		memory && disk
+			? memory.storedAt >= disk.storedAt
+				? memory
+				: disk
+			: (memory ?? disk);
+	if (!entry) return undefined;
+	return { entry, fresh: isCacheEntryFresh(entry, now, ttlMs) };
+}
+
+/** 仅读取本地内存与磁盘，按当前 baseUrl/key 选择 storedAt 最新的快照。 */
+export function getCachedGatewayModelIds(
+	baseUrl: string,
+	apiKey: string,
+	opts: GetCachedGatewayModelIdsOptions = {},
+	now = Date.now(),
+): CachedGatewayModelIds | undefined {
+	const key = gatewayModelCacheScope(baseUrl, apiKey);
+	const cacheKey = memoryCacheKey(key, opts.cacheFilePath);
+	const memory = gatewayCaches.get(cacheKey)?.get();
+	const selected = selectLatestGatewayModelCacheEntry(
+		key,
+		opts.cacheFilePath,
+		checkedTtl(opts.ttlMs),
+		now,
+	);
+	if (!selected) return undefined;
+	// 选中更新的磁盘快照时同步共享内存，避免磁盘随后损坏或删除时回退旧内存。
+	// 仅预热内存，不写磁盘，也不改变原始获取时间。
+	if (!memory || selected.entry.storedAt > memory.storedAt)
+		cacheFor(cacheKey).set(selected.entry.ids, selected.entry.storedAt);
+	return {
+		ids: [...selected.entry.ids],
+		storedAt: selected.entry.storedAt,
+		fresh: selected.fresh,
+	};
+}
+
 /**
- * 加载网关模型 ID，默认有效期为 24 小时；启动入口可指定 7 天。
+ * 加载网关模型 ID，默认有效期为 24 小时。
  *
- * 缓存未过期时直接返回，不进行输入输出。刷新失败时，若有过期缓存则回退使用；
- * 否则返回获取失败的结果。
+ * 命中时选择内存与磁盘中 storedAt 较新的条目，避免新鲜内存遮蔽更新的磁盘。
+ * 刷新失败时回退到该条目并保留原始获取时间；否则返回获取失败的结果。
  */
 export async function getGatewayModelIds(
 	baseUrl: string,
@@ -328,42 +395,24 @@ export async function getGatewayModelIds(
 ): Promise<GetGatewayModelIdsResult> {
 	if (opts.signal?.aborted) return { ok: false, reason: "aborted" };
 	const key = gatewayModelCacheScope(baseUrl, apiKey);
-	const ttlMs = opts.ttlMs ?? DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS;
-	if (!Number.isFinite(ttlMs) || ttlMs < 0) throw new RangeError("ttlMs 必须是非负有限数值");
-	const cache = cacheFor(key);
-	const memoryEntryBefore = cache.get();
-	if (!opts.force && memoryEntryBefore && isCacheEntryFresh(memoryEntryBefore, now, ttlMs)) {
-		const entry = memoryEntryBefore;
-		if (entry)
-			return {
-				ok: true,
-				ids: entry.ids,
-				cached: true,
-				stale: false,
-				storedAt: entry.storedAt,
-			};
-	}
-
-	const diskEntry = opts.cacheFilePath
-		? readGatewayModelCacheEntry(opts.cacheFilePath, key)
-		: undefined;
-	if (
-		!opts.force &&
-		diskEntry &&
-		isCacheEntryFresh(diskEntry, now, ttlMs)
-	) {
-		cache.set(diskEntry.ids, diskEntry.storedAt);
+	const ttlMs = checkedTtl(opts.ttlMs);
+	const cacheKey = memoryCacheKey(key, opts.cacheFilePath);
+	const cache = cacheFor(cacheKey);
+	const local = selectLatestGatewayModelCacheEntry(
+		key, opts.cacheFilePath, ttlMs, now,
+	);
+	if (!opts.force && local?.fresh) {
+		cache.set(local.entry.ids, local.entry.storedAt);
 		return {
 			ok: true,
-			ids: [...diskEntry.ids],
-			storedAt: diskEntry.storedAt,
+			ids: [...local.entry.ids],
 			cached: true,
 			stale: false,
+			storedAt: local.entry.storedAt,
 		};
 	}
 
-	const retry = opts.retryWithoutCache === true && !memoryEntryBefore && !diskEntry;
-	const requestKey = `${key}\0${opts.force ? "force" : "normal"}\0${retry}\0${opts.timeoutMs ?? DEFAULT_GATEWAY_MODEL_TIMEOUT_MS}`;
+	const requestKey = `${key}\0${opts.force ? "force" : "normal"}\0${opts.timeoutMs ?? DEFAULT_GATEWAY_MODEL_TIMEOUT_MS}`;
 	// 共享请求无法安全地继承某个调用者的 AbortSignal：较新的调用者仍在等待时，
 	// Pi 可能已替换该次刷新。只有不带信号的调用共享进行中的请求；
 	// 可取消的调用独立发起获取请求。
@@ -371,19 +420,16 @@ export async function getGatewayModelIds(
 	let request = shareRequest ? inFlightRequests.get(requestKey) : undefined;
 	if (!request) {
 		const requestRevision = ++revision;
-		latestRequests.set(key, requestRevision);
 		request = {
 			revision: requestRevision,
 			storedAt: now,
-			promise: (async () => {
-				const first = await fetchGatewayModelIds(baseUrl, apiKey, opts);
-				if (first.ok || !retry || first.reason === "aborted" || opts.signal?.aborted) return first;
-				return fetchGatewayModelIds(baseUrl, apiKey, opts);
-			})(),
+			promise: fetchGatewayModelIds(baseUrl, apiKey, opts),
 		};
 		if (shareRequest) inFlightRequests.set(requestKey, request);
 	}
 
+	// 请求可跨路径复用，但内存写入屏障按各自路径独立登记。
+	latestRequests.set(cacheKey, Math.max(latestRequests.get(cacheKey) ?? 0, request.revision));
 	const diskPath = opts.cacheFilePath ? resolve(opts.cacheFilePath) : undefined;
 	if (diskPath) {
 		// 登记每个订阅者的路径，包括目标路径不同的共享请求。
@@ -406,7 +452,7 @@ export async function getGatewayModelIds(
 	if (fetched.ok) {
 		// 以后启动的请求为准，即使较新的请求失败或取消。
 		// 被取代的成功请求仍向调用者返回结果，但不写入缓存。
-		if (latestRequests.get(key) === request.revision) {
+		if (latestRequests.get(cacheKey) === request.revision) {
 			cache.set(fetched.ids, request.storedAt);
 			if (diskPath && latestDiskRequests.get(diskPath) === request.revision)
 				saveGatewayModelCache(diskPath, key, fetched.ids, request.storedAt);
@@ -420,21 +466,21 @@ export async function getGatewayModelIds(
 		};
 	}
 
-	const memoryEntry = cache.get();
-	const stale =
-		memoryEntry && diskEntry
-			? memoryEntry.storedAt >= diskEntry.storedAt
-				? memoryEntry
-				: diskEntry
-			: (memoryEntry ?? diskEntry);
-	if (stale) {
+	// 失败回退选择当前内存与磁盘中较新的条目，且不刷新其 storedAt。
+	const fallback = selectLatestGatewayModelCacheEntry(
+		key, opts.cacheFilePath, ttlMs, now,
+	);
+	if (fallback) {
 		return {
 			ok: true,
-			ids: stale.ids,
-			storedAt: stale.storedAt,
+			ids: [...fallback.entry.ids],
+			storedAt: fallback.entry.storedAt,
 			cached: true,
 			stale: true,
 			fallbackReason: fetched.reason,
+			...(fetched.reason === "http" && fetched.status !== undefined
+				? { fallbackStatus: fetched.status }
+				: {}),
 		};
 	}
 	return fetched;

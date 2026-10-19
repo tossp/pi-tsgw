@@ -180,6 +180,7 @@ async function testForceFailureUsesStaleCache(): Promise<void> {
 	equal(fallback.cached, true);
 	equal(fallback.stale, true);
 	equal(fallback.fallbackReason, "http");
+	equal(fallback.fallbackStatus, 503);
 	deepStrictEqual(fallback.ids, ["gpt-5.4"]);
 	equal(calls, 2);
 }

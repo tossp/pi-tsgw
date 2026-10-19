@@ -1,4 +1,4 @@
-import { deepStrictEqual, equal } from "node:assert/strict";
+import { deepStrictEqual, equal, strictEqual } from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,6 +8,7 @@ import {
 	DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL,
 	getGatewayModelIds,
 	gatewayModelCacheScope,
+	getCachedGatewayModelIds,
 	loadGatewayModelCache,
 	readGatewayModelCacheSummary,
 	saveGatewayModelCache,
@@ -37,10 +38,15 @@ test("缓存摘要与启动加载共用格式校验，保留作用域恢复边�
 	deepStrictEqual(readGatewayModelCacheSummary(cacheFilePath, 123), {
 		cacheFilePath, count: 2, storedAt: 123,
 	});
+	deepStrictEqual(readGatewayModelCacheSummary(cacheFilePath, 123, scope), {
+		cacheFilePath, count: 2, storedAt: 123,
+	});
 	deepStrictEqual(loadGatewayModelCache(cacheFilePath, scope, 123), {
 		ids: ["known", "unknown-model"], fresh: true,
 	});
 	equal(loadGatewayModelCache(cacheFilePath, "other-scope", 123), undefined);
+	equal(readGatewayModelCacheSummary(cacheFilePath, 123, "other-scope"), undefined);
+	equal(readGatewayModelCacheSummary(cacheFilePath, 123, ""), undefined);
 	equal(readGatewayModelCacheSummary(cacheFilePath, 124), undefined);
 	// 摘要不对外暴露 scope，且不能用于绕过启动加载的身份校验。
 	equal(JSON.stringify(readGatewayModelCacheSummary(cacheFilePath, 123)).includes(scope), false);
@@ -101,6 +107,43 @@ test("网络请求成功时返回的时间戳与持久化到磁盘的完全一�
 	});
 });
 
+test("本地快照只读内存与磁盘，选择较新条目并标注新鲜度", async (t) => {
+	const { baseUrl, cacheFilePath } = fixture(t);
+	strictEqual(
+		getCachedGatewayModelIds(baseUrl, "key", { cacheFilePath }, 0),
+		undefined,
+	);
+	await getGatewayModelIds(baseUrl, "key", { cacheFilePath, fetcher: success(["memory-model"]) }, 100);
+	deepStrictEqual(
+		getCachedGatewayModelIds(baseUrl, "key", { cacheFilePath }, 101),
+		{ ids: ["memory-model"], storedAt: 100, fresh: true },
+	);
+	saveGatewayModelCache(
+		cacheFilePath,
+		gatewayModelCacheScope(baseUrl, "key"),
+		["disk-model"],
+		200,
+	);
+	const newer = { ids: ["disk-model"], storedAt: 200 };
+	deepStrictEqual(
+		getCachedGatewayModelIds(baseUrl, "key", { cacheFilePath }, 201),
+		{ ...newer, fresh: true },
+	);
+	deepStrictEqual(
+		getCachedGatewayModelIds(baseUrl, "key", { cacheFilePath }, 200 + TTL),
+		{ ...newer, fresh: false },
+	);
+	// 配置变化时旧磁盘缓存不参与快照。
+	strictEqual(
+		getCachedGatewayModelIds(`${baseUrl}/other`, "key", { cacheFilePath }, 201),
+		undefined,
+	);
+	strictEqual(
+		getCachedGatewayModelIds(baseUrl, "other-key", { cacheFilePath }, 201),
+		undefined,
+	);
+});
+
 test("内存命中保留网络存储时间，而非查询时间", async (t) => {
 	const { baseUrl } = fixture(t);
 	const storedAt = 123;
@@ -149,7 +192,7 @@ test("磁盘命中与随后的内存命中均保留磁盘存储时间", async (t
 	const memory = await getGatewayModelIds(
 		baseUrl,
 		"key",
-		{ fetcher: blocked.fetcher },
+		{ cacheFilePath, fetcher: blocked.fetcher },
 		storedAt + TTL - 1,
 	);
 	deepStrictEqual(memory, disk);
@@ -170,9 +213,10 @@ for (const scenario of [
 			await getGatewayModelIds(
 				baseUrl,
 				"key",
-				{ fetcher: success(["memory-model"]) },
+				{ cacheFilePath, fetcher: success(["memory-model"]) },
 				memoryAt,
 			);
+			rmSync(cacheFilePath);
 		}
 		if (diskAt !== undefined)
 			saveGatewayModelCache(cacheFilePath, gatewayModelCacheScope(baseUrl, "key"), ["disk-model"], diskAt);
@@ -201,6 +245,7 @@ for (const scenario of [
 				cached: true,
 				stale: true,
 				fallbackReason: "http",
+				fallbackStatus: 503,
 				storedAt,
 			});
 		}

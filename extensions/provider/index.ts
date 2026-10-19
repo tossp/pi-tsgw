@@ -14,11 +14,12 @@ import { randomUUID } from "node:crypto";
 import {
 	DEFAULT_ROOT,
 	PROVIDER_ID,
-	effectiveModelsForGateway,
 	normalizeRoot,
 	type ModelFilter,
 } from "#tsgw/models/catalog";
-import { getGatewayModelIds, STARTUP_GATEWAY_MODEL_CACHE_TTL_MS } from "#tsgw/models/gateway-catalog";
+import { catalogFailureMessage, createCatalogState } from "./catalog-state.ts";
+import { createCatalogRecovery } from "./catalog-recovery.ts";
+import { createCatalogCoordinator, type CatalogRefreshKind } from "./catalog-coordinator.ts";
 import { applyModelOperations } from "#tsgw/models/operations";
 import { registerSearch } from "#tsgw/search/index";
 import { supportsClassifierModels, supportsImageModels } from "#tsgw/models/capabilities";
@@ -103,58 +104,12 @@ function gatewayModelCachePath(): string {
 	return join(getAgentDir(), "tsgw", "models-cache.json");
 }
 
-/**
- * 三层模型过滤：静态目录 ∩ 网关实际列表 ∩ 用户黑白名单。
- * 无网关目录时不登记模型，避免将静态登记误认为网关可用。
- */
-async function resolveEffectiveModels(
-	root: string,
-	filter: ModelFilter | undefined,
-	cacheFilePath: string,
-	imagesEnabled: boolean,
-	classifiersEnabled: boolean,
-): Promise<{
-	models: ProviderModelConfig[];
-	gatewayIds: ReadonlySet<string> | undefined;
-	catalog: CatalogStatus;
-}> {
-	// 凭据解析失败不阻塞插件加载，但不登记未经网关确认的模型。
-	let apiKey = "";
+/** 初始化仅解析宿主保存的凭据，不请求网络。 */
+function initialCatalogKey(): string | undefined {
 	try {
 		const credential = readStoredCredential(PROVIDER_ID);
-		apiKey = credential?.type === "api_key" ? (credential.key ?? "") : "";
-	} catch {
-		apiKey = "";
-	}
-
-	let gatewayIds: ReadonlySet<string> | undefined;
-	let catalog: CatalogStatus = { count: 0, source: "empty", loading: false,
-		ttlMs: STARTUP_GATEWAY_MODEL_CACHE_TTL_MS,
-		error: "模型目录获取失败，当前无可用模型；请配置凭据后择机强制刷新。" };
-	if (apiKey) {
-		try {
-			const gateway = await getGatewayModelIds(root, apiKey, {
-				cacheFilePath,
-				ttlMs: STARTUP_GATEWAY_MODEL_CACHE_TTL_MS,
-				retryWithoutCache: true,
-			});
-			if (gateway.ok) {
-				gatewayIds = new Set(gateway.ids);
-				catalog = {
-					...catalog,
-					source: gateway.cached ? "cache" : "network",
-					storedAt: gateway.storedAt,
-					error: gateway.stale
-						? "模型目录刷新失败，已沿用缓存，请择机强制刷新。" : undefined,
-				};
-			} else catalog.error = "模型目录获取失败，当前无可用模型，请择机强制刷新。";
-		} catch {
-			catalog.error = "模型目录获取失败，当前无可用模型，请择机强制刷新。";
-		}
-	}
-	if (catalog.error) console.warn(`TSGW: ${catalog.error}`);
-	const models = effectiveModelsForGateway(root, filter, gatewayIds, imagesEnabled, classifiersEnabled);
-	return { models, gatewayIds, catalog: { ...catalog, count: models.length } };
+		return credential?.type === "api_key" ? credential.key : undefined;
+	} catch { return undefined; }
 }
 
 export async function registerTsgwProvider(
@@ -173,7 +128,6 @@ export async function registerTsgwProvider(
 		exclude: settings.excludeModels,
 	};
 	const cacheFilePath = gatewayModelCachePath();
-	registerRefreshTool(pi, cacheFilePath);
 	let requestState: RequestState | undefined;
 
 	const refreshRequestState = (ctx: {
@@ -183,23 +137,57 @@ export async function registerTsgwProvider(
 		requestState = requestStateFor(ctx.model, ctx.thinkingLevel ?? "off");
 	};
 
-	// 三层模型过滤：静态目录 ∩ 网关实际列表 ∩ 用户黑白名单。
-	const initial = await resolveEffectiveModels(
-		root,
-		modelFilter,
-		cacheFilePath,
-		imagesEnabled,
-		classifiersEnabled,
-	);
-	const { models } = initial;
-	let latestModels = models;
-	let catalog = initial.catalog;
-	let startupNotice = initial.catalog.error;
+	let latestModels: ProviderModelConfig[] = [];
+	let catalog: CatalogStatus = { count: 0, source: "empty", loading: false };
+	let notify: ((message: string) => void) | undefined;
 	let credentialConfigured = false;
 	let publishStatus: (() => void) | undefined;
 	let refreshRevision = 0;
 	let lifecycleRevision = 0;
+	let sessionActive = false;
 	const rootConfigured = root !== DEFAULT_ROOT;
+	const directory = createCatalogState({ root, filter: modelFilter, cacheFilePath,
+		imagesEnabled, classifiersEnabled, initialKey: initialCatalogKey(),
+		onChange: () => {
+			latestModels = directory.models();
+			catalog = directory.status();
+			// 只加载 provider 的后台 runtime 没有 AgentSession，不能调用工具动作 API。
+			if (sessionActive) search.sync();
+			publishStatus?.();
+		},
+	});
+	latestModels = directory.models();
+	catalog = directory.status();
+	const coordinator = createCatalogCoordinator({
+		begin: () => directory.beginRefresh(),
+		inspect: () => ({ networkAttempted: directory.networkAttempted(),
+			networkSucceeded: directory.networkSucceeded(), summary: directory.summary() }),
+		canShareNetwork: directory.fetching,
+	});
+	// 入口只提交刷新意图；宿主回调负责执行，绝不能从回调再次进入 request。
+	const requestRefresh = (registry: ExtensionContext["modelRegistry"], kind: CatalogRefreshKind,
+		signal?: AbortSignal) => coordinator.request(kind, taskSignal => registry.refresh({
+			providers: [PROVIDER_ID], force: kind === "force",
+			...(kind === "restore" ? { allowNetwork: false } : {}), signal: taskSignal,
+		}), signal);
+	const recovery = createCatalogRecovery({
+		needsRefresh: directory.needsRefresh,
+		retryable: directory.retryable,
+		networkAttempted: directory.networkAttempted,
+		onFailure: () => {
+			const message = directory.fail();
+			if (notify) notify(message);
+			else console.warn(message);
+		},
+	});
+	const stopRefreshes = (): void => {
+		recovery.stop();
+		coordinator.stop();
+		directory.invalidate();
+	};
+	registerRefreshTool(pi, {
+		refresh: (registry, force, signal) => requestRefresh(registry, force ? "force" : "normal", signal),
+	});
 	const search = registerSearch(pi, {
 		defaultMode: defaultSearchMode,
 		state: () => requestState,
@@ -213,10 +201,12 @@ export async function registerTsgwProvider(
 	const bindStatus = (ctx: ExtensionContext): void => {
 		if (!ctx.hasUI) {
 			publishStatus = undefined;
+			notify = undefined;
 			return;
 		}
 		credentialConfigured = ctx.modelRegistry.getProviderAuthStatus(PROVIDER_ID).configured;
 		const ui = ctx.ui;
+		notify = message => ui.notify(message, "error");
 		publishStatus = () => {
 			ui.setStatus("command:/tsgw",
 				catalogLabel(catalog, credentialConfigured, rootConfigured));
@@ -231,60 +221,17 @@ export async function registerTsgwProvider(
 		baseUrl: `${root}/v1`,
 		api: "openai-completions",
 		apiKey: "$TSGW_API_KEY",
-		models,
+		models: latestModels,
 		...(imagesEnabled ? { images: { [IMAGE_API]: { generateImages } } } : {}),
 		...(classifiersEnabled ? { classifiers: { [CLASSIFIER_API]: { classify } } } : {}),
 		async refreshModels(context) {
-			// 启动获取已完成；宿主的额外自动同步不再追加联网请求。
-			// 工具检查 24 小时窗口，必要时与命令一样显式传入 force。
-			if (!context.allowNetwork || context.force !== true) return latestModels;
-			context.signal.throwIfAborted();
-			const revision = ++refreshRevision;
-			catalog = { ...catalog, loading: true };
-			publishStatus?.();
-			try {
-				const credential = context.credential;
-				credentialConfigured = credential?.type === "api_key" && !!credential.key;
-				if (credential?.type !== "api_key" || !credential.key)
-					throw new Error("刷新模型所需的 TSGW API 密钥不可用。");
-				const gateway = await getGatewayModelIds(root, credential.key, {
-					cacheFilePath,
-					force: context.force === true,
-					signal: context.signal,
-				});
-				context.signal.throwIfAborted();
-				if (!gateway.ok || gateway.stale)
-					throw new Error("TSGW 刷新失败；保留上次成功获取的目录。");
-				if (revision === refreshRevision) {
-					startupNotice = undefined;
-					latestModels = effectiveModelsForGateway(root, modelFilter, new Set(gateway.ids), imagesEnabled, classifiersEnabled);
-					search.sync();
-					catalog = {
-						count: latestModels.length,
-						source: gateway.cached ? "cache" : "network",
-						storedAt: gateway.storedAt,
-						loading: false,
-					};
-				}
-				return latestModels;
-			} catch (error) {
-				if (revision === refreshRevision) catalog = {
-					...catalog,
-					loading: false,
-					error: context.signal.aborted
-						? "刷新已取消，保留原目录" : "刷新失败，保留原目录；请检查凭据、网关与网络",
-				};
-				throw error;
-			} finally {
-				if (revision === refreshRevision) publishStatus?.();
-			}
+			refreshRevision++;
+			if (context.credential) credentialConfigured = context.credential.type === "api_key" && !!context.credential.key;
+			return coordinator.provider(context, effective => directory.refresh(effective));
 		},
 	});
 
-	let refreshPending = false;
 	const refreshCatalog = async (ctx: ExtensionCommandContext): Promise<void> => {
-		if (refreshPending) return;
-		refreshPending = true;
 		const lifecycle = lifecycleRevision;
 		let revision = refreshRevision;
 		// 供应商回调管理自身状态；仅诊断回调开始前的失败。
@@ -299,7 +246,8 @@ export async function registerTsgwProvider(
 			if (lifecycle !== lifecycleRevision) return;
 			bindStatus(ctx);
 			if (!ctx.modelRegistry.getProviderAuthStatus(PROVIDER_ID).configured) {
-				ctx.ui.notify("已跳过 TSGW 模型刷新：请先通过 /login 配置 API 密钥。", "warning");
+				directory.fail();
+				ctx.ui.notify("TSGW 模型目录获取失败：请先通过 /login 配置 API 密钥。", "error");
 				return;
 			}
 			const count = () => typeof ctx.modelRegistry.getModelsOfType === "function"
@@ -309,27 +257,24 @@ export async function registerTsgwProvider(
 				: ctx.modelRegistry.getAvailable().filter((model) => model.provider === PROVIDER_ID).length;
 			const before = count();
 			revision = refreshRevision;
-			// 较旧的 Pi 版本返回 void，而非取消/错误元数据。
-			const result = (await ctx.modelRegistry.refresh({
-				providers: [PROVIDER_ID], force: true,
-			})) as { aborted?: boolean; errors?: ReadonlyMap<string, Error> } | undefined;
+			const result = await requestRefresh(ctx.modelRegistry, "force");
 			if (lifecycle !== lifecycleRevision) return;
 			const after = count();
-			if (result?.aborted) {
+			if (result.aborted) {
 				recordFailure("刷新已取消，保留原目录");
 				ctx.ui.notify(`TSGW 模型刷新已取消（${before} → ${after}）。`, "warning");
 			} else if (result?.errors?.has(PROVIDER_ID)) {
 				recordFailure("刷新失败，保留原目录；请检查凭据、网关与网络");
-				ctx.ui.notify(`TSGW 模型刷新失败（${before} → ${after}）。`, "error");
+				ctx.ui.notify(catalogFailureMessage(catalog.source !== "empty"), "error");
+			} else if (!result.networkSucceeded) {
+				ctx.ui.notify("TSGW 未完成联网刷新：宿主禁止联网或未执行刷新；保留现有目录。", "warning");
 			} else {
 				ctx.ui.notify(`TSGW 模型已刷新（${before} → ${after}）。`, "info");
 			}
 		} catch {
 			if (lifecycle !== lifecycleRevision) return;
 			recordFailure("刷新失败，保留原目录；请检查凭据、网关与网络");
-			ctx.ui.notify("TSGW 模型刷新失败；保留原目录。", "error");
-		} finally {
-			if (lifecycle === lifecycleRevision) refreshPending = false;
+			ctx.ui.notify(catalogFailureMessage(catalog.source !== "empty"), "error");
 		}
 	};
 	pi.registerCommand("tsgw-refresh", {
@@ -354,16 +299,36 @@ export async function registerTsgwProvider(
 		},
 	});
 	pi.on("session_start", (_event, ctx) => {
+		stopRefreshes();
 		lifecycleRevision++;
-		refreshPending = false;
+		sessionActive = true;
 		search.reset();
 		refreshRequestState(ctx);
 		search.sync();
 		bindStatus(ctx);
-		if (startupNotice && ctx.hasUI) {
-			ctx.ui.notify(startupNotice, "warning");
-			startupNotice = undefined;
-		}
+		directory.enableNetwork();
+		// 只捕获宿主服务；session_start 不返回后台恢复的 Promise。
+		const registry = ctx.modelRegistry;
+		if (registry && typeof registry.refresh === "function") recovery.start({
+			configured: () => registry.getProviderAuthStatus(PROVIDER_ID).configured,
+			restore: signal => requestRefresh(registry, "restore", signal),
+			refresh: async signal => {
+				const outcome = await directory.recoverUsing(async sharedSignal => {
+					const result = await requestRefresh(registry, "normal", sharedSignal);
+					const failed = !!result.aborted || !!result.errors?.has(PROVIDER_ID) ||
+						(directory.networkAttempted() && directory.needsRefresh());
+					return directory.outcome(failed);
+				}, signal);
+				signal.throwIfAborted();
+				// 另一实例负责实际获取时，本实例仍通过宿主独立登记，不共享 registry/UI。
+				if (!outcome.failed && outcome.snapshot && !directory.matches(outcome.snapshot)) {
+					const applied = await requestRefresh(registry, "restore", signal);
+					if (applied.aborted || applied.errors?.has(PROVIDER_ID)) return applied;
+				}
+				directory.finishRecovery(outcome);
+				return outcome.failed ? { errors: new Map([[PROVIDER_ID, new Error(catalogFailureMessage(!!outcome.snapshot))]]) } : {};
+			},
+		});
 	});
 	pi.on("agent_start", (_event, ctx) => {
 		refreshRequestState(ctx);
@@ -371,10 +336,13 @@ export async function registerTsgwProvider(
 		bindStatus(ctx);
 	});
 	pi.on("session_shutdown", () => {
+		sessionActive = false;
+		stopRefreshes();
+		directory.stop();
 		search.stop();
 		lifecycleRevision++;
-		refreshPending = false;
 		publishStatus = undefined;
+		notify = undefined;
 	});
 	pi.on("model_select", (event, ctx) => {
 		requestState = requestStateFor(

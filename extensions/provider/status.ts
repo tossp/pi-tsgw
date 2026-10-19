@@ -4,7 +4,7 @@ import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS } from "#tsgw/models/gateway-catalog
 export interface CatalogStatus {
 	count: number;
 	source: "static" | "empty" | "cache" | "network";
-	/** 当前入口采用的新鲜度窗口；启动为 7 天，运行时为 24 小时。 */
+	/** 默认统一使用 24 小时新鲜窗口。 */
 	ttlMs?: number;
 	/** 网关目录真实获取时间；从缓存读取时保留原值，不重置为读取时间。 */
 	storedAt?: number;
@@ -49,8 +49,9 @@ export function catalogLabel(
 ): string {
 	if (state.loading) return "⏳ TSGW";
 	const suffix = `TSGW · ${state.count}`;
+	if (state.error) return `🔴 ${suffix}`;
 	if (!credentialConfigured || !rootConfigured) return `⚠️ ${suffix}`;
-	if (state.error || freshness(state, now) !== "新鲜") return `🟡 ${suffix}`;
+	if (freshness(state, now) !== "新鲜") return `🟡 ${suffix}`;
 	return `🟢 ${suffix}`;
 }
 

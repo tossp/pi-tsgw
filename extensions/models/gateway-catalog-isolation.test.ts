@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { test, type TestContext } from "node:test";
 import {
-	gatewayModelCacheScope, getGatewayModelIds, loadGatewayModelCache,
+	gatewayModelCacheScope, getCachedGatewayModelIds, getGatewayModelIds, loadGatewayModelCache,
 	saveGatewayModelCache, type GatewayFetch,
 } from "./gateway-catalog.ts";
 
@@ -109,7 +109,7 @@ for (const outcome of ["success", "failure", "abort"] as const) {
 		equal(oldResult.ok, true);
 		const id = outcome === "success" ? "new" : "baseline";
 		deepStrictEqual(loadGatewayModelCache(path, scope, 3)?.ids, [id]);
-		deepStrictEqual(await getGatewayModelIds(root, "key", { fetcher: unavailable }, 3), {
+		deepStrictEqual(await getGatewayModelIds(root, "key", { cacheFilePath: path, fetcher: unavailable }, 3), {
 			ok: true, ids: [id], cached: true, stale: false,
 			storedAt: outcome === "success" ? 2 : 0,
 		});
@@ -180,7 +180,7 @@ for (const change of ["root", "credential"] as const) {
 			deepStrictEqual(loadGatewayModelCache(path, scope, 4)?.ids,
 				[outcome === "success" ? "new" : "baseline"]);
 			// 磁盘写入防护不得丢弃其他作用域的有效内存结果。
-			const memory = await getGatewayModelIds(root, "key", { fetcher: unavailable }, 4);
+			const memory = await getGatewayModelIds(root, "key", { cacheFilePath: path, fetcher: unavailable }, 4);
 			if (!memory.ok) throw new Error("应命中独立内存缓存");
 			deepStrictEqual(memory.ids, ["old"]);
 			equal(memory.storedAt, 1);
@@ -217,6 +217,39 @@ test("磁盘写入防护仅影响共享请求中有竞争的路径", async (t) =
 	await Promise.all([first, second]);
 	deepStrictEqual(loadGatewayModelCache(path, gatewayModelCacheScope(root, "other-key"), 4)?.ids, ["new"]);
 	deepStrictEqual(loadGatewayModelCache(otherPath, gatewayModelCacheScope(root, "key"), 4)?.ids, ["shared"]);
+});
+
+test("相同网关与密钥的内存快照按规范化缓存路径隔离", async (t) => {
+	const { root, path } = fixture(t);
+	const otherPath = join(dirname(path), "other.json");
+	await getGatewayModelIds(root, "key", { cacheFilePath: path, fetcher: async () => response("A") }, 1);
+	equal(getCachedGatewayModelIds(root, "key", { cacheFilePath: otherPath }, 2), undefined);
+	deepStrictEqual(await getGatewayModelIds(root, "key", { cacheFilePath: otherPath, fetcher: unavailable }, 2),
+		{ ok: false, reason: "http", status: 503 });
+	await getGatewayModelIds(root, "key", { cacheFilePath: otherPath, fetcher: async () => response("B") }, 3);
+	const alias = `${relative(process.cwd(), dirname(path))}/./models.json`;
+	deepStrictEqual(getCachedGatewayModelIds(root, "key", { cacheFilePath: alias }, 4)?.ids, ["A"]);
+	deepStrictEqual(getCachedGatewayModelIds(root, "key", { cacheFilePath: otherPath }, 4)?.ids, ["B"]);
+	equal(getCachedGatewayModelIds(root, "key", {}, 4), undefined, "无路径调用不混入其他宿主目录的内存");
+});
+
+test("不同缓存路径的并发请求互不撤销内存和磁盘写入权限", async (t) => {
+	const { root, path } = fixture(t);
+	const otherPath = join(dirname(path), "other.json");
+	const a = deferred(), b = deferred();
+	const first = getGatewayModelIds(root, "key", { cacheFilePath: path, force: true,
+		fetcher: a.fetcher, signal: new AbortController().signal }, 1);
+	const second = getGatewayModelIds(root, "key", { cacheFilePath: otherPath, force: true,
+		fetcher: b.fetcher, signal: new AbortController().signal }, 2);
+	b.resolve(response("B"));
+	await second;
+	a.resolve(response("A"));
+	await first;
+	const scope = gatewayModelCacheScope(root, "key");
+	for (const [file, id] of [[path, "A"], [otherPath, "B"]]) {
+		deepStrictEqual(getCachedGatewayModelIds(root, "key", { cacheFilePath: file }, 3)?.ids, [id]);
+		deepStrictEqual(loadGatewayModelCache(file, scope, 3)?.ids, [id]);
+	}
 });
 
 test("预先取消的请求不能返回新鲜内存或磁盘条目", async (t) => {

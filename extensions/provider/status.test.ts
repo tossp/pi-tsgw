@@ -23,7 +23,7 @@ const BASE: CatalogStatus = Object.freeze({
 });
 
 function testCatalogLabels(): void {
-	// 加载优先于配置警告，配置警告优先于错误/静态/过期状态。
+	// 加载优先于错误；错误优先于缺配置；过期无错误仍为黄色。
 	for (const source of ["static", "cache", "network"] as const) {
 		for (const storedAt of [undefined, STORED_AT, NOW - TTL]) {
 			for (const error of [undefined, "目录刷新失败"]) {
@@ -33,11 +33,13 @@ function testCatalogLabels(): void {
 							const state = { ...BASE, source, storedAt, error, loading };
 							const expected = loading
 								? "⏳ TSGW"
-								: !credential || !root
-									? "⚠️ TSGW · 42"
-									: error || source === "static" || storedAt !== STORED_AT
-										? "🟡 TSGW · 42"
-										: "🟢 TSGW · 42";
+								: error
+									? "🔴 TSGW · 42"
+									: !credential || !root
+										? "⚠️ TSGW · 42"
+										: source === "static" || storedAt !== STORED_AT
+											? "🟡 TSGW · 42"
+											: "🟢 TSGW · 42";
 							strictEqual(catalogLabel(state, credential, root, NOW), expected);
 						}
 					}
@@ -47,6 +49,8 @@ function testCatalogLabels(): void {
 	}
 	strictEqual(catalogLabel({ ...BASE, count: 0 }, true, true, NOW), "🟢 TSGW · 0");
 	strictEqual(catalogLabel({ ...BASE, error: "" }, true, true, NOW), "🟢 TSGW · 42");
+	// 错误状态覆盖缺凭据/缺根地址，避免把已知失败误报成仅配置缺失。
+	strictEqual(catalogLabel({ ...BASE, error: "目录刷新失败" }, false, false, NOW), "🔴 TSGW · 42");
 }
 
 function testTtlAndTimestamps(): void {
@@ -70,9 +74,10 @@ function testTtlAndTimestamps(): void {
 		}
 	}
 
-	const startup = { ...BASE, source: "cache" as const, ttlMs: 7 * TTL };
-	strictEqual(catalogLabel(startup, true, true, STORED_AT + 6 * TTL), "🟢 TSGW · 42");
-	strictEqual(catalogLabel(startup, true, true, STORED_AT + 7 * TTL), "🟡 TSGW · 42");
+	// 启动窗口已统一为默认 24 小时；显式 ttlMs 仅作为状态展示覆盖。
+	const displayTtl = { ...BASE, source: "cache" as const, ttlMs: 2 * TTL };
+	strictEqual(catalogLabel(displayTtl, true, true, STORED_AT + 2 * TTL - 1), "🟢 TSGW · 42");
+	strictEqual(catalogLabel(displayTtl, true, true, STORED_AT + 2 * TTL), "🟡 TSGW · 42");
 	const empty = { ...BASE, count: 0, source: "empty" as const };
 	strictEqual(catalogLabel(empty, true, true, NOW), "🟡 TSGW · 0");
 	match(catalogDiagnostics(empty, OPTIONS, NOW), /目录来源：无可用目录/);
