@@ -11,7 +11,7 @@
 
 ## 项目结构
 
-包清单的 `pi.extensions` 指向根 `./index.ts`，作为约 15 行的总入口；provider 注册与生命周期位于 `extensions/provider/`，模型模块位于 `extensions/models/`，图片协议实现位于该目录下的 `adapter/images/`，分类桥接位于 `adapter/classifiers/`，图片工具、参数 schema 与本地文件仍由 `extensions/images/` 承担。搜索模块及相邻测试位于 `extensions/search/`，提示词由 `extensions/prompts.ts` 的 `registerPrompts` 统一注册，正文位于 `prompts/`。宿主集成总测试为根 `index.test.ts`；provider、模型与搜索的测试与对应模块相邻，图片工具测试与 `extensions/images/` 中的实现相邻，共享测试夹具仍位于 `extensions/`。技能及其测试路径保持在 `skills/` 和 `extensions/`。
+包清单的 `pi.extensions` 指向根 `./index.ts`，作为能力装配总入口；provider 注册与生命周期位于 `extensions/provider/`，模型模块位于 `extensions/models/`，图片协议实现位于该目录下的 `adapter/images/`，分类桥接位于 `adapter/classifiers/`，图片工具、参数 schema 与本地文件仍由 `extensions/images/` 承担。搜索模块及相邻测试位于 `extensions/search/`，提示词由 `extensions/prompts.ts` 的 `registerPrompts` 统一注册，正文位于 `prompts/`。宿主集成总测试为根 `index.test.ts`；provider、模型与搜索的测试与对应模块相邻，图片工具测试与 `extensions/images/` 中的实现相邻，共享测试夹具仍位于 `extensions/`。技能及其测试路径保持在 `skills/` 和 `extensions/`。
 
 跨模块源码引用统一使用 package 子路径别名 `#tsgw/*`（映射到 `extensions/`）与 `#tsgw-prompts/*`（映射到 `prompts/`），别名不带 `.ts` 后缀；模块内部继续用相对 `.ts` 路径，由 tsc 改写为 `.js`。真实入口文件（含各 `index.ts`）继续承担实际装配职责，不为聚合再导出新增 barrel 索引。
 
@@ -30,6 +30,7 @@ extensions/models/
     images/                 # 图片协议实现与对应测试
     classifiers/            # 分类桥接与对应测试
 extensions/search/           # 搜索注册、代理与相邻测试
+extensions/delegation/        # 子代理创建前分类选型、固定知识与相邻测试
 extensions/images/           # 图片工具、schema、本地文件与宿主集成测试
 extensions/prompts.ts        # registerPrompts
 prompts/memory.ts            # 记忆提示词正文
@@ -334,21 +335,34 @@ Pi Web 可能要等会话运行时启动后才显示扩展状态。
 
 ### 子代理编排与模型选型
 
-本包附带 [tsgw-delegate-model-selection](skills/tsgw-delegate-model-selection/SKILL.md)，
-鼓励适合的任务通过后台子代理执行，并提供模型/思考级别指导，包括独立的 Kimi + Astra 审查。
-任务拆分、并行、验证和升级仍由代理自行决定。
+本包附带精简的 [tsgw-delegate-model-selection](skills/tsgw-delegate-model-selection/SKILL.md)。
+Pi 1.2+ 在兼容的 `model-only Agent` 执行前，**只对新建且未指定模型的调用分类一次**：
+主代理直接提交任务提示词，插件使用内置选型知识补入 `Agent.model`，随后继续原工具执行。
+不需要主代理读取长表、编写分类代码或收到分类结果后再派遣一次。
 
-插件在同一份 `SKILL.md` 中维护参考表，供直接使用，无需要求代理检查实时排名或数据新鲜度。
-它是指导，不是模型白名单或固定执行顺序。价格是 API 参考费率，不是订阅费用。
-GLM 指导使用 5.3，并以 Flash 和 FlashX 为备选。思考级别使用 Pi 名称：M3 推荐 `high`，
-与其其他非 off 级别一样，映射为 adaptive。
+分类器从生效的 `tsgw` 文本分类目录动态选择，不固定 ID；按已知非零输入＋输出参考价排序，
+未知/零价排后，同价按 provider/ID 字典序。聊天候选取已维护模型/档位与生效目录及会话范围的交集，
+分类后再次校验。价格只是参考，不是网关实扣价。分类增加一次请求的耗时和费用。
+
+显式 `model`、`resume`、结果查询、补充指令及后续轮次不介入，不运行中换模型。
+固定 Kimi＋Astra 双审由主代理分别显式指定 `tsgw/kimi-k3:high`、`tsgw/gpt-6-astra:max`；
+正式架构/设计文档独立审阅默认 Astra/max。任务拆分、依赖、并行、权限和验收仍由主代理负责。
+分类失败、未决、取消、无候选或选定模型失效时，阻止本次自动创建并提示显式指定模型，
+不静默使用父模型、不自动重试或换分类器；分类等待最多 15 秒，材料上限 28 KiB，超限不截断任务。
+
+原 `Agent` 的调用 ID、宿主调度和子会话关联保持不变；工具结果附选型摘要，
+`details.tsgwDelegation` 保留追踪信息，已报告分类用量合入原工具 `usage`。
+选型知识和原参考表已迁入 [创建前选型维护说明](extensions/delegation/README.md) 与 `policy.ts`，
+不要求主代理查榜或读取维护资料。隔离回归不证明真实选型质量或 Pi Web 展示已验收。
 
 安装并执行 `/reload` 后，Pi 会通过包清单发现随包技能，除非宿主/包设置禁用或过滤了技能。
 可以使用 `/skill:tsgw-git-commit` 等命令显式加载；仅加载根 `index.ts` 不会加载包内技能。
 包设置中的 `skills: []` 可禁用全部技能，`skills: ["skills/tsgw-git-commit"]` 可仅加载指定技能，
 或用 `skills: ["!skills/tsgw-git-commit/**"]` 排除该技能；由宿主处理，不是 `tsgw` 配置项。
 
-模型选型技能需要宿主提供支持模型选择的子代理工具及可用的 `tsgw` 模型；图片生成技能需要 Pi 1.2+、图片工具与可用的 `tsgw` 图片模型。通用开发技能不绑定模型 provider。
+模型选型需要兼容的子代理工具及可用的 `tsgw` 分类/聊天模型；旧宿主或无兼容工具时不挂接自动选型。
+图片生成技能需要 Pi 1.2+、图片工具与可用的 `tsgw` 图片模型。通用开发技能不绑定模型 provider。
+禁用随包技能不会关闭扩展中的创建前选型钩子；显式指定 `Agent.model` 可跳过选型。
 本包不提供子代理工具，也不改变调度设置、用户规则文件或宿主权限。
 
 ### 记忆规则注入

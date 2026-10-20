@@ -1,5 +1,5 @@
 import { VERSION, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { supportsImageModels } from "#tsgw/models/capabilities";
+import { supportsClassifierModels, supportsImageModels } from "#tsgw/models/capabilities";
 import { registerPrompts } from "#tsgw/prompts";
 import { readTsgwSettings } from "#tsgw/provider/config";
 import { registerTsgwProvider } from "#tsgw/provider/index";
@@ -11,6 +11,10 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 	if (supportsImageModels(VERSION)) {
 		const { registerImageTools } = await import("#tsgw/images/tools");
 		registerImageTools(pi);
+	}
+	if (supportsClassifierModels(VERSION)) {
+		const { registerDelegation } = await import("#tsgw/delegation/index");
+		registerDelegation(pi);
 	}
 	registerPrompts(pi);
 	const settings = readTsgwSettings();

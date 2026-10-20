@@ -13,7 +13,8 @@
 | provider 注册、生命周期、命令、追踪 | `extensions/provider/index.ts`；配置读取 `extensions/provider/config.ts`，状态 `extensions/provider/status.ts` |
 | 模型规格、价格、thinking 策略 | `extensions/models/vendors/*.ts`（图片见 `openai.ts`，分类见 `typesafe.ts`） |
 | 宿主能力版本门 | `extensions/models/capabilities.ts`（图片与分类分别独立判定） |
-| 随包技能、模型选型与资源验证 | `skills/`、`extensions/skills.test.ts`、`extensions/skill-resources.test.ts` |
+| 随包技能与资源验证 | `skills/`、`extensions/skills.test.ts`、`extensions/skill-resources.test.ts` |
+| 子代理创建前分类选型 | `extensions/delegation/index.ts`（钩子）、`policy.ts`（固定问题/候选）、相邻测试及 `README.md`（参考表与边界）；技能只保留调用说明 |
 | 提示词注册与正文 | `extensions/prompts.ts`（`registerPrompts`）、`prompts/memory.ts`（含原有维护授权） |
 | 记忆规则注入与详细维护流程 | `extensions/prompts.ts`、`skills/tsgw-smemo/` |
 | 目录拼接、过滤与混合目录汇总 | `extensions/models/catalog.ts`（聊天目录 `modelsForRoot` 与混合 `effectiveModelsForGateway`） |
@@ -56,7 +57,8 @@
 - 规格、输入能力、价格与 thinking 支持须有明确证据；有国内/国际站时采用国内站。记录来源和必要的档位、汇率、别名说明；上下文窗口不等于最大输出，同族复用不等于逐型号验证。
 - 经确认按网关缺席清理静态目录时，若某厂商删除后将不剩任何型号，保留一个型号及其配套策略作为后续接入参考；仍按网关交集过滤，不绕过登记规则。
 - 新模型改 vendor；新供应商接入 catalog，有策略则接入 operations。补逐 ID、档位及非目标字段保留测试，不只检查总数量。
-- 调整模型目录、规格、thinking 档位、价格或选型依据时，同步检查 `skills/tsgw-delegate-model-selection/SKILL.md` 的选型表与说明是否需要更新；只有涉及代码逻辑变更时才调整对应测试，选型表和说明内容通过 diff 审阅。参考表由插件维护，使用技能的模型直接参考，不承担查榜、实时核验或时效判断职责。
+- 调整模型目录、规格、thinking 档位、价格或选型依据时，同步检查 `extensions/delegation/policy.ts` 的分类知识/候选、该目录 `README.md` 的参考表及 `skills/tsgw-delegate-model-selection/SKILL.md` 的调用说明。只给逻辑变化补测试，资料措辞与表格通过 diff 审阅；不要求执行任务的模型查榜或阅读完整维护资料。
+- 子代理只在兼容宿主的顶层 `Agent` 新建且未指定模型时进行一次分类选型；显式模型、resume、查询/补充及后续轮次不介入。通过公开 `tool_call` 原地补 `event.input.model`，不嵌套调用 model-only Agent、不复制调度器、不修改其他调用参数。分类失败/未决/取消/选定候选失效时阻止本次自动创建，不默默沿用父模型、不重试/换分类器；必要时由主代理显式指定模型。动态发现分类器，候选遵守生效目录/会话范围和合法档位；正式设计审阅的 Astra/max、显式固定双审等规则不被概率降档。报告的分类 usage 合入原 Agent 结果，保留原 details 和父子会话关联。
 - 静态目录与网关目录取交集后再应用用户过滤，不自动登记未知 ID。include 优先于 exclude，但不能突破该交集；两者只支持精确 ID 和尾部 `*` 前缀匹配。
 - 原生图片仅在 Pi `VERSION` 为 1.2.0 或更高稳定版本时注册 `type: image` 的 `gpt-image-2.5-flare`、`gpt-image-2.5-sunburst`；低版本不注册图片模型/adapter，但聊天保持原功能，不提高最低 peer，也不以策略说明冒充旧版真实验收。图片走现有 tsgw provider、`baseUrl` 和宿主凭据解析，不增加 MCP 注册、HTTP 客户端 SDK 依赖或服务端改动。生成与编辑共用 `extensions/models/adapter/images/` 下的图片适配器，默认单张 PNG 而不是写死上游能力；不自动登记裸别名或其他图片模型。图片不作为聊天模型或搜索代理候选；状态计数含实际登记的聊天、图片与分类模型。
 - TypeSafe 是厂商，Jev 是模型系列；厂商规格归 `extensions/models/vendors/typesafe.ts`，分类适配与能力门由 `extensions/models/adapter/classifiers/adapter.ts` 与 `extensions/models/capabilities.ts` 共同承担。分类以 Pi 1.2.0 及以上稳定版为已验证登记基线，仅 `jev-latest`、`jev-preview`，`type: classifier`、`typesafe-system-one`，复用同 tsgw provider/认证及网关交集/用户过滤；低版本不登记分类器，不提高聊天最低 peer。目录与刷新状态计数包含分类项，但聊天选择器与搜索代理必须排除；不因网关列出就登记 Kev、SemIf 或 Luna Decisions。通过宿主可解析的 `@earendil-works/pi-ai/providers/all` 懒加载复用内置 TypeSafe classify，不复制 HTTP/解析、不增运行时依赖。始终关闭自动重试、不自动切模型，透传取消/钩子/usage，原生错误先脱敏。仅文本，总窗口 64K 与每题 32K 分开说明；公开价不是网关实扣价，输出参考价为零不等于丢弃输出 tokens。不额外开启实验头或宣称全部质量已验收。
