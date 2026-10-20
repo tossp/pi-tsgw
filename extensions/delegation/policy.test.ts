@@ -12,6 +12,7 @@ import type {
 import {
 	buildDelegationCandidates,
 	buildDelegationContext,
+	buildDelegationGuide,
 	chooseClassifier,
 	resolveDelegationChoice,
 	type DelegationCandidate,
@@ -20,7 +21,7 @@ import {
 const ALL_LEVELS: readonly ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 const TABLE: readonly (readonly [string, ModelThinkingLevel])[] = [
-	["MiniMax-M3", "high"],
+	["MiniMax-M3.1-Flash", "high"],
 	["gpt-6-luna", "high"],
 	["glm-5.3", "low"],
 	["glm-5.3", "high"],
@@ -135,9 +136,28 @@ test("候选：严格按选型表逐型号与档位生成，键不使用型号�
 	assert.equal(new Set(candidates.map((entry) => entry.key)).size, candidates.length);
 });
 
+test("候选：MiniMax 正式版替换旧轻量项，分类与失败指导同源", async () => {
+	const { minimaxModels } = await import("../models/vendors/minimax.ts");
+	const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai");
+	const models = minimaxModels("https://models.example.test").map(model => ({ ...chatModel(model.id), ...model }));
+	const candidates = buildDelegationCandidates(models, getSupportedThinkingLevels);
+	const selected = candidates.find(entry => entry.id === "MiniMax-M3.1-Flash");
+	assert.ok(selected);
+	assert.equal(selected.level, "high");
+	assert.equal(selected.model, "tsgw/MiniMax-M3.1-Flash:high");
+	assert.equal(candidates.some(entry => entry.id === "MiniMax-M3" || entry.id.endsWith("-Preview")), false);
+	const context = buildDelegationContext({ prompt: "步骤明确的轻量任务" }, candidates);
+	const selection = context.questions.selection;
+	assert.equal(selection.type, "choice");
+	if (selection.type !== "choice") return assert.fail("selection 必须是 choice");
+	assert.equal(selection.criteria[selected.key], selected.instructions);
+	assert.ok(buildDelegationGuide(candidates).includes(`| ${selected.model} | 可用 |`));
+	assert.equal(buildDelegationGuide(candidates).includes("| tsgw/MiniMax-M3:high |"), false);
+});
+
 test("候选：其他供应商、非文本、非聊天与不支持档位不会补入", () => {
 	const otherProvider = chatModel("gpt-6-luna", { provider: "other" });
-	const imageOnly = chatModel("MiniMax-M3", { input: ["image"] });
+	const imageOnly = chatModel("MiniMax-M3.1-Flash", { input: ["image"] });
 	const classifierAsChat = {
 		...chatModel("gpt-6-astra"),
 		type: "classifier",

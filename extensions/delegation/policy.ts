@@ -45,10 +45,11 @@ interface SelectionRow {
 // 顺序即选型表的明确列顺序；只使用这里列出的型号与档位，不从目录猜测其他组合。
 const SELECTION_TABLE: readonly SelectionRow[] = [
 	{
-		id: "MiniMax-M3", level: "high",
+		id: "MiniMax-M3.1-Flash", level: "high",
 		suitability: "轻量执行，只适合步骤明确的小任务",
-		speed: "轻量任务优先，非 off 档位均映射为 adaptive",
-		inputPrice: "0.30", outputPrice: "1.20",
+		speed: "轻量任务优先，high 对应 reasoning_effort=high",
+		// 参考价沿用 vendors/minimax.ts 的国内正式版登记，不代表网关实扣。
+		inputPrice: "0.1475", outputPrice: "0.59",
 		note: "不承担复杂或长程执行。",
 	},
 	{
@@ -218,7 +219,7 @@ const KIND_INSTRUCTIONS = [
 
 const SELECTION_GUIDELINES = [
 	"选型表是参考而非固定派遣路线；同档顺序不是单纯按评分排序，不自动选择第一个候选。",
-	"轻量明确任务优先 MiniMax-M3/high 或 gpt-6-luna/high；常规工程优先 deepseek-flash/high，复杂实现使用 deepseek-flash/max。",
+	"轻量明确任务优先 MiniMax-M3.1-Flash/high 或 gpt-6-luna/high；常规工程优先 deepseek-flash/high，复杂实现使用 deepseek-flash/max。",
 	"复杂任务优先 gpt-6.1-sol/high，仅在确需更深推理时考虑 xhigh 或 max；GLM 5.3 / Flash 仍是工程候选。",
 	"正式架构方案或设计文档的独立审阅默认 gpt-6-astra/max；局部检查或定向复审可按范围降低 Astra 档位，高难、复杂或代码设计不等同 formal_review。",
 	"Kimi＋Astra 双审必须由调用方显式指定每次模型，本候选表不提供 Kimi。",

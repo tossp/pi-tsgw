@@ -40,7 +40,7 @@ function classifierModel(overrides: Partial<ClassifierModel<ClassifierApi>> = {}
 		contextWindow: 64_000, ...overrides,
 	};
 }
-const CHAT_IDS = ["MiniMax-M3", "gpt-6-luna", "glm-5.3", "glm-5.3-flash",
+const CHAT_IDS = ["MiniMax-M3.1-Flash", "gpt-6-luna", "glm-5.3", "glm-5.3-flash",
 	"gpt-6.1-sol", "deepseek-flash", "gpt-6-astra", "kimi-k3"];
 const catalog = (): Model<Api>[] => CHAT_IDS.map(id => chatModel(id));
 function candidatesFor(models: readonly Model<Api>[]): DelegationCandidate[] {
