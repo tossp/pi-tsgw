@@ -262,7 +262,12 @@ test("Pi 1.2 delegation：真实宿主分类选型、阻止与结果增强", { t
 			assert.ok(result);
 			assert.equal(result.isError, true);
 			assert.match(resultText(result), /分类请求未成功|未创建子代理/);
-			assert.equal(((result.details as AnyRecord).tsgwDelegation as AnyRecord).status, "blocked");
+			const decision = (result.details as AnyRecord).tsgwDelegation as AnyRecord;
+			assert.equal(decision.status, "blocked");
+			assert.equal(decision.failureKind, "http");
+			assert.ok(typeof decision.selectionGuide === "string" && decision.selectionGuide.length > 0);
+			assert.ok(decision.selectionGuide.includes(deepseekHigh.model));
+			assert.equal(resultText(result).split(decision.selectionGuide).length - 1, 1, "宿主阻止结果仅保留一份选型表");
 			assert.doesNotMatch(resultText(result), /synthetic classifier failure/);
 			classificationMode = "select";
 		});
@@ -340,7 +345,9 @@ test("Pi 1.2 delegation：真实宿主分类选型、阻止与结果增强", { t
 			const result = lastAgentResult(session!);
 			assert.equal(result?.isError, true);
 			assert.equal(((result!.details as AnyRecord).tsgwDelegation as AnyRecord).status, "blocked");
-			assert.match(resultText(result!), /Agent\.model/, "取消后的最终结果也须提供显式选择提示");
+			const decision = (result!.details as AnyRecord).tsgwDelegation as AnyRecord;
+			assert.equal(decision.failureKind, "cancelled");
+			assert.equal(decision.selectionGuide, undefined, "取消不得引导自动重新派遣");
 			classificationMode = "select";
 			started = undefined;
 		});

@@ -5,16 +5,18 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { isPlainObject } from "#tsgw/models/_tools";
 import {
-	buildDelegationCandidates, buildDelegationContext, chooseClassifier, resolveDelegationChoice,
+	buildDelegationCandidates, buildDelegationContext, buildDelegationGuide, chooseClassifier, resolveDelegationChoice,
 	type DelegationCandidate,
 } from "./policy.ts";
+import { classifierFailure, failureGuidance, type DelegationFailureKind } from "./failure.ts";
 
 const TIMEOUT_MS = 15_000;
 const MAX_CONTEXT_BYTES = 28 * 1024;
 const GUIDANCE = "新建子代理时，直接调用 Agent，写清任务、验收标准和约束；未明确指定模型时省略 model，" +
 	"由 TSGW 在创建前自动分类选型，无需读取长选型表或编写 codemode 分类脚本。" +
-	"用户指定模型或固定审阅组合时显式传 model；resume 沿用原模型，不重新选型。";
-const EXPLICIT = "本次未创建子代理；请核对任务后显式指定 Agent.model，不自动重试或换分类模型。";
+	"用户指定模型或固定审阅组合时显式传 model；resume 沿用原模型，不重新选型。" +
+	"分类失败时按工具报告的失败类型处理，由发起调用的主代理自行选型并显式指定 Agent.model 再调用；" +
+	"不重试分类器，调用已取消时不自动重新派遣。";
 
 type Decision = {
 	status: "selected" | "blocked";
@@ -22,6 +24,8 @@ type Decision = {
 	model?: string;
 	kind?: string;
 	reason?: string;
+	failureKind?: DelegationFailureKind;
+	selectionGuide?: string;
 	durationMs: number;
 };
 interface Attempt {
@@ -29,6 +33,12 @@ interface Attempt {
 	completion: Promise<Decision>;
 	decision?: Decision;
 	usage?: Usage;
+	candidates?: DelegationCandidate[];
+}
+
+function failureText(decision: Decision): string {
+	return `TSGW ${decision.reason ?? "分类选型未完成。"}${failureGuidance(decision.failureKind)}` +
+		(decision.selectionGuide ? `\n\n${decision.selectionGuide}` : "");
 }
 
 /** 保持原工具的执行与 UI 契约，不把其他同名但不同参数的工具当作 Pi Web Agent。 */
@@ -105,14 +115,16 @@ export function registerDelegation(pi: ExtensionAPI): void {
 
 	async function select(event: ToolCallEvent, ctx: ExtensionContext, attempt: Attempt): Promise<Decision> {
 		const started = Date.now();
-		const blocked = (reason: string): Decision => ({ status: "blocked", reason, durationMs: Date.now() - started });
+		const blocked = (reason: string, failureKind: DelegationFailureKind): Decision =>
+			({ status: "blocked", reason, failureKind, durationMs: Date.now() - started });
 		const registry = ctx.modelRegistry;
 		const scope = ctx.scopedModels?.map(entry => ({
 			model: `${entry.model.provider}/${entry.model.id}`, level: entry.thinkingLevel,
 		})) ?? [];
 		const caller = ctx.signal;
-		const signal = AbortSignal.any([lifecycle.signal, attempt.controller.signal,
-			AbortSignal.timeout(TIMEOUT_MS), ...(caller ? [caller] : [])]);
+		const cancellation = AbortSignal.any([lifecycle.signal, attempt.controller.signal, ...(caller ? [caller] : [])]);
+		const timeout = AbortSignal.timeout(TIMEOUT_MS);
+		const signal = AbortSignal.any([cancellation, timeout]);
 		const input: Record<string, unknown> = event.input;
 		const task = {
 			prompt: typeof input.prompt === "string" ? input.prompt : "",
@@ -123,46 +135,56 @@ export function registerDelegation(pi: ExtensionAPI): void {
 			...(typeof input.run_in_background === "boolean" ? { run_in_background: input.run_in_background } : {}),
 		};
 		let classifierId: string | undefined;
-		const failure = (reason: string): Decision => ({ ...blocked(reason), ...(classifierId ? { classifier: classifierId } : {}) });
+		const failure = (reason: string, kind: DelegationFailureKind): Decision => {
+			return { ...blocked(reason, kind), ...(classifierId ? { classifier: classifierId } : {}),
+				...(kind === "cancelled" ? {} : { selectionGuide: buildDelegationGuide(attempt.candidates) }) };
+		};
 		try {
 			signal.throwIfAborted();
-			if (!task.prompt.trim()) return failure("任务提示词为空。");
+			if (!task.prompt.trim()) return failure("任务提示词为空。", "invalid_input");
 			if (typeof registry.getAvailableOfType !== "function" || typeof registry.classify !== "function")
-				return failure("当前宿主不支持原生分类选型。");
+				return failure("当前宿主不支持原生分类选型。", "unsupported");
 			const candidates = async (): Promise<DelegationCandidate[]> => {
 				const models = await abortable(registry.getAvailableOfType("chat", "tsgw", { signal }), signal);
-				return buildDelegationCandidates(models.filter(model => !scope.length ||
+				const available = buildDelegationCandidates(models.filter(model => !scope.length ||
 					scope.some(entry => entry.model === `${model.provider}/${model.id}`)), getSupportedThinkingLevels)
 					.filter(candidate => !scope.length || scope.some(entry => entry.model === `${candidate.provider}/${candidate.id}` &&
 						(!entry.level || entry.level === candidate.level)));
+				attempt.candidates = available;
+				return available;
 			};
 			const available = await candidates();
-			if (!available.length) return failure("没有符合选型规则和当前目录/会话范围的聊天模型。");
+			if (!available.length) return failure("没有符合选型规则和当前目录/会话范围的聊天模型。", "unavailable");
 			const context = buildDelegationContext(task, available);
 			if (Buffer.byteLength(JSON.stringify(context), "utf8") > MAX_CONTEXT_BYTES)
-				return failure("选型材料超过 28 KiB，请精简提示词或显式指定模型；未截断任务。");
+				return failure("选型材料超过 28 KiB，请精简提示词或显式指定模型；未截断任务。", "invalid_input");
 			const classifiers = await abortable(registry.getAvailableOfType("classifier", "tsgw", { signal }), signal);
 			const classifier = chooseClassifier(classifiers);
-			if (!classifier) return failure("没有可用的 TSGW 文本分类模型。");
+			if (!classifier) return failure("没有可用的 TSGW 文本分类模型。", "unavailable");
 			classifierId = `${classifier.provider}/${classifier.id}`;
 			signal.throwIfAborted();
 			const result = await abortable(registry.classify(classifier, context,
 				{ signal, timeoutMs: TIMEOUT_MS, maxRetries: 0 }), signal);
 			attempt.usage = result.usage;
 			signal.throwIfAborted();
-			if (result.stopReason !== "stop") return failure(result.stopReason === "aborted" ? "分类已取消。" : "分类请求未成功。");
+			if (result.stopReason !== "stop") {
+				const error = classifierFailure(result.errorMessage, result.stopReason === "aborted");
+				return failure(error.reason, error.failureKind);
+			}
 			const selected = resolveDelegationChoice(result.answers, available);
-			if (!selected) return failure("分类结果无效、未决或不符合固定审阅规则。");
+			if (!selected) return failure("分类结果无效、未决或不符合固定审阅规则。", "invalid_result");
 			// 分类过程中目录可能刷新；必须再次校验，不能静默选另一个模型。
 			const current = await candidates();
 			signal.throwIfAborted();
 			if (!current.some(candidate => candidate.model === selected.model))
-				return failure("选定模型或思考档位已不在当前可用候选中。");
+				return failure("选定模型或思考档位已不在当前可用候选中。", "model_unavailable");
 			const kind = result.answers.kind;
 			return { status: "selected", classifier: classifierId, model: selected.model,
 				...(kind?.type === "choice" ? { kind: kind.choice } : {}), durationMs: Date.now() - started };
 		} catch {
-			return failure(signal.aborted ? "分类选型已取消或超时。" : "分类选型失败，请检查目录与宿主认证。");
+			if (cancellation.aborted) return failure("分类选型已取消（调用或会话已结束）。", "cancelled");
+			if (timeout.aborted) return failure("分类选型超时（15 秒上限）。", "timeout");
+			return failure("分类选型失败（原因未明），请检查目录与宿主认证。", "unknown");
 		}
 	}
 
@@ -176,12 +198,13 @@ export function registerDelegation(pi: ExtensionAPI): void {
 			attempts.set(event.toolCallId, attempt);
 			attempt.completion = select(event, ctx, attempt);
 		}
-		const decision = await attempt.completion;
-		attempt.decision = decision;
+		let decision = await attempt.completion;
 		if (!active || attempt.controller.signal.aborted || caller?.aborted)
-			return { block: true, reason: `TSGW 分类选型已取消。${EXPLICIT}` };
+			decision = { ...decision, status: "blocked", model: undefined, failureKind: "cancelled", selectionGuide: undefined,
+				reason: "分类选型已取消（调用或会话已结束）。" };
+		attempt.decision = decision;
 		if (decision.status !== "selected" || !decision.model)
-			return { block: true, reason: `TSGW ${decision.reason ?? "分类选型未完成。"}${EXPLICIT}` };
+			return { block: true, reason: failureText(decision) };
 		// 只补模型，不改变 prompt/profile/后台标志/隔离方式；原 Agent 继续执行。
 		event.input.model = decision.model;
 	});
@@ -195,9 +218,10 @@ export function registerDelegation(pi: ExtensionAPI): void {
 		const decision = attempt.decision;
 		const summary = decision.status === "selected"
 			? `TSGW 创建前选型：${decision.model}（分类器 ${decision.classifier}）；${event.isError ? "原 Agent 调用未成功。" : "已交由原 Agent 执行。"}`
-			: `TSGW 创建前选型未完成：${decision.reason}${EXPLICIT}`;
+			: failureText(decision);
 		return {
-			content: [...event.content, { type: "text" as const, text: summary }],
+			content: event.content.some(block => block.type === "text" && block.text === summary)
+				? event.content : [...event.content, { type: "text" as const, text: summary }],
 			...(event.structuredContent === undefined ? {} : { structuredContent: event.structuredContent }),
 			details: { ...(isPlainObject(event.details) ? event.details : { originalDetails: event.details }),
 				tsgwDelegation: decision },
