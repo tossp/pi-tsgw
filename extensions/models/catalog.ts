@@ -42,7 +42,7 @@ export function normalizeRoot(value = DEFAULT_ROOT): string {
 	return url.toString().replace(/\/$/, "");
 }
 
-/** 模型黑白名单。`exclude` 负责排除；`include` 可拉回匹配项（拉回优先）。 */
+/** 模型黑白名单不区分大小写。`exclude` 负责排除；`include` 可拉回匹配项（拉回优先）。 */
 export interface ModelFilter {
 	include?: readonly string[];
 	exclude?: readonly string[];
@@ -55,7 +55,11 @@ function matches(pattern: string, id: string): boolean {
 }
 
 function compilePatterns(patterns: readonly string[]): (id: string) => boolean {
-	return (id) => patterns.some((pattern) => matches(pattern, id));
+	const normalizedPatterns = patterns.map((pattern) => pattern.toLowerCase());
+	return (id) => {
+		const normalizedId = id.toLowerCase();
+		return normalizedPatterns.some((pattern) => matches(pattern, normalizedId));
+	};
 }
 
 /** 按“拉回优先”语义过滤模型目录；无过滤条件时原样返回。 */

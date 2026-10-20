@@ -128,18 +128,20 @@ for (const model of mimoModels(root)) {
 }
 
 const minimaxIds = ["MiniMax-M3"];
-const minimax31Id = "MiniMax-M3.1-Flash-Preview";
-coverage([minimax31Id, ...minimaxIds], minimaxThinking, minimaxModels(root));
-for (const level of levels) {
-	const result = apply(minimaxThinking, minimax31Id, level, { ...base(), reasoning_split: false, thinking: { type: "disabled", retained: true } });
-	deepStrictEqual(result.thinking, { type: "adaptive", retained: true });
-	equal(result.reasoning_effort, ["off", "minimal"].includes(level) ? "low" : level);
-	equal(result.reasoning_split, true);
-	strictEqual(apply(minimaxThinking, minimax31Id, level, result), result);
-}
-for (const staleEffort of [undefined, "none", "max"]) {
-	const result = apply(minimaxThinking, minimax31Id, "off", { ...base(), reasoning_effort: staleEffort });
-	equal(result.reasoning_effort, "low");
+const minimax31Ids = ["MiniMax-M3.1-Flash", "MiniMax-M3.1-Flash-Preview"];
+coverage([...minimax31Ids, ...minimaxIds], minimaxThinking, minimaxModels(root));
+for (const id of minimax31Ids) {
+	for (const level of levels) {
+		const result = apply(minimaxThinking, id, level, { ...base(), reasoning_split: false, thinking: { type: "disabled", retained: true } });
+		deepStrictEqual(result.thinking, { type: "adaptive", retained: true });
+		equal(result.reasoning_effort, ["off", "minimal"].includes(level) ? "low" : level);
+		equal(result.reasoning_split, true);
+		strictEqual(apply(minimaxThinking, id, level, result), result);
+	}
+	for (const staleEffort of [undefined, "none", "max"]) {
+		const result = apply(minimaxThinking, id, "off", { ...base(), reasoning_effort: staleEffort });
+		equal(result.reasoning_effort, "low");
+	}
 }
 for (const id of minimaxIds) {
 	for (const level of levels) {
@@ -152,7 +154,7 @@ for (const id of minimaxIds) {
 // 国内原生 API 明确记录了 M3 / M3.1 的输出上限。
 for (const model of minimaxModels(root)) {
 	equal(model.maxTokens, 524288);
-	equal(model.thinkingLevelMap?.off, model.id === minimax31Id ? null : undefined);
+	equal(model.thinkingLevelMap?.off, minimax31Ids.includes(model.id) ? null : undefined);
 }
 
 const kimiIds = ["kimi-k3", "kimi-k3-256k"];

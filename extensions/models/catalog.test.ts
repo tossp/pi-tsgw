@@ -75,6 +75,7 @@ function testModelCapabilities(): void {
 		["glm-5.3", ["text"]],
 		["glm-5.3-flash", ["text", "image"]],
 		["glm-5.3-flashx", ["text", "image"]],
+		["MiniMax-M3.1-Flash", ["text", "image"]],
 		["MiniMax-M3.1-Flash-Preview", ["text", "image"]],
 	] as const) {
 		const model = models.find((model) => model.id === id)!;
@@ -82,6 +83,9 @@ function testModelCapabilities(): void {
 		equal(model.baseUrl, `${ROOT}/v1`);
 		equal(model.reasoning, true);
 		deepStrictEqual(model.input, input);
+		if (id === "MiniMax-M3.1-Flash") {
+			deepStrictEqual(model.cost, { input: 0.1475, output: 0.59, cacheRead: 0.01475, cacheWrite: 0 });
+		}
 		if (id === "MiniMax-M3.1-Flash-Preview") {
 			deepStrictEqual(model.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, "未公布价格使用未知零值");
 		}
@@ -184,13 +188,18 @@ function testFilterModels(): void {
 	deepStrictEqual(ids({ include: [], exclude: [] }), allIds);
 	deepStrictEqual(ids({ include: ["alpha-one"] }), allIds, "include 不是白名单");
 	deepStrictEqual(ids({ exclude: ["alpha"] }), allIds.filter(id => id !== "alpha"), "裸 ID 精确匹配");
-	deepStrictEqual(ids({ exclude: ["alpha-*"] }), ["alpha", "Alpha-one", "beta", "a*b"], "尾部 * 且区分大小写");
+	deepStrictEqual(ids({ exclude: ["alpha-*"] }), ["alpha", "beta", "a*b"], "尾部 * 忽略大小写");
+	deepStrictEqual(ids({ exclude: ["ALPHA-ONE"] }), ["alpha", "alpha-two", "beta", "a*b"], "裸 ID 忽略大小写且不匹配其他后缀");
 	const filter = Object.freeze({ exclude: Object.freeze(["alpha-*", "beta"]), include: Object.freeze(["alpha-one"]) });
 	deepStrictEqual(ids(filter), ["alpha", "alpha-one", "Alpha-one", "a*b"], "include 拉回，双未命中保留");
 	deepStrictEqual(ids({ exclude: ["*"] }), []);
-	deepStrictEqual(ids({ exclude: ["*"], include: ["alpha-*", "beta"] }), ["alpha-one", "alpha-two", "beta"]);
-	deepStrictEqual(ids({ exclude: ["*"], include: ["unknown", "ALPHA-*"] }), [], "未知 ID 和大小写不匹配不能新增");
-	deepStrictEqual(ids({ exclude: ["a*b"] }), allIds.filter(id => id !== "a*b"), "非尾部 * 按字面量匹配");
+	deepStrictEqual(ids({ exclude: ["*"], include: ["alpha-*", "beta"] }), ["alpha-one", "alpha-two", "Alpha-one", "beta"]);
+	deepStrictEqual(ids({ exclude: ["*"], include: ["unknown", "ALPHA-*"] }), ["alpha-one", "alpha-two", "Alpha-one"], "通配 include 忽略大小写且不能新增未知 ID");
+	const mixedFilter = Object.freeze({ exclude: Object.freeze(["ALPHA-*", "BETA"]), include: Object.freeze(["aLpHa-OnE"]) });
+	const selected = filterModels(all, mixedFilter);
+	deepStrictEqual(selected.map(model => model.id), ["alpha", "alpha-one", "Alpha-one", "a*b"], "混合大小写仍遵循 include 优先");
+	selected.forEach(model => strictEqual(model, all.find(original => original.id === model.id), "保留原始 ID 和对象引用"));
+	deepStrictEqual(ids({ exclude: ["A*B"] }), allIds.filter(id => id !== "a*b"), "非尾部 * 按字面量匹配且忽略大小写");
 	deepStrictEqual(filterModels([], { include: ["unknown"] }), []);
 }
 
@@ -234,6 +243,16 @@ function testEffectiveCatalog(): void {
 	const filter = Object.freeze({ exclude: Object.freeze(["*"]), include: Object.freeze(["*"]) });
 	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, undefined, true, true), [], "没有网关目录不能回退静态目录");
 	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, new Set(), true, true), [], "include 不能突破空网关交集");
+	const minimaxId = "MiniMax-M3.1-Flash";
+	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["MINIMAX-*"], include: ["minimax-m3.1*"] },
+		new Set([minimaxId, "MiniMax-M3"]), false, false).map(model => model.id),
+		[minimaxId], "系列过滤忽略大小写，但不改写发送模型 ID");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, new Set([minimaxId]), false, false).map(model => model.id),
+		[minimaxId], "正式版精确 ID 可通过网关交集");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, new Set([minimaxId.toLowerCase()]), false, false),
+		[], "正式版仍区分大小写");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["MiniMax-*"] }, new Set([minimaxId]), false, false),
+		[], "登记不绕过用户排除配置");
 	const selected = [chats[0].id, images[0].id, classifiers[0].id];
 	const prefixed = new Set(selected.map(id => `vendor/${id}`));
 	prefixed.add("vendor/not-registered");

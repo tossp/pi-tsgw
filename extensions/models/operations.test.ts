@@ -59,7 +59,7 @@ function completionBase(): Payload {
 }
 
 function testCompletionProfiles(): void {
-	for (const modelId of ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "MiniMax-M3.1-Flash-Preview"]) {
+	for (const modelId of ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "MiniMax-M3.1-Flash", "MiniMax-M3.1-Flash-Preview"]) {
 		for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const) {
 			const minimax = modelId.startsWith("MiniMax-");
 			const input = { ...completionBase(), messages: [{ role: "user", content: "keep" }], tools: [{ type: "function", function: { name: "keep" } }], max_tokens: 42 };
