@@ -116,7 +116,7 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		for (const type of ["chat", "image", "classifier"] as const)
 			assert.deepEqual(runtime.getModelsOfType(type, PROVIDER_ID), []);
 		const names = session.extensionRunner.getRegisteredCommands().map((command) => command.name).sort();
-		assert.deepEqual(names, ["tsgw", "tsgw-refresh", "tsgw-search"]);
+		assert.deepEqual(names, ["insagent", "tsgw", "tsgw-refresh", "tsgw-search"]);
 		await runtime.setRuntimeApiKey(PROVIDER_ID, TEST_KEY);
 		assert.deepEqual(runtime.getAllModels(PROVIDER_ID), [], "仅配置密钥不等于已成功获取目录");
 		sandbox.catalogIds = [...staticModels.map(model => model.id), ...IMAGE_MODEL_IDS];
@@ -136,6 +136,7 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		await session.bindExtensions({ mode: "print", onError: (error) => { errors.push(error); } });
 		assert.equal(lifecycle.length, 1);
 		assert.match(lifecycle[0]!, /^start:/);
+		assert.equal(existsSync(join(sandbox.agentDir, "agents")), false, "插件启动不得自动安装子代理");
 
 		// 不依赖模型 provider 或技能主动加载；通过真实运行器确认结构化分区。
 		const basePrompt = {
@@ -194,6 +195,7 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		await session.reload();
 		assert.notEqual(session.extensionRunner, oldRunner);
 		assert.deepEqual(lifecycle.slice(1), ["shutdown:reload", "start:reload"]);
+		assert.equal(existsSync(join(sandbox.agentDir, "agents")), false, "插件重载不得自动安装子代理");
 		assert.deepEqual(loader.getExtensions().errors, []);
 		assert.equal(sandbox.catalogCalls, 3, "重载无已存储凭据时不得发起启动网络请求");
 		assert.deepEqual(runtime.getAllModels(PROVIDER_ID), [], "无已存储凭据的源码重载不得静态恢复模型");
