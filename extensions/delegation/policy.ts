@@ -10,7 +10,6 @@ import type {
 } from "@earendil-works/pi-ai";
 
 const TSGW_PROVIDER = "tsgw";
-const KIMI_MODEL_ID = "kimi-k3";
 const ASTRA_MODEL_ID = "gpt-6-astra";
 
 const DELEGATION_KINDS = [
@@ -130,6 +129,14 @@ const SELECTION_TABLE: readonly SelectionRow[] = [
 		note: "仅在高难任务确需更深推理时使用。",
 	},
 	{
+		id: "kimi-k3.1-pro", level: "high",
+		suitability: "资料核对、局部检查与独立定向复核",
+		speed: "high 对应原生 high，按任务需要使用",
+		// 国内标准版参考价与折算依据见 vendors/kimi.ts；不是高速版或网关实扣。
+		inputPrice: "1.9175", outputPrice: "10.03",
+		note: "不承担长程执行；也作为显式双审的 Kimi 型号，与 Astra/max 独立复核。真实工具往返尚未验收。",
+	},
+	{
 		id: "gpt-6-astra", level: "high",
 		suitability: "高难任务，或正式审阅中的局部检查与定向复审",
 		speed: "高成本参考价的高思考档",
@@ -179,7 +186,7 @@ function candidateInstructions(row: SelectionRow): string {
 /**
  * 从宿主已过滤的目录生成固定候选。只接受标识为 tsgw、支持文本且仍为聊天模型的条目，
  * 型号与档位严格取自选型表；未知型号、其他供应商、非文本模型和不支持的档位不会补入。
- * Kimi 留给主代理显式安排的双审，不作为普通候选。
+ * K3.1 Pro 按选型表作为局部核对与复核候选；固定双审仍由主代理显式安排。
  */
 export function buildDelegationCandidates(
 	models: readonly Model<Api>[],
@@ -190,7 +197,6 @@ export function buildDelegationCandidates(
 		if (model.provider !== TSGW_PROVIDER) continue;
 		if (model.type !== undefined && model.type !== "chat") continue;
 		if (!model.input.includes("text")) continue;
-		if (model.id === KIMI_MODEL_ID) continue;
 		if (!available.has(model.id)) available.set(model.id, model);
 	}
 
@@ -222,7 +228,8 @@ const SELECTION_GUIDELINES = [
 	"轻量明确任务优先 MiniMax-M3.1-Flash/high 或 gpt-6-luna/high；常规工程优先 deepseek-flash/high，复杂实现使用 deepseek-flash/max。",
 	"复杂任务优先 gpt-6.1-sol/high，仅在确需更深推理时考虑 xhigh 或 max；GLM 5.3 / Flash 仍是工程候选。",
 	"正式架构方案或设计文档的独立审阅默认 gpt-6-astra/max；局部检查或定向复审可按范围降低 Astra 档位，高难、复杂或代码设计不等同 formal_review。",
-	"Kimi＋Astra 双审必须由调用方显式指定每次模型，本候选表不提供 Kimi。",
+	"Kimi K3.1 Pro/high 可用于资料核对、局部检查与定向复核，不承担长程执行；不要仅凭新代际推断任务成功率。",
+	"Kimi＋Astra 双审由调用方分别显式指定 tsgw/kimi-k3.1-pro:high 与 tsgw/gpt-6-astra:max，不能用一次自动选择代替两次独立复核。",
 ].join("");
 
 const SELECTION_INSTRUCTIONS =

@@ -12,14 +12,15 @@ import { type PayloadWriter, type ThinkingApplier, type ThinkingLevel } from "..
  * https://platform.minimax.cn/docs/api-reference/text-chat （最大输出 524288）
  * https://platform.minimax.cn/docs/pricing/overview （正式版输入/输出/缓存读取 ¥1/4/0.1 每百万词元）
  * 按项目固定 0.1475 USD/CNY 折算，公开估价不代表网关实扣；未列缓存写入价用零占位。
- * 旧 Preview ID 保留原规格与未知零价，不将正式版价格追溯应用到预览版。
+ * 2026-10-24 网关目录已无 M3.1-Flash-Preview，按约定移除该预览版登记、
+ * 未知零价占位与思考策略；正式版规格不因此变化。
  */
 export function minimaxModels(root: string): ProviderModelConfig[] {
 	const v1 = `${root}/v1`;
 	return [
-		...["MiniMax-M3.1-Flash", "MiniMax-M3.1-Flash-Preview"].map((id): ProviderModelConfig => ({
-			id,
-			name: id,
+		{
+			id: "MiniMax-M3.1-Flash",
+			name: "MiniMax-M3.1-Flash",
 			api: "openai-completions",
 			baseUrl: v1,
 			reasoning: true,
@@ -33,13 +34,11 @@ export function minimaxModels(root: string): ProviderModelConfig[] {
 				max: "max",
 			},
 			input: ["text", "image"],
-			cost: id === "MiniMax-M3.1-Flash"
-				? { input: 0.1475, output: 0.59, cacheRead: 0.01475, cacheWrite: 0 }
-				: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			cost: { input: 0.1475, output: 0.59, cacheRead: 0.01475, cacheWrite: 0 },
 			contextWindow: 1000000,
 			maxTokens: 524288,
 			compat: OPENAI_COMPLETIONS_COMPAT,
-		})),
+		},
 		{
 			id: "MiniMax-M3",
 			name: "MiniMax-M3",
@@ -77,6 +76,5 @@ function applyMiniMax31(writer: PayloadWriter, level: ThinkingLevel): void {
 
 export const minimaxThinking = {
 	"MiniMax-M3.1-Flash": (w, c) => applyMiniMax31(w, c.thinkingLevel),
-	"MiniMax-M3.1-Flash-Preview": (w, c) => applyMiniMax31(w, c.thinkingLevel),
 	"MiniMax-M3": (w, c) => applyMiniMax(w, c.thinkingLevel),
 } satisfies Record<string, ThinkingApplier>;

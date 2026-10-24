@@ -128,8 +128,10 @@ for (const model of mimoModels(root)) {
 }
 
 const minimaxIds = ["MiniMax-M3"];
-const minimax31Ids = ["MiniMax-M3.1-Flash", "MiniMax-M3.1-Flash-Preview"];
+const minimax31Ids = ["MiniMax-M3.1-Flash"];
 coverage([...minimax31Ids, ...minimaxIds], minimaxThinking, minimaxModels(root));
+// M3.1-Flash-Preview 已随网关目录退役：不保留策略；正式版策略不受影响。
+equal(Object.hasOwn(minimaxThinking, "MiniMax-M3.1-Flash-Preview"), false);
 for (const id of minimax31Ids) {
 	for (const level of levels) {
 		const result = apply(minimaxThinking, id, level, { ...base(), reasoning_split: false, thinking: { type: "disabled", retained: true } });
@@ -157,19 +159,19 @@ for (const model of minimaxModels(root)) {
 	equal(model.thinkingLevelMap?.off, minimax31Ids.includes(model.id) ? null : undefined);
 }
 
-const kimiIds = ["kimi-k3", "kimi-k3-256k"];
+const kimiIds = ["kimi-k3.1-pro", "kimi-k3", "kimi-k3-256k"];
 coverage(kimiIds, kimiThinking, kimiModels(root));
 for (const model of kimiModels(root)) {
-	equal(model.maxTokens, 131072);
+	equal(model.maxTokens, model.id === "kimi-k3.1-pro" ? 1048576 : 131072);
 	equal(model.thinkingLevelMap?.off, null);
-	equal(model.contextWindow, model.id === "kimi-k3" ? 1000000 : 262144);
+	equal(model.contextWindow, model.id === "kimi-k3.1-pro" ? 1048576 : model.id === "kimi-k3" ? 1000000 : 262144);
 	for (const level of levels) {
 		const result = apply(kimiThinking, model.id, level, { ...base(), thinking: { type: "disabled" } });
 		equal(Object.hasOwn(result, "thinking"), false);
 		equal(result.reasoning_effort, ["off", "minimal", "low"].includes(level) ? "low" : level === "max" ? "max" : "high", `${model.id}/${level}`);
 		strictEqual(apply(kimiThinking, model.id, level, result), result);
 	}
-	// 两个变体都必须纠正遗留 off/none，且不回退到 max。
+	// K3 与 K3.1 都必须纠正遗留 off/none，且不回退到 max。
 	for (const staleEffort of [undefined, "max", "none"]) {
 		const result = apply(kimiThinking, model.id, "off", { ...base(), reasoning_effort: staleEffort });
 		equal(result.reasoning_effort, "low");

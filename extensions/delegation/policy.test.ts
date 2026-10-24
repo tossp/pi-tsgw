@@ -33,6 +33,7 @@ const TABLE: readonly (readonly [string, ModelThinkingLevel])[] = [
 	["deepseek-flash", "max"],
 	["gpt-6.1-sol", "high"],
 	["gpt-6.1-sol", "xhigh"],
+	["kimi-k3.1-pro", "high"],
 	["gpt-6-astra", "high"],
 	["gpt-6-astra", "xhigh"],
 	["gpt-6.1-sol", "max"],
@@ -115,7 +116,7 @@ function answers(
 test("候选：严格按选型表逐型号与档位生成，键不使用型号名", () => {
 	const tableIds = [...new Set(TABLE.map(([id]) => id))];
 	const models = frozen([
-		...[..."kimi-k3", "unknown-model", ...tableIds].reverse().map((id) => chatModel(id)),
+		...["kimi-k3", "unknown-model", ...tableIds].reverse().map((id) => chatModel(id)),
 	]);
 	const supportedLevels = frozen((model: Model<Api>): readonly ModelThinkingLevel[] => {
 		assert.equal(Object.isFrozen(model), true, "不得改写目录模型");
@@ -153,6 +154,33 @@ test("候选：MiniMax 正式版替换旧轻量项，分类与失败指导同源
 	assert.equal(selection.criteria[selected.key], selected.instructions);
 	assert.ok(buildDelegationGuide(candidates).includes(`| ${selected.model} | 可用 |`));
 	assert.equal(buildDelegationGuide(candidates).includes("| tsgw/MiniMax-M3:high |"), false);
+});
+
+test("候选：K3.1 普通版进入分类与失败指导，仍保留固定审阅边界", async () => {
+	const { kimiModels } = await import("../models/vendors/kimi.ts");
+	const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai");
+	const models = frozen([
+		...kimiModels("https://models.example.test").map(model => ({ ...chatModel(model.id), ...model })),
+		chatModel("k3.1-pro"), chatModel("kimi-k3.1-pro-highspeed"),
+	]);
+	const candidates = buildDelegationCandidates(models, getSupportedThinkingLevels);
+	assert.deepEqual(candidates.map(entry => [entry.id, entry.level]), [["kimi-k3.1-pro", "high"]]);
+	const selected = candidates[0];
+	assert.equal(selected.model, "tsgw/kimi-k3.1-pro:high");
+	const context = buildDelegationContext({ prompt: "独立核对局部改动", subagent_type: "explore" }, candidates);
+	const selection = context.questions.selection;
+	assert.equal(selection.type, "choice");
+	if (selection.type !== "choice") return assert.fail("selection 必须是 choice");
+	assert.equal(selection.criteria[selected.key], selected.instructions);
+	assert.equal(resolveDelegationChoice(answers(choice("inspect"), choice(selected.key)), candidates), selected);
+	for (const kind of ["design_review", "dual_review"]) {
+		assert.equal(resolveDelegationChoice(answers(choice(kind), choice(selected.key)), candidates), undefined);
+	}
+	assert.ok(buildDelegationGuide(candidates).includes(`| ${selected.model} | 可用 |`));
+	assert.ok(buildDelegationGuide([]).includes(`| ${selected.model} | 不可用 |`));
+	assert.equal(buildDelegationGuide(candidates).includes("tsgw/kimi-k3:"), false, "新版本接替旧版指导");
+	assert.deepEqual(buildDelegationCandidates(models, () => ["low"]), [], "缺少 high 时不补入其他档位");
+	assert.deepEqual(buildDelegationCandidates([], getSupportedThinkingLevels), [], "不绕过宿主可用目录");
 });
 
 test("候选：其他供应商、非文本、非聊天与不支持档位不会补入", () => {

@@ -14,7 +14,7 @@ import {
 type CapturedClassifierRequest = { body: AnyRecord; headers: Headers };
 
 const CLASSIFIER_IDS = ["jev-latest", "jev-preview"] as const;
-const BASE_CATALOG = ["gpt-6-sol", "jev-latest", "jev-preview", "deepseek-flash", "gpt-6-astra"];
+const BASE_CATALOG = ["gpt-6-sol", "jev-latest", "jev-preview", "deepseek-flash", "gpt-6-astra", "kimi-k3.1-pro"];
 const FIXTURE_TOOLS = ["Agent", "probe_nested", "get_subagent_result", "steer_subagent"];
 
 function sourceEntry(): string {
@@ -56,6 +56,7 @@ test("Pi 1.2 delegation：真实宿主分类选型、阻止与结果增强", { t
 		let callSequence = 0;
 		let classificationMode: "select" | "error" | "invalid" | "remove-during" | "hang" = "select";
 		let expectedKey = "";
+		let expectedKind = "implement";
 		let started: ReturnType<typeof makeGate> | undefined;
 		const queueTool = (name: string, args: AnyRecord) => {
 			const id = ++callSequence;
@@ -88,8 +89,8 @@ test("Pi 1.2 delegation：真实宿主分类选型、阻止与结果增强", { t
 				const selectionKey = classificationMode === "invalid" ? "option_not_a_candidate" : expectedKey;
 				const answers = {
 					kind: {
-						type: "choice", choice: "implement",
-						probabilities: { implement: 0.9, inspect: 0.1 }, confidence: 0.9,
+						type: "choice", choice: expectedKind,
+						probabilities: { [expectedKind]: 0.9 }, confidence: 0.9,
 					},
 					selection: {
 						type: "choice", choice: selectionKey,
@@ -210,6 +211,32 @@ test("Pi 1.2 delegation：真实宿主分类选型、阻止与结果增强", { t
 			assert.ok(Math.abs(usage.cost.total - (0.003 + classifierInputCost)) < 1e-12);
 		});
 
+		await t.test("新 Kimi 候选经真实宿主分类后补入原 Agent 调用", async () => {
+			const kimiHigh = candidates.find(candidate => candidate.id === "kimi-k3.1-pro" && candidate.level === "high");
+			assert.ok(kimiHigh);
+			const classifiersBefore = classifierRequests.length;
+			const callsBefore = fixture.agentCalls.length;
+			expectedKey = kimiHigh.key;
+			expectedKind = "inspect";
+			try {
+				queueTool("Agent", { subagent_type: "explore", prompt: "独立核对局部改动", description: "K3.1 局部核对", run_in_background: true });
+				await session!.prompt("交给选择器安排局部核对");
+				assert.equal(classifierRequests.length, classifiersBefore + 1);
+				assert.equal(fixture.agentCalls.length, callsBefore + 1);
+				const call = fixture.agentCalls.at(-1)!;
+				assert.equal(call.params.model, "tsgw/kimi-k3.1-pro:high");
+				assert.equal(call.params.subagent_type, "explore");
+				assert.equal(call.params.prompt, "独立核对局部改动");
+				const result = lastAgentResult(session!);
+				assert.equal(result?.isError, false);
+				const decision = (result!.details as AnyRecord).tsgwDelegation as AnyRecord;
+				assert.equal(decision.kind, "inspect");
+			} finally {
+				expectedKey = deepseekHigh.key;
+				expectedKind = "implement";
+			}
+		});
+
 		await t.test("显式模型、resume、结果查询、steer 与非 Agent 均不分类", async () => {
 			const classifiersBefore = classifierRequests.length;
 			const callsBefore = fixture.agentCalls.length;
@@ -267,6 +294,8 @@ test("Pi 1.2 delegation：真实宿主分类选型、阻止与结果增强", { t
 			assert.equal(decision.failureKind, "http");
 			assert.ok(typeof decision.selectionGuide === "string" && decision.selectionGuide.length > 0);
 			assert.ok(decision.selectionGuide.includes(deepseekHigh.model));
+			assert.ok(decision.selectionGuide.includes("| tsgw/kimi-k3.1-pro:high | 可用 |"), "分类失败也必须提供新 Kimi 指导");
+			assert.equal(decision.selectionGuide.includes("tsgw/kimi-k3:"), false, "失败指导不再推荐旧 K3");
 			assert.equal(resultText(result).split(decision.selectionGuide).length - 1, 1, "宿主阻止结果仅保留一份选型表");
 			assert.doesNotMatch(resultText(result), /synthetic classifier failure/);
 			classificationMode = "select";

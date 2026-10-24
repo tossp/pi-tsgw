@@ -76,7 +76,6 @@ function testModelCapabilities(): void {
 		["glm-5.3-flash", ["text", "image"]],
 		["glm-5.3-flashx", ["text", "image"]],
 		["MiniMax-M3.1-Flash", ["text", "image"]],
-		["MiniMax-M3.1-Flash-Preview", ["text", "image"]],
 	] as const) {
 		const model = models.find((model) => model.id === id)!;
 		equal(model.api, "openai-completions");
@@ -85,9 +84,6 @@ function testModelCapabilities(): void {
 		deepStrictEqual(model.input, input);
 		if (id === "MiniMax-M3.1-Flash") {
 			deepStrictEqual(model.cost, { input: 0.1475, output: 0.59, cacheRead: 0.01475, cacheWrite: 0 });
-		}
-		if (id === "MiniMax-M3.1-Flash-Preview") {
-			deepStrictEqual(model.cost, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, "未公布价格使用未知零值");
 		}
 		equal(model.contextWindow, 1000000);
 		equal(model.maxTokens, id.startsWith("MiniMax-") ? 524288 : 131072);
@@ -149,9 +145,20 @@ function testModelCapabilities(): void {
 	const { id: _shortId, name: _shortName, ...shortCapabilities } = k3Short;
 	deepStrictEqual(shortCapabilities, { ...k3Capabilities, contextWindow: 262144 });
 	equal(k3Short.maxTokens, 131072);
+	const k31 = models.find(({ id }) => id === "kimi-k3.1-pro")!;
+	equal(k31.api, "openai-completions");
+	equal(k31.baseUrl, `${ROOT}/v1`);
+	deepStrictEqual(k31.input, ["text", "image"]);
+	equal(k31.reasoning, true);
+	equal(k31.contextWindow, 1048576);
+	equal(k31.maxTokens, 1048576);
+	deepStrictEqual(k31.cost, { input: 1.9175, output: 10.03, cacheRead: 0.19175, cacheWrite: 1.9175 });
+	deepStrictEqual(k31.thinkingLevelMap, {
+		off: null, minimal: "low", low: "low", medium: "high", high: "high", xhigh: "high", max: "max",
+	});
 	const removed = [
 		"deepseek-v4-flash", "glm-5.1", "glm-5", "glm-5-turbo", "glm-4.7", "glm-4.6", "glm-4.5",
-		"MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1", "kimi-for-coding", "kimi-k2.7-code",
+		"MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1", "MiniMax-M3.1-Flash-Preview", "kimi-for-coding", "kimi-k2.7-code",
 		"kimi-k2.7-code-highspeed", "kimi-k2.6", "kimi-k2.5", "gpt-5.6-sol", "gpt-5.6-terra",
 		"gpt-5.6-luna", "gpt-5.5", "gemini-3.1-pro-low", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
 		"qwen3.7-max", "qwen3.6-plus", "qwen3.5-plus", "claude-fable-5", "grok-4.20", "grok-4.20-fast",
@@ -243,6 +250,17 @@ function testEffectiveCatalog(): void {
 	const filter = Object.freeze({ exclude: Object.freeze(["*"]), include: Object.freeze(["*"]) });
 	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, undefined, true, true), [], "没有网关目录不能回退静态目录");
 	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, new Set(), true, true), [], "include 不能突破空网关交集");
+	const kimiId = "kimi-k3.1-pro";
+	const unselectedKimiIds = ["k3.1-pro", "k3.1-pro-highspeed", "kimi-k3.1-pro-highspeed"];
+	const kimiGateway = new Set([kimiId, ...unselectedKimiIds]);
+	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, kimiGateway, false, false).map(model => model.id),
+		[kimiId], "K3.1 只登记带 Kimi 前缀的普通版，不自动登记其他渠道或高速版");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, new Set(unselectedKimiIds), false, false),
+		[], "无前缀或高速版 ID 不代替用户选定的普通版");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["kimi-*"] }, kimiGateway, false, false),
+		[], "新增 Kimi 不绕过用户过滤");
+	deepStrictEqual(modelsForRoot(ROOT, { exclude: ["*"], include: unselectedKimiIds }), [],
+		"include 不增加未登记的 K3.1 渠道或高速版");
 	const minimaxId = "MiniMax-M3.1-Flash";
 	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["MINIMAX-*"], include: ["minimax-m3.1*"] },
 		new Set([minimaxId, "MiniMax-M3"]), false, false).map(model => model.id),
@@ -253,6 +271,13 @@ function testEffectiveCatalog(): void {
 		[], "正式版仍区分大小写");
 	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["MiniMax-*"] }, new Set([minimaxId]), false, false),
 		[], "登记不绕过用户排除配置");
+	// 预览版已退役：网关目录重新出现也不得恢复登记，include 也不能拉回。
+	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined,
+		new Set(["MiniMax-M3.1-Flash-Preview", minimaxId]), false, false).map(model => model.id),
+		[minimaxId], "已退役的 Preview 不被网关条目恢复");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["*"], include: ["MiniMax-M3.1-Flash-Preview"] },
+		new Set(["MiniMax-M3.1-Flash-Preview", minimaxId]), false, false),
+		[], "已退役的 Preview 不能被 include 恢复");
 	const selected = [chats[0].id, images[0].id, classifiers[0].id];
 	const prefixed = new Set(selected.map(id => `vendor/${id}`));
 	prefixed.add("vendor/not-registered");
