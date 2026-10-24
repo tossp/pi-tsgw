@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { StringEnum } from "@earendil-works/pi-ai";
 import { normalizeImageParameters, type ImageOperation } from "#tsgw/models/adapter/images/parameters";
 
 export const DEFAULT_IMAGE_MODEL = "gpt-image-2.5-sunburst";
@@ -13,16 +14,17 @@ export const imageSourceSchema = Type.Union([
 	Type.Object({ file_id: Type.String({ minLength: 1, description: "上游已有图片的文件 ID。" }) }, { additionalProperties: false }),
 ], { description: "恰好一个来源：path、image_url 或 file_id；不可混用。" });
 
+// Type.Enum 仅输出 enum；Moonshot 拒绝联合分支中缺 type 的枚举，使用宿主显式 string 表达。
 const common = {
 	prompt: Type.String({ minLength: 1, maxLength: 32_000, description: "图片生成或编辑要求，最多32000字符。" }),
-	model: Type.Optional(Type.Enum(IMAGE_MODELS, { description: "默认 gpt-image-2.5-sunburst，适合成稿；AI 草稿任务可选 gpt-image-2.5-flare，常配 quality=low。" })),
-	quality: optional(Type.Enum(["auto", "low", "medium", "high", "xhigh", "max"], { description: "质量，默认 auto；选择 Flare 不会自动改为 low。" })),
+	model: Type.Optional(StringEnum(IMAGE_MODELS, { description: "默认 gpt-image-2.5-sunburst，适合成稿；AI 草稿任务可选 gpt-image-2.5-flare，常配 quality=low。" })),
+	quality: optional(StringEnum(["auto", "low", "medium", "high", "xhigh", "max"], { description: "质量，默认 auto；选择 Flare 不会自动改为 low。" })),
 	size: optional(Type.String({ description: "默认 auto；也可宽x高，均为16倍数、边≤3840、宽高比≤3、像素655360..8294400。" })),
-	background: optional(Type.Enum(["auto", "opaque", "transparent"], { description: "背景，默认 auto。透明背景需 PNG/WebP。" })),
-	output_format: optional(Type.Enum(["png", "jpeg", "webp"], { description: "输出格式，默认 png；原始字节不转码。" })),
+	background: optional(StringEnum(["auto", "opaque", "transparent"], { description: "背景，默认 auto。透明背景需 PNG/WebP。" })),
+	output_format: optional(StringEnum(["png", "jpeg", "webp"], { description: "输出格式，默认 png；原始字节不转码。" })),
 	output_compression: optional(Type.Integer({ minimum: 0, maximum: 100, description: "仅用于 JPEG/WebP 的压缩质量；省略采用上游默认100。" })),
 	n: optional(Type.Integer({ minimum: 1, maximum: 10, description: "返回图片数量；默认1，最多10。" })),
-	moderation: optional(Type.Enum(["auto", "low"], { description: "审核强度，默认 auto。" })),
+	moderation: optional(StringEnum(["auto", "low"], { description: "审核强度，默认 auto。" })),
 	stream: optional(Type.Boolean({ description: "默认 false；支持解析流式响应，不承诺界面渐进预览。" })),
 	partial_images: optional(Type.Integer({ minimum: 0, maximum: 3, description: "仅 stream=true 时使用；默认0。最终仅返回完成图。" })),
 	safety_identifier: optional(Type.String({ maxLength: 128, description: "可选安全标识，最长128字符。" })),

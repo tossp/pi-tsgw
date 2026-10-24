@@ -11,6 +11,8 @@ import { registerImageTools, type ImageToolDetails } from "./tools.ts";
 import { DEFAULT_IMAGE_MODEL, editImageSchema, generateImageSchema, imageToolResultSchema } from "./tool-schema.ts";
 import { OPENAI_IMAGE_API as IMAGE_API, openaiImageModels as imageModelsForRoot } from "#tsgw/models/vendors/openai";
 import { Compile } from "typebox/compile";
+import { HostSandbox, TEST_KEY, TEST_ROOT } from "#tsgw/host-test-support.test";
+import { kimiModels } from "#tsgw/models/vendors/kimi";
 
 type Tool = Parameters<ExtensionAPI["registerTool"]>[0];
 type Registry = ExtensionToolContext["modelRegistry"];
@@ -76,6 +78,67 @@ test("工具 direct 默认启用；普通生成仅 prompt 必填，编辑要求 
 	// @ts-expect-error schema静态类型必须拒绝未知型号，而非never或任意string。
 	const invalidModel: Static<typeof generateImageSchema>["model"] = "other";
 	assert.equal(generation.Check({ prompt: "test", model: invalidModel }), false);
+});
+
+test("工具字符串枚举显式声明类型，联合空值分支保持有效", () => {
+	function checkEnums(value: unknown): void {
+		if (value === null || typeof value !== "object") return;
+		if (Array.isArray(value)) {
+			for (const item of value) checkEnums(item);
+			return;
+		}
+		const node = value as Record<string, unknown>;
+		if (Array.isArray(node.enum)) {
+			assert.equal(node.type, "string", "Moonshot 拒绝联合分支中的无类型枚举");
+			assert.ok(node.enum.every(item => typeof item === "string"));
+		}
+		for (const child of Object.values(node)) checkEnums(child);
+	}
+	for (const schema of [generateImageSchema, editImageSchema]) {
+		checkEnums(schema);
+		const validator = Compile(schema);
+		const base = schema === editImageSchema ? { prompt: "test", images: [{ path: "input.png" }] } : { prompt: "test" };
+		for (const key of ["quality", "background", "output_format", "moderation"] as const) {
+			assert.equal(validator.Check({ ...base, [key]: null }), true);
+			for (const value of ["invalid", 1, false, {}])
+				assert.equal(validator.Check({ ...base, [key]: value }), false);
+		}
+		assert.equal(validator.Check({ ...base, model: null }), false);
+	}
+});
+
+test("Pi Kimi 适配器发送图片工具时保留显式类型、联合空值和完整参数", async () => {
+	const sandbox = new HostSandbox();
+	try {
+		const { normalizeContext } = await import("@earendil-works/pi-ai");
+		const { streamSimple } = await import("@earendil-works/pi-ai/api/openai-completions");
+		const tools = fixture().tools;
+		let requests = 0;
+		globalThis.fetch = async (input, init) => {
+			const request = new Request(input, init);
+			assert.equal(request.url, `${TEST_ROOT}/v1/chat/completions`);
+			assert.equal(request.headers.get("authorization"), `Bearer ${TEST_KEY}`);
+			const body = await request.json() as { model: string; tools: { function: { name: string; parameters: unknown } }[] };
+			assert.equal(body.model, "kimi-k3.1-pro");
+			assert.equal(body.tools.length, 2);
+			for (const tool of tools) {
+				const sent = body.tools.find(item => item.function.name === tool.name);
+				assert.ok(sent);
+				assert.deepEqual(sent.function.parameters, JSON.parse(JSON.stringify(tool.parameters)));
+			}
+			requests++;
+			const chunk = { id: "synthetic", choices: [{ index: 0, delta: { content: "fixture" }, finish_reason: "stop" }] };
+			return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
+		};
+		const spec = kimiModels(TEST_ROOT).find(model => model.id === "kimi-k3.1-pro");
+		assert.ok(spec?.baseUrl);
+		const model = { ...spec, baseUrl: spec.baseUrl, provider: "tsgw", api: "openai-completions" as const };
+		const result = await streamSimple(model, normalizeContext({ tools,
+			messages: [{ role: "user", content: "合成工具 schema 验证", timestamp: 0 }] }), { apiKey: TEST_KEY }).result();
+		assert.equal(result.stopReason, "stop", result.errorMessage ?? "合成请求未正常结束");
+		assert.equal(requests, 1);
+		assert.deepEqual(sandbox.blocked, []);
+	} finally { sandbox.restore(); }
 });
 
 test("默认Sunburst与auto通过context.tsgw；600000超时、实际图片块和原始usage/文件", async (t) => {
