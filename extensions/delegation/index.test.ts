@@ -188,14 +188,16 @@ async function harness(tools: unknown[] = [agentTool()]): Promise<TestPi> {
 }
 
 test("delegation 生命周期、竞态与用量", async t => {
-	await t.test("非 Agent、显式 model/resume、嵌套调用与不兼容 Agent 完全不访问 registry", async () => {
+	await t.test("非 Agent、显式 model/resume 与不兼容 Agent 完全不访问 registry", async () => {
 		const registry = new Registry();
 		const pi = await harness();
 		const skipped = [
 			callEvent("skip-read", { prompt: "读取" }, { toolName: "read" }),
 			callEvent("skip-model", { prompt: "任务", model: "tsgw/gpt-6-astra:max" }),
 			callEvent("skip-resume", { prompt: "任务", resume: "session-old" }),
-			callEvent("skip-parent", { prompt: "任务" }, { parentToolCallId: "parent-call" }),
+			callEvent("skip-resume-model", { prompt: "追加", resume: "session-old", model: "tsgw/gpt-6-astra:max" }),
+			callEvent("skip-query", { agent_id: "session-old" }, { toolName: "get_subagent_result" }),
+			callEvent("skip-steer", { agent_id: "session-old", message: "追加" }, { toolName: "steer_subagent" }),
 		];
 		for (const event of skipped) {
 			const before = structuredClone(event.input);
@@ -204,7 +206,6 @@ test("delegation 生命周期、竞态与用量", async t => {
 		}
 		const incompatible: unknown[][] = [
 			[],
-			[agentTool({ exposure: "direct" })],
 			[agentTool({ parameters: { type: "object", properties: {
 				prompt: { type: "string" }, model: { type: "string" },
 			} } })],
@@ -222,16 +223,16 @@ test("delegation 生命周期、竞态与用量", async t => {
 		assert.deepEqual([registry.chatCalls, registry.classifierCalls, registry.classifyCalls], [0, 0, 0]);
 	});
 
-	await t.test("同 toolCallId 并发等待只分类一次，独立创建各自取消", async () => {
+	await t.test("新建选型不依赖暴露方式或嵌套入口，同调用去重且独立创建各自取消", async () => {
 		const models = catalog();
 		const selected = pick(models, "deepseek-flash", "high");
 		const registry = new Registry();
 		registry.chat = models;
 		const gate = deferred<ClassifierResult>();
 		registry.classifyImpl = () => gate.promise;
-		const pi = await harness();
-		const first = callEvent("same-id", { prompt: "同一调用" });
-		const second = callEvent("same-id", { prompt: "同一调用" });
+		const pi = await harness([agentTool({ exposure: "direct" })]);
+		const first = callEvent("same-id", { prompt: "同一调用" }, { parentToolCallId: "parent-call" });
+		const second = callEvent("same-id", { prompt: "同一调用" }, { parentToolCallId: "parent-call" });
 		const waiting = [
 			pi.emit("tool_call", first, context(registry)) as Promise<ToolCallEventResult | undefined>,
 			pi.emit("tool_call", second, context(registry)) as Promise<ToolCallEventResult | undefined>,
@@ -242,12 +243,17 @@ test("delegation 生命周期、竞态与用量", async t => {
 		assert.deepEqual(await Promise.all(waiting), [undefined, undefined]);
 		assert.equal((first.input as AnyRecord).model, selected.model);
 		assert.equal((second.input as AnyRecord).model, selected.model);
+		await pi.emit("tool_result", resultEvent("same-id"));
+		const resume = callEvent("resume-id", { prompt: "追加任务", resume: "child-session-42" });
+		assert.equal(await pi.emit("tool_call", resume, context(registry)), undefined);
+		assert.equal((resume.input as AnyRecord).model, undefined);
+		assert.equal(registry.classifyCalls, 1);
 		const concurrent = new Registry();
 		concurrent.chat = models;
 		const gates = [deferred<ClassifierResult>(), deferred<ClassifierResult>()];
 		let next = 0;
 		concurrent.classifyImpl = () => gates[next++].promise;
-		const concurrentPi = await harness();
+		const concurrentPi = await harness([agentTool({ exposure: undefined })]);
 		const controllerA = new AbortController();
 		const controllerB = new AbortController();
 		const eventA = callEvent("parallel-a", { prompt: "并发 A" });

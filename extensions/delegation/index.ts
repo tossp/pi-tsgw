@@ -41,10 +41,10 @@ function failureText(decision: Decision): string {
 		(decision.selectionGuide ? `\n\n${decision.selectionGuide}` : "");
 }
 
-/** 保持原工具的执行与 UI 契约，不把其他同名但不同参数的工具当作 Pi Web Agent。 */
+/** 按参数契约识别兼容 Agent，不把宿主的工具暴露方式作为选型前提。 */
 function hasAgent(pi: ExtensionAPI): boolean {
 	const tool = (pi.getAllTools?.() ?? []).find(entry => entry.name === "Agent");
-	if (!tool || tool.exposure !== "model-only" || !isPlainObject(tool.parameters)) return false;
+	if (!tool || !isPlainObject(tool.parameters)) return false;
 	const properties = tool.parameters.properties;
 	return isPlainObject(properties) && ["prompt", "model", "resume"].every(name =>
 		isPlainObject(properties[name]) && properties[name].type === "string");
@@ -189,7 +189,7 @@ export function registerDelegation(pi: ExtensionAPI): void {
 	}
 
 	pi.on("tool_call", async (event, ctx): Promise<ToolCallEventResult | undefined> => {
-		if (event.toolName !== "Agent" || event.parentToolCallId || supplied(event.input.resume) || supplied(event.input.model)) return;
+		if (event.toolName !== "Agent" || supplied(event.input.resume) || supplied(event.input.model)) return;
 		if (!active || !hasAgent(pi)) return;
 		const caller = ctx.signal;
 		let attempt = attempts.get(event.toolCallId);

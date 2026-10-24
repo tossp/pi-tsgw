@@ -2,7 +2,7 @@
 name: tsgw-delegate-model-selection
 description: 鼓励将适合的任务派给独立后台子代理。直接调用 Agent 并提供完整任务，TSGW 仅在新建且未指定模型时自动分类选型；不需要阅读选型表或编写分类脚本。
 license: MIT
-compatibility: 自动选型需要 Pi 1.2+、兼容的 model-only Agent 工具，以及可用的 tsgw 分类和聊天模型。
+compatibility: 自动选型需要 Pi 1.2+、参数兼容的 Agent 工具，以及可用的 tsgw 分类和聊天模型。
 ---
 
 # 子代理派遣
@@ -11,10 +11,11 @@ compatibility: 自动选型需要 Pi 1.2+、兼容的 model-only Agent 工具，
 
 ## 调用
 
+- 当前 PiWeb 将 `Agent`、`get_subagent_result`、`steer_subagent` 注册为 `model-only`，三者只能由主模型直接调用，不得放入 codemode 或其他工具包装器；`tools.get_subagent_result(...)` 等写法无效。出现工具不存在错误时，不猜名称、不重复搜索或重试嵌套调用。独立派遣可在同一回复中发起多个直接 `Agent` 调用。
 - 新建子代理：直接调用宿主 `Agent`，填写 `prompt`、`description`、适合的 `subagent_type` 和执行选项。没有明确模型要求时省略 `model`；插件在创建前完成一次分类选型并补入模型和思考档位，原 `Agent` 随即执行。
 - 独立任务优先 `run_in_background: true`；前置依赖未完成或存在并发修改冲突时不要假装独立。不要重复派遣已在执行的任务。
 - 用户指定模型、项目固定模型或审阅组合时，直接显式传入 `model`（`provider/modelId:level`），跳过分类。正式架构/设计文档独立审阅默认 `tsgw/gpt-6-astra:max`；固定双模型审阅分别使用 `tsgw/kimi-k3.1-pro:high` 与 `tsgw/gpt-6-astra:max`，不能把一份双审任务交给一次自动选择。
-- 续接已有会话时传 `resume`，不传新模型；查询结果、补充指令及子代理后续轮次不触发分类，也不运行中换模型。
+- 自动选型只适用于创建子代理且未指定 `model`；续接已有会话时传 `resume`，不传新模型，即使续接调用没有 `model` 也不再选型。直接调用 `get_subagent_result` 查询结果、`steer_subagent` 补充指令及子代理后续轮次均不触发分类，也不运行中换模型。
 - 分类失败、结果未决或选定模型失效时，本次自动创建被阻止。工具返回具体失败类型和同源选型建议表；发起调用的主代理按指导自行选择当前可用模型，显式指定 `Agent.model` 后重新派遣，不重试分类器或自动更换分类模型。建议表标明最近核验的可用性，未核验时先查询当前目录与会话范围；用户指定和固定审阅要求优先。
 - 选型上限为 15 秒；超时只阻止本次自动创建，不暂停后续独立调用的自动选型。调用取消或会话结束不视为超时，不自动重新派遣。
 
