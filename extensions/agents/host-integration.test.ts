@@ -57,6 +57,10 @@ test("Pi SDK：/insagent 覆盖定义后清理旧文件并自动重载，不在�
 		assert.notEqual(session.extensionRunner, initialRunner);
 		assert.deepEqual(lifecycle.slice(1), ["shutdown:reload", "start:reload"]);
 		assert.equal(existsSync(join(sandbox.cwd, ".pi", "agents")), false, "路径只能来自宿主 agent-dir");
+		const builtinSettings = join(directory, "settings.json");
+		assert.deepEqual(JSON.parse(readFileSync(builtinSettings, "utf8")), {
+			version: 1, builtInEnabled: true, disabledBuiltIns: ["general-purpose", "explore", "plan"],
+		});
 		const profiles = standardAgentProfiles();
 		assert.deepEqual(profiles.map(profile => profile.name), [...STANDARD_AGENT_NAMES]);
 		assert.equal(new Set(profiles.map(profile => profile.name)).size, profiles.length);
@@ -82,17 +86,19 @@ test("Pi SDK：/insagent 覆盖定义后清理旧文件并自动重载，不在�
 
 		const stale = join(directory, "tsgw-retired-fixture.md");
 		const personal = join(directory, "personal.md");
-		const builtinSettings = join(directory, "settings.json");
 		writeFileSync(stale, "已退出清单");
 		writeFileSync(personal, "用户自定义代理");
-		writeFileSync(builtinSettings, '{"builtInEnabled":false}');
+		writeFileSync(builtinSettings, JSON.stringify({ builtInEnabled: false, maxConcurrent: 7, futureSetting: "保留" }));
 		writeFileSync(join(directory, `${profiles[0]!.name}.md`), "同名内容直接覆盖");
 		const previousRunner = session.extensionRunner;
 		await session.prompt("/insagent");
 		assert.notEqual(session.extensionRunner, previousRunner);
 		assert.equal(existsSync(stale), false);
 		assert.equal(readFileSync(personal, "utf8"), "用户自定义代理");
-		assert.equal(readFileSync(builtinSettings, "utf8"), '{"builtInEnabled":false}');
+		assert.deepEqual(JSON.parse(readFileSync(builtinSettings, "utf8")), {
+			version: 1, builtInEnabled: true, maxConcurrent: 7, futureSetting: "保留",
+			disabledBuiltIns: ["general-purpose", "explore", "plan"],
+		});
 		assert.equal(readFileSync(join(directory, `${profiles[0]!.name}.md`), "utf8"), profiles[0]!.content);
 
 		// 写入中途出错不清理旧文件、不重载；前面已写入的部分明确保留。
@@ -104,6 +110,12 @@ test("Pi SDK：/insagent 覆盖定义后清理旧文件并自动重载，不在�
 		await session.prompt("/insagent");
 		assert.equal(session.extensionRunner, beforeFailure);
 		assert.equal(readFileSync(stale, "utf8"), "失败时保留旧代理");
+		// 宿主设置损坏同样阻止重载，不覆盖原设置。
+		rmSync(blocked, { recursive: true });
+		writeFileSync(builtinSettings, "{");
+		await session.prompt("/insagent");
+		assert.equal(session.extensionRunner, beforeFailure);
+		assert.equal(readFileSync(builtinSettings, "utf8"), "{");
 		const filesBeforeReload = readdirSync(directory).sort();
 		await session.reload();
 		assert.deepEqual(readdirSync(directory).sort(), filesBeforeReload, "普通重载不重新安装或清理文件");
