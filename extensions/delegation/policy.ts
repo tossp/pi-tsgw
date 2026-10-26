@@ -46,7 +46,7 @@ const SELECTION_TABLE: readonly SelectionRow[] = [
 	{
 		id: "MiniMax-M3.1-Flash", level: "high",
 		suitability: "轻量执行，只适合步骤明确的小任务",
-		speed: "轻量任务优先，high 对应 reasoning_effort=high",
+		speed: "轻量任务优先，high 对应 output_config.effort=high",
 		// 参考价沿用 vendors/minimax.ts 的国内正式版登记，不代表网关实扣。
 		inputPrice: "0.1475", outputPrice: "0.59",
 		note: "不承担复杂或长程执行。",

@@ -78,8 +78,9 @@ function testModelCapabilities(): void {
 		["MiniMax-M3.1-Flash", ["text", "image"]],
 	] as const) {
 		const model = models.find((model) => model.id === id)!;
-		equal(model.api, "openai-completions");
-		equal(model.baseUrl, `${ROOT}/v1`);
+		const minimax = id === "MiniMax-M3.1-Flash";
+		equal(model.api, minimax ? "anthropic-messages" : "openai-completions");
+		equal(model.baseUrl, `${ROOT}/${minimax ? "anthropic" : "v1"}`);
 		equal(model.reasoning, true);
 		deepStrictEqual(model.input, input);
 		if (id === "MiniMax-M3.1-Flash") {
@@ -87,7 +88,7 @@ function testModelCapabilities(): void {
 		}
 		equal(model.contextWindow, 1000000);
 		equal(model.maxTokens, id.startsWith("MiniMax-") ? 524288 : 131072);
-		deepStrictEqual(model.compat, { supportsDeveloperRole: false });
+		deepStrictEqual(model.compat, minimax ? { forceAdaptiveThinking: true, allowEmptySignature: true } : { supportsDeveloperRole: false });
 		deepStrictEqual(model.thinkingLevelMap, id.startsWith("MiniMax-")
 			? { off: null, minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" } : glm53Map);
 	}

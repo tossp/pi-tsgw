@@ -16,7 +16,7 @@ export const OPENAI_COMPLETIONS_COMPAT: ProviderModelConfig["compat"] = {
 	supportsDeveloperRole: false,
 };
 
-/** anthropic-messages：Claude 系列使用 Pi 原生自适应思考。 */
+/** anthropic-messages：支持自适应思考的模型复用 Pi 原生适配。 */
 export const ANTHROPIC_COMPAT: ProviderModelConfig["compat"] = {
 	forceAdaptiveThinking: true,
 };

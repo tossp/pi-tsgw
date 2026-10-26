@@ -18,11 +18,11 @@ function freeze(value: unknown): void {
 		Object.freeze(value);
 	}
 }
-function apply(strategies: Record<string, ThinkingApplier>, id: string, level: ThinkingLevel, payload: Payload): Payload {
+function apply(strategies: Record<string, ThinkingApplier>, id: string, level: ThinkingLevel, payload: Payload, api = "openai-completions"): Payload {
 	const before = structuredClone(payload);
 	freeze(payload);
 	const writer = new PayloadWriter(payload);
-	strategies[id](writer, { provider: "tsgw", modelId: id, api: "openai-completions", thinkingLevel: level, tsSearchMode: "live" });
+	strategies[id](writer, { provider: "tsgw", modelId: id, api, thinkingLevel: level, tsSearchMode: "live" });
 	const result = writer.result();
 	deepStrictEqual(payload, before, `${id}/${level}：输入被修改`);
 	strictEqual(result.messages, payload.messages);
@@ -134,22 +134,24 @@ coverage([...minimax31Ids, ...minimaxIds], minimaxThinking, minimaxModels(root))
 equal(Object.hasOwn(minimaxThinking, "MiniMax-M3.1-Flash-Preview"), false);
 for (const id of minimax31Ids) {
 	for (const level of levels) {
-		const result = apply(minimaxThinking, id, level, { ...base(), reasoning_split: false, thinking: { type: "disabled", retained: true } });
+		const result = apply(minimaxThinking, id, level, { ...base(), reasoning_split: false, thinking: { type: "disabled", retained: true } }, "anthropic-messages");
 		deepStrictEqual(result.thinking, { type: "adaptive", retained: true });
-		equal(result.reasoning_effort, ["off", "minimal"].includes(level) ? "low" : level);
-		equal(result.reasoning_split, true);
-		strictEqual(apply(minimaxThinking, id, level, result), result);
+		deepStrictEqual(result.output_config, { effort: ["off", "minimal"].includes(level) ? "low" : level });
+		equal(Object.hasOwn(result, "reasoning_effort"), false);
+		equal(Object.hasOwn(result, "reasoning_split"), false);
+		strictEqual(apply(minimaxThinking, id, level, result, "anthropic-messages"), result);
 	}
 	for (const staleEffort of [undefined, "none", "max"]) {
-		const result = apply(minimaxThinking, id, "off", { ...base(), reasoning_effort: staleEffort });
-		equal(result.reasoning_effort, "low");
+		const result = apply(minimaxThinking, id, "off", { ...base(), reasoning_effort: staleEffort }, "anthropic-messages");
+		deepStrictEqual(result.output_config, { effort: "low" });
+		equal(Object.hasOwn(result, "reasoning_effort"), false);
 	}
 }
 for (const id of minimaxIds) {
 	for (const level of levels) {
-		const result = apply(minimaxThinking, id, level, { ...base(), thinking: { retained: true }, reasoning_split: false });
+		const result = apply(minimaxThinking, id, level, { ...base(), thinking: { retained: true }, reasoning_split: false }, "anthropic-messages");
 		deepStrictEqual(result.thinking, { retained: true, type: id === "MiniMax-M3" && level === "off" ? "disabled" : "adaptive" }, `${id}/${level}`);
-		equal(result.reasoning_split, true);
+		equal(Object.hasOwn(result, "reasoning_split"), false);
 		equal(Object.hasOwn(result, "reasoning_effort"), false);
 	}
 }

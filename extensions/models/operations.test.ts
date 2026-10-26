@@ -59,19 +59,18 @@ function completionBase(): Payload {
 }
 
 function testCompletionProfiles(): void {
-	for (const modelId of ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx", "MiniMax-M3.1-Flash"]) {
+	for (const modelId of ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx"]) {
 		for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const) {
-			const minimax = modelId.startsWith("MiniMax-");
 			const input = { ...completionBase(), messages: [{ role: "user", content: "keep" }], tools: [{ type: "function", function: { name: "keep" } }], max_tokens: 42 };
 			const result = apply(input, modelId, "openai-completions", level);
 			const effort = ["off", "minimal", "low"].includes(level) ? "low"
-				: minimax ? level : level === "medium" || level === "high" ? "high" : "max";
+				: level === "medium" || level === "high" ? "high" : "max";
 			deepStrictEqual(result, {
 				...input,
 				reasoning_effort: effort,
-				...(minimax ? { reasoning_split: true } : { tool_stream: true }),
-				thinking: { type: minimax ? "adaptive" : "enabled", retained: true,
-					...(!minimax && ["high", "xhigh", "max"].includes(level) ? { clear_thinking: false } : {}) },
+				tool_stream: true,
+				thinking: { type: "enabled", retained: true,
+					...(["high", "xhigh", "max"].includes(level) ? { clear_thinking: false } : {}) },
 			});
 			strictEqual(result.messages, input.messages);
 			strictEqual(result.tools, input.tools);
@@ -131,23 +130,6 @@ function testCompletionProfiles(): void {
 				},
 			});
 		}
-	}
-
-	for (const level of levels) {
-		const result = apply(
-			completionBase(),
-			"MiniMax-M3",
-			"openai-completions",
-			level,
-		);
-		deepStrictEqual(result, {
-			stream: true,
-			reasoning_split: true,
-			thinking: {
-				type: level === "off" ? "disabled" : "adaptive",
-				retained: true,
-			},
-		});
 	}
 
 	for (const modelId of ["kimi-k3.1-pro", "kimi-k3", "kimi-k3-256k"]) {
