@@ -94,6 +94,17 @@ const SELECTION_TABLE: readonly SelectionRow[] = [
 		note: "低成本工程备选，按表列 max 档使用。",
 	},
 	{
+		// GPT 6.1 Terra：https://developers.openai.com/api/docs/models/gpt-6.1-terra
+		// 官方页 2026-10-27 核验：reasoning 支持 none/low/medium(默认)/high/xhigh/max；
+		// 标准档 ≤272K 输入 $1 / 输出 $5，>272K 输入缓存 x2、输出 x1.5。价格为官方标准档登记，
+		// 不代表网关实扣；官方规格与定位未经网关实测，不据此承诺延迟或长期工程能力。
+		id: "gpt-6.1-terra", level: "medium",
+		suitability: "视觉资料核对、界面操作与自然写作等快速定向任务，不承担复杂编程",
+		speed: "medium 思考档，参考成本低于同系列 Sol",
+		inputPrice: "1.00", outputPrice: "5.00",
+		note: "受实际工具与图片输入可用性限制，不替换 Luna/Sol/Astra，也不作为复杂编程默认。",
+	},
+	{
 		id: "gpt-6.1-sol", level: "medium",
 		suitability: "通用工程中的平衡档",
 		speed: "中等思考档",
@@ -229,6 +240,7 @@ const SELECTION_GUIDELINES = [
 	"复杂任务优先 gpt-6.1-sol/high，仅在确需更深推理时考虑 xhigh 或 max；GLM 5.3 / Flash 仍是工程候选。",
 	"正式架构方案或设计文档的独立审阅默认 gpt-6-astra/max；局部检查或定向复审可按范围降低 Astra 档位，高难、复杂或代码设计不等同 formal_review。",
 	"Kimi K3.1 Pro/high 可用于资料核对、局部检查与定向复核，不承担长程执行；不要仅凭新代际推断任务成功率。",
+	"gpt-6.1-terra/medium 仅作视觉资料核对、界面操作与自然写作等快速定向候选，受实际工具与图片输入可用性限制；不替换 Luna/Sol/Astra，也不作为复杂编程默认。",
 	"Kimi＋Astra 双审由调用方分别显式指定 tsgw/kimi-k3.1-pro:high 与 tsgw/gpt-6-astra:max，不能用一次自动选择代替两次独立复核。",
 ].join("");
 

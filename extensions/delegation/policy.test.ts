@@ -28,6 +28,7 @@ const TABLE: readonly (readonly [string, ModelThinkingLevel])[] = [
 	["glm-5.3", "max"],
 	["gpt-6-luna", "max"],
 	["glm-5.3-flash", "max"],
+	["gpt-6.1-terra", "medium"],
 	["gpt-6.1-sol", "medium"],
 	["deepseek-flash", "high"],
 	["deepseek-flash", "max"],

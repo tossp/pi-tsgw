@@ -11,6 +11,11 @@ import { type PayloadWriter, type ThinkingApplier } from "../_tools.ts";
  * GPT-6 Sol：https://developers.openai.com/api/docs/models/gpt-6-sol
  * GPT-6 Luna：https://developers.openai.com/api/docs/models/gpt-6-luna
  * 两款价格为标准档 ≤272K 输入费率（2026-09-23 核验）。
+ * GPT-6.1 Terra：https://developers.openai.com/api/docs/models/gpt-6.1-terra
+ * 2026-10-27 核验（记忆系统 1049）：工具调用要求 Responses；支持文本、图像输入。
+ * 标准档 ≤272K：输入 $1 / 缓存命中 $0.05 / 30 分钟缓存写入 $1.25 / 输出 $5。
+ * 12 小时缓存写入为 $2.50；>272K 时整次请求输入与缓存 ×2、输出 ×1.5。
+ * 此处沿用目录标准参考价，不代表网关实扣或长上下文／长缓存动态计费。
  */
 export function openaiModels(root: string): ProviderModelConfig[] {
 	const v1 = `${root}/v1`;
@@ -55,6 +60,27 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			input: ["text", "image"],
 			cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
 			contextWindow: 500000,
+			maxTokens: 128000,
+		},
+		{
+			id: "gpt-6.1-terra",
+			name: "GPT 6.1 Terra",
+			api: "openai-responses",
+			baseUrl: v1,
+			reasoning: true,
+			thinkingLevelMap: {
+				off: "none",
+				// 官方无 minimal；沿用 GPT 系列映射至最低思考档 low。
+				minimal: "low",
+				low: "low",
+				medium: "medium",
+				high: "high",
+				xhigh: "xhigh",
+				max: "max",
+			},
+			input: ["text", "image"],
+			cost: { input: 1, output: 5, cacheRead: 0.05, cacheWrite: 1.25 },
+			contextWindow: 1050000,
 			maxTokens: 128000,
 		},
 		{
@@ -110,6 +136,7 @@ function applyOpenAIResponses(writer: PayloadWriter): void {
 export const openaiThinking = {
 	"gpt-6-astra": (w, _c) => applyOpenAIResponses(w),
 	"gpt-6.1-sol": (w, _c) => applyOpenAIResponses(w),
+	"gpt-6.1-terra": (w, _c) => applyOpenAIResponses(w),
 	"gpt-6-sol": (w, _c) => applyOpenAIResponses(w),
 	"gpt-6-luna": (w, _c) => applyOpenAIResponses(w),
 } satisfies Record<string, ThinkingApplier>;
