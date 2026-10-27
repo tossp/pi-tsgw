@@ -138,6 +138,39 @@ test("候选：严格按选型表逐型号与档位生成，键不使用型号�
 	assert.equal(new Set(candidates.map((entry) => entry.key)).size, candidates.length);
 });
 
+test("策略材料：全候选说明与失败指导同源，典型委派保留事实且不超分类上限", () => {
+	const candidates = buildDelegationCandidates(
+		[...new Set(TABLE.map(([id]) => id))].map(id => chatModel(id)), () => ALL_LEVELS,
+	);
+	const input = frozen({
+		prompt: "修复已定位的空值处理；仅改指定模块。已有回归用例，运行后核验未影响原有行为。",
+		description: "范围明确的代码修复；无图片或界面工具需求",
+		input_files: ["src/parser.ts", "src/parser.test.ts"],
+		run_in_background: true,
+	});
+	const context = buildDelegationContext(input, candidates);
+	assert.deepEqual(context.state, { task: input });
+	assert.ok(Buffer.byteLength(JSON.stringify(context), "utf8") <= 28 * 1024);
+	const selection = context.questions.selection;
+	assert.equal(selection.type, "choice");
+	if (selection.type !== "choice") return assert.fail("selection 必须是 choice");
+	const guide = buildDelegationGuide(candidates);
+	const guidelines = guide.split("\n")[1];
+	assert.ok(guidelines && selection.instructions.includes(guidelines), "分类与失败接管共用完整选型原则");
+	for (const entry of candidates) {
+		assert.equal(selection.criteria[entry.key], entry.instructions);
+		const row = guide.split("\n").find(line => line.startsWith(`| ${entry.model} |`));
+		assert.ok(row, `${entry.model} 应保留失败接管行`);
+		const [, , status, suitability, speed, prices, note] = row.split("|").map(cell => cell.trim());
+		assert.equal(status, "可用");
+		for (const description of [suitability, speed, note]) {
+			assert.ok(description && entry.instructions.includes(description), `${entry.model} 说明应同源`);
+		}
+		for (const price of prices.split(" / ")) assert.ok(entry.instructions.includes(price));
+	}
+	// 不伪造真实分类结果，也不把说明透传测试当作模型选择质量验收。
+});
+
 test("候选：MiniMax 正式版替换旧轻量项，分类与失败指导同源", async () => {
 	const { minimaxModels } = await import("../models/vendors/minimax.ts");
 	const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai");

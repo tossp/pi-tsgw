@@ -41,6 +41,9 @@ interface SelectionRow {
 	readonly note: string;
 }
 
+// GPT-6 定位与选型依据（2026-10-27）：https://developers.openai.com/api/docs/guides/model-selection
+// https://developers.openai.com/api/docs/guides/latest-model
+// 官方建议用于任务匹配；保留本项目已选档位，不据此推断网关表现或跨厂商排名。
 // 顺序即选型表的明确列顺序；只使用这里列出的型号与档位，不从目录猜测其他组合。
 const SELECTION_TABLE: readonly SelectionRow[] = [
 	{
@@ -53,10 +56,10 @@ const SELECTION_TABLE: readonly SelectionRow[] = [
 	},
 	{
 		id: "gpt-6-luna", level: "high",
-		suitability: "轻量执行，适合步骤清晰的小任务",
-		speed: "轻量低成本档",
+		suitability: "范围明确的提取、分类、结构化摘要与局部修改",
+		speed: "聚焦任务的低成本 high 档",
 		inputPrice: "0.10", outputPrice: "0.50",
-		note: "保留给轻量分工。",
+		note: "要求约束清楚、结果易验证；步骤清晰不代表问题简单，不用于开放式根因调查。",
 	},
 	{
 		id: "glm-5.3", level: "low",
@@ -81,10 +84,10 @@ const SELECTION_TABLE: readonly SelectionRow[] = [
 	},
 	{
 		id: "gpt-6-luna", level: "max",
-		suitability: "通用工程中的低成本深档选择",
-		speed: "低成本，思考档较深",
+		suitability: "费用敏感、范围明确且结果可验证的工程子任务，需要较深推理",
+		speed: "聚焦任务的低成本深档",
 		inputPrice: "0.10", outputPrice: "0.50",
-		note: "适合费用敏感且任务匹配的工程工作。",
+		note: "不因低价或 max 承担开放式排障、跨模块架构判断；不把本档等同 Sol 或 Astra 的较低档。",
 	},
 	{
 		id: "glm-5.3-flash", level: "max",
@@ -99,17 +102,17 @@ const SELECTION_TABLE: readonly SelectionRow[] = [
 		// 标准档 ≤272K 输入 $1 / 输出 $5，>272K 输入缓存 x2、输出 x1.5。价格为官方标准档登记，
 		// 不代表网关实扣；官方规格与定位未经网关实测，不据此承诺延迟或长期工程能力。
 		id: "gpt-6.1-terra", level: "medium",
-		suitability: "视觉资料核对、界面操作与自然写作等快速定向任务，不承担复杂编程",
+		suitability: "视觉资料核对、界面操作、自然写作，以及范围明确的代码修复",
 		speed: "medium 思考档，参考成本低于同系列 Sol",
 		inputPrice: "1.00", outputPrice: "5.00",
-		note: "受实际工具与图片输入可用性限制，不替换 Luna/Sol/Astra，也不作为复杂编程默认。",
+		note: "需有清晰输入、要求与验收方法；涉及视觉或界面时须具备实际图片输入或操作工具，不作为开放式复杂编程默认。",
 	},
 	{
 		id: "gpt-6.1-sol", level: "medium",
-		suitability: "通用工程中的平衡档",
-		speed: "中等思考档",
+		suitability: "复杂编码与跨步骤专业交付，范围较清楚且允许迭代修订",
+		speed: "平衡成本与推理投入的 medium 档",
 		inputPrice: "2.00", outputPrice: "10.00",
-		note: "通用工程仍保留该档位。",
+		note: "按实际推理需求选择，不因任务包含复杂工作就自动提高档位。",
 	},
 	{
 		id: "deepseek-flash", level: "high",
@@ -127,14 +130,14 @@ const SELECTION_TABLE: readonly SelectionRow[] = [
 	},
 	{
 		id: "gpt-6.1-sol", level: "high",
-		suitability: "复杂任务优先档",
+		suitability: "复杂编码、电脑操作与跨步骤专业交付，需要较深工程判断",
 		speed: "较深思考档",
 		inputPrice: "2.00", outputPrice: "10.00",
-		note: "复杂任务优先 high，仅在确需更深推理时提高档位。",
+		note: "兼顾复杂工作与成本；需比 medium 更深推理时选 high，不仅按步骤数判断。",
 	},
 	{
 		id: "gpt-6.1-sol", level: "xhigh",
-		suitability: "高难任务",
+		suitability: "复杂项目中需综合冲突证据、协调关联交付物的高难工作",
 		speed: "更深思考档",
 		inputPrice: "2.00", outputPrice: "10.00",
 		note: "仅在高难任务确需更深推理时使用。",
@@ -149,28 +152,28 @@ const SELECTION_TABLE: readonly SelectionRow[] = [
 	},
 	{
 		id: "gpt-6-astra", level: "high",
-		suitability: "高难任务，或正式审阅中的局部检查与定向复审",
+		suitability: "跨领域判断、较大不确定性或严格质量要求的工作，以及局部检查与定向复审",
 		speed: "高成本参考价的高思考档",
 		inputPrice: "10.00", outputPrice: "50.00",
 		note: "正式设计审阅默认使用 max，不因材料短或范围明确自动降档。",
 	},
 	{
 		id: "gpt-6-astra", level: "xhigh",
-		suitability: "高难任务，或正式审阅中的定向复审",
-		speed: "高成本参考价的深层审阅档",
+		suitability: "多源证据冲突、跨领域复杂分析与严格交付，以及定向复审",
+		speed: "高成本参考价的深思考档",
 		inputPrice: "10.00", outputPrice: "50.00",
 		note: "正式设计审阅默认使用 max，不因材料短或范围明确自动降档。",
 	},
 	{
 		id: "gpt-6.1-sol", level: "max",
-		suitability: "极难任务",
+		suitability: "复杂编码与专业项目中确需最深推理的高难交付",
 		speed: "最高思考档",
 		inputPrice: "2.00", outputPrice: "10.00",
 		note: "仅在极难任务确需最深推理时使用。",
 	},
 	{
 		id: "gpt-6-astra", level: "max",
-		suitability: "极难任务，以及正式架构方案或设计文档的独立审阅",
+		suitability: "高不确定性、跨领域且确需最深推理的严格交付，以及正式架构方案或设计文档的独立审阅",
 		speed: "最高思考档、最高参考成本档",
 		inputPrice: "10.00", outputPrice: "50.00",
 		note: "formal design review 的默认档位。",
@@ -236,11 +239,14 @@ const KIND_INSTRUCTIONS = [
 
 const SELECTION_GUIDELINES = [
 	"选型表是参考而非固定派遣路线；同档顺序不是单纯按评分排序，不自动选择第一个候选。",
-	"轻量明确任务优先 MiniMax-M3.1-Flash/high 或 gpt-6-luna/high；常规工程优先 deepseek-flash/high，复杂实现使用 deepseek-flash/max。",
-	"复杂任务优先 gpt-6.1-sol/high，仅在确需更深推理时考虑 xhigh 或 max；GLM 5.3 / Flash 仍是工程候选。",
-	"正式架构方案或设计文档的独立审阅默认 gpt-6-astra/max；局部检查或定向复审可按范围降低 Astra 档位，高难、复杂或代码设计不等同 formal_review。",
+	"先匹配交付物、任务类型与实际输入/工具条件，再判断不确定性、证据冲突、跨模块影响与质量要求，最后权衡时间和参考成本；步骤清晰不等于问题简单，步骤多也不等于推理困难。",
+	"分别选择模型与思考档位，只使用当前候选组合；复杂不一律选 max，不把不同模型的档位视为等效，也不因提高档位就承诺质量提升。",
+	"范围明确、约束清楚且易验收的轻量任务优先 MiniMax-M3.1-Flash/high 或 gpt-6-luna/high；Luna/max 仅作需较深推理的聚焦工程子任务候选，不因低价或 max 承担开放式根因调查。",
+	"常规工程仍优先 deepseek-flash/high，复杂实现使用 deepseek-flash/max；GLM 5.3 / Flash 仍是工程候选，不凭 OpenAI 产品定位改写跨厂商优先级。",
+	"复杂编码、电脑操作与跨步骤专业交付可选 gpt-6.1-sol：范围较清楚、允许修订时用 medium，需较深判断时用 high，仅在确需更深推理时考虑 xhigh 或 max。",
+	"gpt-6.1-terra/medium 用于视觉核对、界面操作、自然写作与范围明确的代码修复，需清晰输入和验收方法；视觉/界面任务受实际图片输入或工具可用性限制，不作为开放式复杂编程默认，也不因适用代码修复就自动优先于既有轻量或常规工程候选。",
+	"高不确定性、证据冲突、跨领域判断或严格交付要求时考虑 Astra，不仅按任务大小选择；正式架构方案或设计文档独立审阅默认 gpt-6-astra/max，局部检查或定向复审可按范围降低档位，高难、复杂或代码设计本身不等于正式设计审阅。",
 	"Kimi K3.1 Pro/high 可用于资料核对、局部检查与定向复核，不承担长程执行；不要仅凭新代际推断任务成功率。",
-	"gpt-6.1-terra/medium 仅作视觉资料核对、界面操作与自然写作等快速定向候选，受实际工具与图片输入可用性限制；不替换 Luna/Sol/Astra，也不作为复杂编程默认。",
 	"Kimi＋Astra 双审由调用方分别显式指定 tsgw/kimi-k3.1-pro:high 与 tsgw/gpt-6-astra:max，不能用一次自动选择代替两次独立复核。",
 ].join("");
 

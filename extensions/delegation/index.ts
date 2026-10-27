@@ -12,7 +12,7 @@ import { classifierFailure, failureGuidance, type DelegationFailureKind } from "
 
 const TIMEOUT_MS = 15_000;
 const MAX_CONTEXT_BYTES = 28 * 1024;
-const GUIDANCE = "新建子代理时，直接调用 Agent，写清任务、验收标准和约束；未明确指定模型时省略 model，" +
+const GUIDANCE = "新建子代理时，直接调用 Agent，写清任务、必要事实、输入与工具条件、关键难点、验收标准和约束；未明确指定模型时省略 model，" +
 	"由 TSGW 在创建前自动分类选型，无需读取长选型表或编写 codemode 分类脚本。" +
 	"用户指定模型或固定审阅组合时显式传 model；resume 沿用原模型，不重新选型。" +
 	"分类失败时按工具报告的失败类型处理，由发起调用的主代理自行选型并显式指定 Agent.model 再调用；" +
