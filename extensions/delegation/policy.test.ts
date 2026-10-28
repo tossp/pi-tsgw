@@ -161,12 +161,7 @@ test("策略材料：全候选说明与失败指导同源，典型委派保留�
 		assert.equal(selection.criteria[entry.key], entry.instructions);
 		const row = guide.split("\n").find(line => line.startsWith(`| ${entry.model} |`));
 		assert.ok(row, `${entry.model} 应保留失败接管行`);
-		const [, , status, suitability, speed, prices, note] = row.split("|").map(cell => cell.trim());
-		assert.equal(status, "可用");
-		for (const description of [suitability, speed, note]) {
-			assert.ok(description && entry.instructions.includes(description), `${entry.model} 说明应同源`);
-		}
-		for (const price of prices.split(" / ")) assert.ok(entry.instructions.includes(price));
+		assert.equal(row, `| ${entry.model} | ${entry.instructions} |`, "接管行直接复用有效候选说明");
 	}
 	// 不伪造真实分类结果，也不把说明透传测试当作模型选择质量验收。
 });
@@ -186,7 +181,7 @@ test("候选：MiniMax 正式版替换旧轻量项，分类与失败指导同源
 	assert.equal(selection.type, "choice");
 	if (selection.type !== "choice") return assert.fail("selection 必须是 choice");
 	assert.equal(selection.criteria[selected.key], selected.instructions);
-	assert.ok(buildDelegationGuide(candidates).includes(`| ${selected.model} | 可用 |`));
+	assert.ok(buildDelegationGuide(candidates).includes(`| ${selected.model} |`));
 	assert.equal(buildDelegationGuide(candidates).includes("| tsgw/MiniMax-M3:high |"), false);
 });
 
@@ -210,8 +205,8 @@ test("候选：K3.1 普通版进入分类与失败指导，仍保留固定审阅
 	for (const kind of ["design_review", "dual_review"]) {
 		assert.equal(resolveDelegationChoice(answers(choice(kind), choice(selected.key)), candidates), undefined);
 	}
-	assert.ok(buildDelegationGuide(candidates).includes(`| ${selected.model} | 可用 |`));
-	assert.ok(buildDelegationGuide([]).includes(`| ${selected.model} | 不可用 |`));
+	assert.ok(buildDelegationGuide(candidates).includes(`| ${selected.model} |`));
+	assert.equal(buildDelegationGuide([]).includes(`| ${selected.model} |`), false);
 	assert.equal(buildDelegationGuide(candidates).includes("tsgw/kimi-k3:"), false, "新版本接替旧版指导");
 	assert.deepEqual(buildDelegationCandidates(models, () => ["low"]), [], "缺少 high 时不补入其他档位");
 	assert.deepEqual(buildDelegationCandidates([], getSupportedThinkingLevels), [], "不绕过宿主可用目录");
@@ -361,6 +356,8 @@ test("解析：非法结构、越界概率、缺少所选概率、未知 kind �
 		{ kind: { ...validKind, choice: "unknown" }, selection: validSelection },
 		{ kind: { ...validKind, choice: 3 }, selection: validSelection },
 		{ kind: validKind, selection: { ...validSelection, choice: null } },
+		{ kind: validKind, selection: { ...validSelection, probabilities: null } },
+		{ kind: validKind, selection: { ...validSelection, probabilities: [] } },
 		{ kind: { ...validKind, probabilities: {} }, selection: validSelection },
 		{ kind: validKind, selection: { ...validSelection, probabilities: {} } },
 		{ kind: validKind, selection: { ...validSelection, probabilities: { option_0: 0.9 } } },
@@ -374,6 +371,7 @@ test("解析：非法结构、越界概率、缺少所选概率、未知 kind �
 		{ kind: { ...validKind, confidence: 1.01 }, selection: validSelection },
 		{ kind: validKind, selection: { ...validSelection, confidence: -0.01 } },
 		{ kind: validKind, selection: { ...validSelection, confidence: Number.NaN } },
+		{ kind: validKind, selection: { ...validSelection, confidence: "0.5" } },
 		{ kind: validKind, selection: { ...validSelection, choice: "option_9" } },
 	];
 

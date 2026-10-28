@@ -54,7 +54,7 @@ test("Pi 1.2 delegation：真实宿主分类选型、阻止与结果增强", { t
 		const mainRequests: AnyRecord[] = [];
 		const plan: { next?: { name: string; args: AnyRecord; callId: string; itemId: string } } = {};
 		let callSequence = 0;
-		let classificationMode: "select" | "error" | "invalid" | "remove-during" | "hang" = "select";
+		let classificationMode: "select" | "error" | "invalid" | "remove-during" | "scope-during" | "hang" = "select";
 		let expectedKey = "";
 		let expectedKind = "implement";
 		let started: ReturnType<typeof makeGate> | undefined;
@@ -86,6 +86,8 @@ test("Pi 1.2 delegation：真实宿主分类选型、阻止与结果增强", { t
 					await runtime.refresh({ providers: ["tsgw"], allowNetwork: true, force: true });
 					assert.equal(runtime.getModel("tsgw", "deepseek-flash"), undefined);
 				}
+				if (classificationMode === "scope-during")
+					session!.setScopedModels([{ model: runtime!.getModel("tsgw", "gpt-6-astra")!, thinkingLevel: "max" }]);
 				const selectionKey = classificationMode === "invalid" ? "option_not_a_candidate" : expectedKey;
 				const answers = {
 					kind: {
@@ -200,6 +202,8 @@ test("Pi 1.2 delegation：真实宿主分类选型、阻止与结果增强", { t
 			assert.equal(delegation.model, deepseekHigh.model);
 			assert.equal(delegation.kind, "implement");
 			assert.equal(delegation.classifier, classifierId);
+			assert.deepEqual(delegation.selectionSource, { type: "classifier", model: classifierId });
+			assert.ok(text.includes(`选型来源：分类模型 ${classifierId}`));
 			assert.equal(typeof delegation.durationMs, "number");
 			const usage = result.usage!;
 			assert.equal(usage.input, 10 + 417);
@@ -294,7 +298,7 @@ test("Pi 1.2 delegation：真实宿主分类选型、阻止与结果增强", { t
 			assert.equal(decision.failureKind, "http");
 			assert.ok(typeof decision.selectionGuide === "string" && decision.selectionGuide.length > 0);
 			assert.ok(decision.selectionGuide.includes(deepseekHigh.model));
-			assert.ok(decision.selectionGuide.includes("| tsgw/kimi-k3.1-pro:high | 可用 |"), "分类失败也必须提供新 Kimi 指导");
+			assert.ok(decision.selectionGuide.includes("| tsgw/kimi-k3.1-pro:high |"), "分类失败也必须提供有效 Kimi 候选");
 			assert.equal(decision.selectionGuide.includes("tsgw/kimi-k3:"), false, "失败指导不再推荐旧 K3");
 			assert.equal(resultText(result).split(decision.selectionGuide).length - 1, 1, "宿主阻止结果仅保留一份选型表");
 			assert.doesNotMatch(resultText(result), /synthetic classifier failure/);
@@ -407,8 +411,8 @@ test("Pi 1.2 delegation：真实宿主分类选型、阻止与结果增强", { t
 		await t.test("会话范围显式档位参与候选过滤", async () => {
 			const deepseek = runtime!.getModel("tsgw", "deepseek-flash");
 			assert.ok(deepseek);
-			const selected = buildDelegationCandidates([deepseek], getSupportedThinkingLevels)
-				.find(candidate => candidate.level === "max");
+			const selected = buildDelegationCandidates([deepseek], getSupportedThinkingLevels,
+				[{ model: deepseek, thinkingLevel: "max" }])[0];
 			assert.ok(selected);
 			session!.setScopedModels([{ model: deepseek, thinkingLevel: "max" }]);
 			expectedKey = selected.key;
@@ -422,6 +426,26 @@ test("Pi 1.2 delegation：真实宿主分类选型、阻止与结果增强", { t
 			} finally {
 				session!.setScopedModels([]);
 				expectedKey = deepseekHigh.key;
+			}
+		});
+
+		await t.test("分类期间会话范围变化：执行前重新过滤，接管表只列最新有效候选", async () => {
+			classificationMode = "scope-during";
+			const callsBefore = fixture.agentCalls.length;
+			try {
+				queueTool("Agent", { prompt: "核验动态会话范围", description: "scope changed" });
+				await session!.prompt("分类过程中收窄会话范围");
+				assert.equal(fixture.agentCalls.length, callsBefore);
+				const result = lastAgentResult(session!)!;
+				const decision = (result.details as AnyRecord).tsgwDelegation as AnyRecord;
+				assert.equal(decision.failureKind, "model_unavailable");
+				const rows = (decision.selectionGuide as string).split("\n").filter(line => line.startsWith("| tsgw/"));
+				assert.equal(rows.length, 1);
+				assert.ok(rows[0].startsWith("| tsgw/gpt-6-astra:max |"));
+				assert.equal((decision.selectionGuide as string).includes(`| ${deepseekHigh.model} |`), false);
+			} finally {
+				classificationMode = "select";
+				session!.setScopedModels([]);
 			}
 		});
 

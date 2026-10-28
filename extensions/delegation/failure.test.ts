@@ -75,19 +75,16 @@ async function tick(): Promise<void> {
 	await Promise.resolve();
 	await new Promise(resolve => setImmediate(resolve));
 }
-const GUIDE_HEADER = buildDelegationGuide(undefined).split("\n")
+const GUIDE_HEADER = buildDelegationGuide(buildDelegationCandidates(catalog(), getSupportedThinkingLevels)).split("\n")
 	.find(line => line.startsWith("| 模型与思考档位")) ?? "";
 function assertGuideOnce(text: string, label: string): void {
 	assert.ok(GUIDE_HEADER, "建议表表头应存在");
-	assert.equal(text.split(GUIDE_HEADER).length - 1, 1, `${label}应含且仅含一次原始选型建议表`);
-	assert.match(text, /Kimi/);
-	assert.match(text, /gpt-6-astra\/max/);
+	assert.equal(text.split(GUIDE_HEADER).length - 1, 1, `${label}应含且仅含一次有效候选表`);
 }
-function assertGuideRow(guide: unknown, model: string, status: string): void {
+function assertGuideRow(guide: unknown, model: string): void {
 	assert.equal(typeof guide, "string");
-	const row = (guide as string).split("\n").find(line => line.includes(`| ${model} |`));
-	assert.ok(row, `建议表缺少 ${model}`);
-	assert.ok(row.includes(`| ${status} |`), `${model} 应标记为${status}`);
+	const row = (guide as string).split("\n").find(line => line.startsWith(`| ${model} |`));
+	assert.ok(row, `有效候选表缺少 ${model}`);
 }
 function assertNoGuide(blocked: ToolCallEventResult | undefined, text: string, delegation: AnyRecord): void {
 	assert.equal(delegation.selectionGuide, undefined);
@@ -233,10 +230,13 @@ test("外层 15 秒超时：请求禁用重试并归类 timeout", async () => {
 		assert.equal(delegation.failureKind, "timeout");
 		assertGuideOnce(blocked?.reason ?? "", "timeout 阻止原因");
 		assertGuideOnce(textOf(fallback.message as AnyRecord), "timeout 最终消息");
-		assertGuideRow(delegation.selectionGuide, candidate("deepseek-flash", "high").model, "可用");
-		assertGuideRow(delegation.selectionGuide, candidate("deepseek-flash", "max").model, "可用");
-		assertGuideRow(delegation.selectionGuide, candidate("gpt-6-astra", "max").model, "可用");
-		assert.ok((delegation.selectionGuide as string).includes("| 不可用 |"));
+		assertGuideRow(delegation.selectionGuide, candidate("deepseek-flash", "high").model);
+		assertGuideRow(delegation.selectionGuide, candidate("deepseek-flash", "max").model);
+		assertGuideRow(delegation.selectionGuide, candidate("gpt-6-astra", "max").model);
+		const expectedRows = buildDelegationCandidates(registry.chat, getSupportedThinkingLevels).map(entry => entry.model);
+		const actualRows = (delegation.selectionGuide as string).split("\n")
+			.filter(line => line.startsWith("| tsgw/")).map(line => line.split("|")[1].trim());
+		assert.deepEqual(actualRows, expectedRows, "失败指导不补入目录缺席的其他型号");
 		assertSafe(fallback);
 		gate.resolve(selected());
 		await tick();
@@ -324,7 +324,7 @@ test("adapter 安全 errorMessage 分类，且任意原始文本不进入 reason
 		assert.ok(outcome.delegation.reason.length > 0);
 		assertGuideOnce(outcome.blocked?.reason ?? "", `${errorMessage} 阻止原因`);
 		assertGuideOnce(outcome.text, `${errorMessage} 最终消息`);
-		assertGuideRow(outcome.delegation.selectionGuide, candidate("deepseek-flash", "high").model, "可用");
+		assertGuideRow(outcome.delegation.selectionGuide, candidate("deepseek-flash", "high").model);
 		assertSafe(outcome.blocked, errorMessage);
 		assertSafe(outcome.message, errorMessage);
 		await pi.emit("session_shutdown", { type: "session_shutdown" });
@@ -425,10 +425,9 @@ test("本地失败：invalid_input、unavailable、invalid_result、model_unavai
 	const empty = await blockedOutcome(invalidInputPi, invalidInput, "local-invalid-input", { prompt: "   " });
 	assert.equal(empty.delegation.failureKind, "invalid_input");
 	assert.equal(invalidInput.chatCalls, 0);
-	assertGuideOnce(empty.blocked?.reason ?? "", "invalid_input 阻止原因");
-	assertGuideOnce(empty.text, "invalid_input 最终消息");
-	assert.ok((empty.delegation.selectionGuide as string).includes("| 未核验 |"));
-	assert.equal((empty.delegation.selectionGuide as string).includes("| 可用 |"), false);
+	assert.equal((empty.blocked?.reason ?? "").includes(GUIDE_HEADER), false);
+	assert.equal(empty.text.includes(GUIDE_HEADER), false);
+	assert.equal(empty.delegation.selectionGuide, buildDelegationGuide(undefined));
 	await invalidInputPi.emit("session_shutdown", { type: "session_shutdown" });
 
 	const unavailable = new Registry();
@@ -437,6 +436,8 @@ test("本地失败：invalid_input、unavailable、invalid_result、model_unavai
 	const noCandidate = await blockedOutcome(unavailablePi, unavailable, "local-unavailable");
 	assert.equal(noCandidate.delegation.failureKind, "unavailable");
 	assert.equal(unavailable.classifyCalls, 0);
+	assert.equal(noCandidate.delegation.selectionGuide, buildDelegationGuide([]));
+	assert.equal(noCandidate.text.includes(GUIDE_HEADER), false);
 	await unavailablePi.emit("session_shutdown", { type: "session_shutdown" });
 
 	const invalidResult = new Registry();
@@ -460,5 +461,23 @@ test("本地失败：invalid_input、unavailable、invalid_result、model_unavai
 	const modelGone = await blockedOutcome(removedPi, removed, "local-model-unavailable");
 	assert.equal(modelGone.delegation.failureKind, "model_unavailable");
 	assert.equal(removed.classifyCalls, 1);
+	assert.equal((modelGone.delegation.selectionGuide as string).includes(`| ${chosen.model} |`), false);
 	await removedPi.emit("session_shutdown", { type: "session_shutdown" });
+});
+
+test("执行前目录复核失败：不把较早的候选快照作为当前可选表", async () => {
+	const registry = new Registry();
+	registry.classifyImpl = async () => selected();
+	const lookup = registry.getAvailableOfType.bind(registry);
+	registry.getAvailableOfType = async type => {
+		if (type === "chat" && registry.chatCalls > 0) throw new Error("合成目录读取失败");
+		return lookup(type);
+	};
+	const pi = await harness();
+	const outcome = await blockedOutcome(pi, registry, "revalidation-failed");
+	assert.equal(outcome.delegation.failureKind, "unknown");
+	assert.equal(registry.classifyCalls, 1);
+	assert.equal(outcome.delegation.selectionGuide, buildDelegationGuide(undefined));
+	assert.equal(outcome.text.includes(GUIDE_HEADER), false);
+	await pi.emit("session_shutdown", { type: "session_shutdown" });
 });

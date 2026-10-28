@@ -32,14 +32,14 @@ test("Terra：真实目录生成 medium 定向候选，分类与失败指导同�
 	if (selection.type !== "choice") return assert.fail("selection 必须是 choice");
 	assert.equal(selection.criteria[terra.key], terra.instructions);
 	const guide = buildDelegationGuide(candidates);
-	assert.ok(guide.includes(`| ${terra.model} | 可用 |`));
-	assert.equal(guide.includes(`| ${terra.model} | 不可用 |`), false);
+	assert.ok(guide.includes(`| ${terra.model} |`));
+	assert.ok(guide.includes(terra.instructions));
 
 	// 缺少 medium 时不改档补入；目录缺席时不得加入候选。
 	assert.equal(buildDelegationCandidates(models, () => ["low", "high"]).some(entry => entry.id === terra.id), false);
 	const absent = buildDelegationCandidates(models.filter(model => model.id !== terra.id), getSupportedThinkingLevels);
 	assert.equal(absent.some(entry => entry.id === terra.id), false);
-	assert.ok(buildDelegationGuide(absent).includes(`| ${terra.model} | 不可用 |`));
+	assert.equal(buildDelegationGuide(absent).includes(`| ${terra.model} |`), false);
 });
 
 test("Terra：定向任务可选，不替代正式审阅与显式双审", () => {
