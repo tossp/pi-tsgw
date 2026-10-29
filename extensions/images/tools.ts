@@ -23,10 +23,8 @@ export function registerImageTools(pi: ExtensionAPI): void {
 			name: operation === "generate" ? "tsgw_generate_image" : "tsgw_edit_image",
 			label: operation === "generate" ? "TSGW 生成图片" : "TSGW 编辑图片",
 			description: (operation === "generate" ? "根据 prompt 生成图片，只需填写 prompt。" : "根据 prompt 和 images 编辑图片，可选 mask；蒙版对应第一张参考图。") +
-				"默认 Sunburst 用于成稿；AI 草稿任务可选 Flare（通常配 quality=low），不必为普通任务指定型号。" +
-				"默认 quality/size/background/moderation=auto、output_format=png、n=1、stream=false、partial_images=0、超时600000毫秒。" +
-				(operation === "edit" ? "本地图片以 Pi 进程操作系统权限直接只读原始字节并外传，不经过内置 read 审批，不是沙箱；仅普通文件，每个小于50 MB、含蒙版合计最多100 MB。不下载远程 URL；远程蒙版的格式与尺寸交上游验证。" : "") +
-				"返回实际图片块与唯一临时文件路径，不需 codemode 或 image()。请求可能计费；不自动重试或换模型，失败、取消或超时都不保证停止上游处理或未计费。",
+				(operation === "edit" ? "仅使用获授权的图片；本地原文件会外传。" : "") +
+				"返回图片与临时文件路径。失败、取消或超时后不自动重试或换模型。",
 			parameters: operation === "generate" ? generateImageSchema : editImageSchema,
 			outputSchema: imageToolResultSchema,
 			exposure: "direct",
@@ -59,13 +57,13 @@ export function registerImageTools(pi: ExtensionAPI): void {
 					usage = response.usage;
 					if (response.tsgwUsage?.status === "unaggregated") {
 						usage = undefined;
-						details.usage_note = "多图流式用量归属未明确，逐事件报告未相加，也未计入会话总量；不是免费。";
+						details.usage_note = "多图流式用量未汇总，未计入会话总量。";
 						details.usage_reports = response.tsgwUsage.reports.map(report => ({ ...report }));
 					}
 					if (response.stopReason !== "stop") {
 						details.requestStatus = "unknown";
 						throw new ImageToolFileError(response.stopReason === "aborted" ? "aborted" : "request-failed",
-							response.stopReason === "aborted" ? "图片调用已取消或超时；无法保证上游停止处理或未计费，请勿自动重试。" : "图片调用未成功；无法确认上游是否处理或计费，请勿自动重试。请检查宿主模型认证与网关；未切换模型。");
+							response.stopReason === "aborted" ? "图片调用已取消或超时，结果未知；请勿自动重试。" : "图片调用未成功，结果未知；请勿自动重试，请检查宿主模型认证与网关。");
 					}
 					details.requestStatus = "succeeded";
 					details.phase = "output";
@@ -80,10 +78,10 @@ export function registerImageTools(pi: ExtensionAPI): void {
 					} else {
 						// 不转发供应商异常、输入 URL、base64 或文件系统原始异常。
 						details.error = caller.aborted
-							? { code: "aborted", message: details.requestStatus === "not-started" ? "图片工具已取消，尚未调用上游。" : "图片调用已取消；上游结果未知，不保证停止处理或计费，请勿自动重试。" }
+							? { code: "aborted", message: details.requestStatus === "not-started" ? "图片工具已取消，尚未调用上游。" : "图片调用已取消，结果未知；请勿自动重试。" }
 							: details.phase === "validate" || details.phase === "input"
 								? { code: "invalid-parameters", message: "图片工具参数无效；请检查字段白名单、数值范围、图片来源与参数组合。未调用上游。" }
-								: { code: "request-unknown", message: "图片调用异常，无法确认上游结果或是否计费；未自动重试，请检查宿主与网关。" };
+								: { code: "request-unknown", message: "图片调用异常，结果未知；未自动重试，请检查宿主与网关。" };
 					}
 				}
 				return {

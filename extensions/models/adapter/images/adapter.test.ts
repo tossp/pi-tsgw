@@ -338,10 +338,10 @@ try {
 					...(stage === "onPayload" ? { onPayload: late } : stage === "onResponse" ? { onResponse: late } : {}) });
 				await started; caller.abort(new Error(`${KEY} ${PROMPT}`));
 				const result = await pending;
-				assert.equal(result.stopReason, "aborted"); assert.match(result.errorMessage!, /取消.*未自动重试.*不代表上游未计费/);
+				assert.equal(result.stopReason, "aborted");
 				assert.doesNotMatch(result.errorMessage!, /fake-test|private-test/);
 				if (stage === "onPayload") assert.equal(h.calls.length, 0);
-				else assert.equal(h.calls[0].init.signal?.aborted, true);
+				else { assert.equal(h.calls.length, 1); assert.equal(h.calls[0].init.signal?.aborted, true); }
 				if (stage === "body") assert.equal(bodyCancelled, true);
 			}
 			await wait(30); assert.deepEqual(unhandled, []);
@@ -367,7 +367,7 @@ try {
 			}, { highWaterMark: 0 })) : () => jsonResponse());
 			const result = await generateImages(model(), context(), { apiKey: KEY, fetch: h.fetch, timeoutMs: 5, maxRetries: 10,
 				...(stage === "onPayload" ? { onPayload: never } : stage === "onResponse" ? { onResponse: never } : {}) });
-			assert.equal(result.stopReason, "error"); assert.match(result.errorMessage!, /超时.*未自动重试.*不代表上游未计费/);
+			assert.equal(result.stopReason, "error");
 			assert.equal(h.calls.length, stage === "onPayload" ? 0 : 1);
 			if (stage !== "onPayload") assert.equal(h.calls[0].init.signal?.aborted, true);
 		}

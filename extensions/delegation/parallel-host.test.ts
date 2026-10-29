@@ -147,7 +147,7 @@ test("Pi 1.2 delegation：原生分类与三款聊天模型四路并行竞速，
 			const text = resultText(result);
 			assert.match(text, /fixture agent executed/);
 			assert.match(text, /选型来源：/, "结果须说明并行竞速的胜出通道");
-			assert.match(text, /并行/);
+			assert.ok(text.includes(laneModel(LUNA_ID)), "工具文本须说明胜出的通道");
 			const decision = (result.details as AnyRecord).tsgwDelegation as AnyRecord;
 			assert.equal(decision.status, "selected");
 			assert.equal(decision.model, deepseekHigh.model);
@@ -211,7 +211,6 @@ test("Pi 1.2 delegation：原生分类与三款聊天模型四路并行竞速，
 					assert.ok(typeof entry.reason === "string" && entry.reason.length > 0, "逐路错误须带简短安全原因");
 				}
 				const text = resultText(result);
-				assert.match(text, /并行/);
 				for (const entry of errors) {
 					assert.ok(text.includes(entry.source.model), "工具文本须列出先报错的通道");
 					if (entry.statusCode !== undefined)
@@ -247,7 +246,6 @@ test("Pi 1.2 delegation：原生分类与三款聊天模型四路并行竞速，
 				const result = lastAgentResult(session!)!;
 				assert.equal(result.isError, false);
 				const text = resultText(result);
-				assert.match(text, /并行/);
 				assert.ok(text.includes(laneModel(lane)), `文案须说明 ${lane} 的胜出模型`);
 				const decision = (result.details as AnyRecord).tsgwDelegation as AnyRecord;
 				assert.equal(decision.status, "selected");

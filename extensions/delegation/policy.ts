@@ -42,7 +42,7 @@ export interface DelegationCandidate {
 
 function candidateInstructions(row: (typeof DELEGATION_KNOWLEDGE)[number]): string {
 	return `模型：${row.id}，思考档位：${row.level}。` +
-		`任务适用性：${row.suitability}。思考投入与成本特征（不承诺实测延迟）：${row.effort}。` +
+		`任务适用性：${row.suitability}。思考投入与成本特征：${row.effort}。` +
 		`参考成本：输入 ${row.inputPrice} 美元／百万 tokens，输出 ${row.outputPrice} 美元／百万 tokens。` +
 		row.note;
 }

@@ -230,10 +230,7 @@ export function registerDelegation(pi: ExtensionAPI): void {
 		if (decision.status === "selected") {
 			const sourceType = decision.selectionSource?.type === "chat" ? "聊天模型" : "分类模型";
 			summary = `TSGW 创建前选型：${decision.model}；选型来源：${sourceType} ${decision.selectionSource?.model}`;
-			summary += "（并行竞速，采用首个有效结果）";
-			summary += `；${event.isError ? "原 Agent 调用未成功。" : "已交由原 Agent 执行。"}`;
-			if ((decision.classifier ? 1 : 0) + (decision.chatModels?.length ?? 0) > 1)
-				summary += " 并行用量仅累计汇总前已报告部分；取消不保证远端停止处理或计费。";
+			if (event.isError) summary += "；Agent 调用未成功。";
 			summary += selectionErrorsText(decision);
 		} else {
 			summary = failureText(decision);

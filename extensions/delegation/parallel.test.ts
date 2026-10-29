@@ -150,7 +150,7 @@ test("四路材料同源、按厂商协议处理参数且不扩张工具；已�
 	assert.deepEqual(output.details.tsgwDelegation.chatModels, CHAT_SELECTION_IDS.map(id => `tsgw/${id}`));
 	assert.equal(output.details.tsgwDelegation.classifier, "tsgw/jev-latest");
 	assert.deepEqual(output.details.tsgwDelegation.selectionSource, { type: "chat", model: "tsgw/gpt-6-luna" });
-	assert.match(JSON.stringify(output.content), /并行竞速/);
+	assert.ok(JSON.stringify(output.content).includes(output.details.tsgwDelegation.selectionSource.model));
 	assert.equal(output.usage.totalTokens, usage.totalTokens * 5);
 	assert.equal(output.usage.cost.total, usage.cost.total * 5);
 	assert.equal(await h.final(), undefined);

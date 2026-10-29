@@ -7,7 +7,7 @@ import { readImageResponse } from "./stream-response.ts";
 
 const DEFAULT_TIMEOUT_MS = 600_000;
 const MAX_TIMEOUT_MS = 2_147_483_647;
-const UNCERTAIN = "未自动重试；此结果不代表上游未计费。";
+const FAILURE_NOTE = "未自动重试。";
 function mergeHeaders(apiKey: string | undefined, ...sources: (ProviderHeaders | undefined)[]): Headers {
 	const headers = new Headers({ "Content-Type": "application/json" });
 	if (apiKey?.trim()) headers.set("Authorization", `Bearer ${apiKey}`);
@@ -104,9 +104,9 @@ export const generateImages: ProviderImages["generateImages"] = async (model, co
 		if (!controller.signal.aborted && Date.now() >= deadline) { timedOut = true; controller.abort(); }
 		if (controller.signal.aborted) {
 			result.stopReason = timedOut ? "error" : "aborted";
-			result.errorMessage = `${timedOut ? "图片请求超时。" : "图片请求已取消。"}${UNCERTAIN}`;
+			result.errorMessage = `${timedOut ? "图片请求超时。" : "图片请求已取消。"}${FAILURE_NOTE}`;
 		} else {
-			result.errorMessage = `${error instanceof ImageFailure ? error.message : "图片请求失败，请检查认证、网络及请求钩子。"}${UNCERTAIN}`;
+			result.errorMessage = `${error instanceof ImageFailure ? error.message : "图片请求失败，请检查认证、网络及请求钩子。"}${FAILURE_NOTE}`;
 		}
 		return result;
 	} finally {

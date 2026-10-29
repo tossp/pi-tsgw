@@ -58,7 +58,7 @@ export function registerSearchProxyTool(pi: ExtensionAPI, options: SearchProxyOp
 			if (!delegate) throw new Error("TSGW 搜索没有可供当前模型使用的代理模型。");
 			const registry = ctx.modelRegistry;
 			if (typeof registry.streamSimple !== "function")
-				throw new Error("TSGW 代理搜索要求宿主支持 modelRegistry.streamSimple（已在 Pi 1.1.0 上验证）。");
+				throw new Error("TSGW 代理搜索需要宿主支持 modelRegistry.streamSimple。");
 			const model = registry.find("tsgw", delegate.modelId);
 			if (!model || builtinSearchSupport(model.id, model.api) !== delegate.kind)
 				throw new Error("TSGW 搜索代理模型已不再以受支持的协议注册。");

@@ -258,7 +258,7 @@ test("失败、取消、坏图、数量/格式错误保留usage，脱敏且不�
 		if (!response.stopReason) { assert.equal(details(result).phase, "output"); assert.equal(details(result).requestStatus, "succeeded"); }
 		else {
 			assert.equal(details(result).requestStatus, "unknown");
-			assert.match(details(result).error!.message, /计费/);
+			assert.equal(details(result).error!.code, response.stopReason === "aborted" ? "aborted" : "request-failed");
 		}
 	}
 	const f = fixture(); f.throw();
