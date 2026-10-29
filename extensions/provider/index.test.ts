@@ -48,7 +48,7 @@ async function testChatCompletionsCompatibility(): Promise<void> {
 
 async function testTsSearchRegistration(): Promise<void> {
 	const pi = await createPi();
-	deepStrictEqual(pi.tools.map(tool => (tool as { name: string }).name), ["upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_refresh_models", "tsgw_search"]);
+	deepStrictEqual(pi.tools.map(tool => (tool as { name: string }).name), ["upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_search"]);
 }
 
 async function testSafeProviderHooksAfterContextStales(): Promise<void> {

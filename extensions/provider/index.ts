@@ -35,7 +35,6 @@ import {
 } from "./status.ts";
 import type { ThinkingLevel, WebSearchMode } from "#tsgw/models/_tools";
 import type { TsgwSettings } from "./config.ts";
-import { registerRefreshTool } from "./refresh-tool.ts";
 
 /**
  * 在生命周期上下文仍有效时，复制供应商钩子所需的数据。
@@ -185,9 +184,6 @@ export async function registerTsgwProvider(
 		coordinator.stop();
 		directory.invalidate();
 	};
-	registerRefreshTool(pi, {
-		refresh: (registry, force, signal) => requestRefresh(registry, force ? "force" : "normal", signal),
-	});
 	const search = registerSearch(pi, {
 		defaultMode: defaultSearchMode,
 		state: () => requestState,

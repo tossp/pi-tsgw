@@ -95,7 +95,7 @@ await withUi(async ({ pi, ctx, notices, statuses, key, refreshModels }) => {
 });
 
 
-await withUi(async ({ pi, ctx, notices, statuses, key, dir }) => {
+await withUi(async ({ pi, ctx, notices, statuses, dir }) => {
 	// 网络成功但缓存父路径被普通文件占用：命令仍应报告成功并应用新目录。
 	const cachePath = join(dir, "tsgw", "models-cache.json");
 	rmSync(join(dir, "tsgw"), { recursive: true, force: true });
@@ -111,15 +111,6 @@ await withUi(async ({ pi, ctx, notices, statuses, key, dir }) => {
 	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 2, source: "network",
 		storedAt: Date.now(), loading: false }, true, true));
 
-	// 同一环境下工具无法确认完整目录写入缓存文件，必须拒绝交付旧文件。
-	globalThis.fetch = async () => modelResponse(["glm-5.2"]);
-	const tool = pi.tools.find((candidate) =>
-		(candidate as { name?: unknown }).name === "tsgw_refresh_models") as {
-		execute: (...args: any[]) => Promise<unknown>;
-	} | undefined;
-	equal(tool !== undefined, true, "缺少刷新工具");
-	await rejects(tool!.execute("call", { force: true }, undefined, undefined, ctx), /未确认/);
-	equal(notices.length, beforeNotices + 1, "工具拒绝不得追加成功 Toast");
 	equal(cachePath.startsWith(dir), true, "仅操作临时夹具路径");
 });
 

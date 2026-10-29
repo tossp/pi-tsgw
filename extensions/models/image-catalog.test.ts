@@ -50,7 +50,7 @@ test("图片登记：同一个 tsgw 保留聊天模型并复用宿主密钥声�
 	assert.equal(provider.models?.some(model => model.id === "gpt-6-luna"), false);
 	assert.equal(typeof provider.images?.[IMAGE_API]?.generateImages, "function");
 	assert.deepEqual(pi.tools.map(tool => (tool as { name: string }).name),
-		["upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_refresh_models", "tsgw_search"],
+		["upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_search"],
 		"两个图片工具与原生图片 API 共用 provider");
 });
 

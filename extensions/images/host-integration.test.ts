@@ -14,7 +14,7 @@ import { modelsForRoot, PROVIDER_ID } from "#tsgw/models/catalog";
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const BYTES = Buffer.from(PNG, "base64");
 const PROMPT = "isolated synthetic pixel, not a paid generation";
-const EXISTING_TOOLS = ["codemode", "tsgw_edit_image", "tsgw_generate_image", "tsgw_refresh_models", "tsgw_search", "upload_local_file"];
+const EXISTING_TOOLS = ["codemode", "tsgw_edit_image", "tsgw_generate_image", "tsgw_search", "upload_local_file"];
 const context = { input: [{ type: "text" as const, text: PROMPT }] };
 
 /** 无论运行源码还是 dist，始终交给真实 DefaultResourceLoader/jiti 加载源码入口。 */
@@ -193,7 +193,7 @@ test("Pi 1.2 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 			}
 			assert.deepEqual(tools(), EXISTING_TOOLS, "仅增加两个明确图片工具，保持既有工具");
 			assert.deepEqual([...loader.getExtensions().extensions.find(extension => extension.path === entry)!.tools.keys()].sort(),
-				["tsgw_edit_image", "tsgw_generate_image", "tsgw_refresh_models", "tsgw_search", "upload_local_file"]);
+				["tsgw_edit_image", "tsgw_generate_image", "tsgw_search", "upload_local_file"]);
 		});
 
 		await t.test("无认证图片不可用，失败不发 HTTP；同一个 runtime key 解锁 chat 和 image", async () => {

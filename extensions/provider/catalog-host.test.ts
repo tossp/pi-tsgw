@@ -146,7 +146,7 @@ async function withSandbox(run: (sandbox: HostSandbox) => Promise<void>): Promis
 	try { await run(sandbox); } finally { sandbox.restore(); }
 }
 
-test("Pi 1.2 真实宿主：目录加载、恢复、工具与退出语义", { timeout: 120_000 }, async t => {
+test("Pi 1.2 真实宿主：目录加载、命令刷新与退出语义", { timeout: 120_000 }, async t => {
 	await t.test("两个真实会话和一个后台 runtime 共享 GET，退出一个会话不取消其余登记", async () => {
 		await withSandbox(async sandbox => {
 			const sdk = await sdkFor();
@@ -360,10 +360,10 @@ test("Pi 1.2 真实宿主：目录加载、恢复、工具与退出语义", { ti
 		});
 	});
 
-	await t.test("工具缓存命中把更新后的磁盘目录应用到真实 registry，且不联网", async () => {
+	await t.test("真实宿主不再注册模型可调用刷新工具；/tsgw-refresh 命令仍经宿主 provider 刷新目录", async () => {
 		await withSandbox(async sandbox => {
 			const sdk = await sdkFor();
-			const key = `tool-${randomUUID()}`;
+			const key = `command-${randomUUID()}`;
 			seed(sandbox, key, ["gpt-6-sol"]);
 			const catalog = interceptCatalog(sandbox, key);
 			let session: AgentSession | undefined;
@@ -375,20 +375,21 @@ test("Pi 1.2 真实宿主：目录加载、恢复、工具与退出语义", { ti
 					runtime.getProviderAuthStatus("tsgw").configured, "session_start 恢复新鲜缓存与凭据快照");
 				assert.deepEqual(modelIds(runtime), ["gpt-6-sol"]);
 				assert.equal(catalog.calls(), 0, "新鲜缓存启动不得联网");
-				await new Promise(resolve => setTimeout(resolve, 20));
-				seed(sandbox, key, ["deepseek-flash", "glm-5.2"], Date.now() + 1_000);
-				const tool = session.extensionRunner.getToolDefinition("tsgw_refresh_models");
-				assert.ok(tool, "真实宿主应注册 tsgw_refresh_models");
-				const controller = new AbortController();
-				const ctx = session.extensionRunner.createToolContext("call_refresh", controller.signal);
-				const result = await tool.execute("call_refresh", { force: false }, controller.signal, undefined, ctx);
-				assert.equal(catalog.calls(), 0, "工具命中新鲜缓存不应联网");
+				assert.equal(session.extensionRunner.getToolDefinition("tsgw_refresh_models"), undefined,
+					"真实宿主不得再注册模型可调用的 tsgw_refresh_models");
+				assert.equal(session.extensionRunner.getAllRegisteredTools()
+					.some(tool => tool.definition.name === "tsgw_refresh_models"), false,
+					"工具清单中不得残留 tsgw_refresh_models");
+
+				const command = session.extensionRunner.getCommand("tsgw-refresh");
+				assert.ok(command, "真实宿主必须保留 /tsgw-refresh 命令");
+				sandbox.catalogIds = ["glm-5.2", "deepseek-flash"];
+				await command.handler("", session.extensionRunner.createCommandContext());
+				assert.equal(catalog.calls(), 1, "命令刷新必须经宿主 provider 发起一次目录 GET");
 				assert.deepEqual(modelIds(runtime), ["deepseek-flash", "glm-5.2"],
-					"工具刷新必须把磁盘更新应用到真实 registry");
-				assert.deepEqual(result.details, {
-					cacheFilePath: cachePath(sandbox), count: 2,
-					storedAt: JSON.parse(readFileSync(cachePath(sandbox), "utf8")).storedAt,
-				});
+					"命令刷新必须把网络目录应用到真实 registry");
+				const cached = JSON.parse(readFileSync(cachePath(sandbox), "utf8")) as { ids: string[] };
+				assert.deepEqual(cached.ids, ["glm-5.2", "deepseek-flash"]);
 				assert.deepEqual(errors, []);
 				assert.deepEqual(sandbox.blocked, []);
 			} finally {
