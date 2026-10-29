@@ -61,7 +61,7 @@ function codemodeSse(code: string, custom: boolean): Response {
 
 // 必须独立 Node 进程运行：HostSandbox 有意修改进程环境、cwd 和套接字入口。
 // SDK 只能在沙箱构造后动态导入；不加载个人配置、MCP 扩展或真实凭据。
-test("Pi 1.2 原生图片：真实 SDK 宿主、codemode、目录和取消", { timeout: 60_000 }, async (t) => {
+test("Pi SDK 原生图片：真实 SDK 宿主、codemode、目录和取消", { timeout: 60_000 }, async (t) => {
 	const entry = sourceEntry();
 	const originalEnv = { ...process.env };
 	const originalCwd = process.cwd();
@@ -73,7 +73,7 @@ test("Pi 1.2 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 	try {
 		const { createAgentSession, createCodemodeExtension, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, VERSION } =
 			await import("@earendil-works/pi-coding-agent");
-		assert.match(VERSION, /^1\.2\./, "此集成回归的已验证基线是 Pi 1.2 SDK");
+		assert.ok(["1.2.0", "1.4.0"].includes(VERSION), `未验证的宿主 SDK 版本：${VERSION}`);
 		const configure = (extra: Record<string, unknown> = {}) => writeFileSync(join(sandbox.agentDir, "settings.json"),
 			JSON.stringify({ tsgw: { baseUrl: TEST_ROOT, traceHeaders: true, ...extra } }));
 		configure();

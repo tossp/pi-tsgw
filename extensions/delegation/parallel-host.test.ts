@@ -21,7 +21,7 @@ const HISTORY_MARKER = "主会话历史标记-DO-NOT-FORWARD";
 const HOST_PROMPT_MARKER = "Host-only private context；不得进入并行选型请求";
 
 // 独立进程；HostSandbox 先隔离 env/网络，之后才动态 import SDK 与 pi-ai。
-test("Pi 1.2 delegation：原生分类与三款聊天模型四路并行竞速，首个有效结果胜出", { timeout: 90_000 }, async t => {
+test("Pi SDK delegation：原生分类与三款聊天模型四路并行竞速，首个有效结果胜出", { timeout: 90_000 }, async t => {
 	const sandbox = new HostSandbox();
 	const entry = sourceEntry();
 	const fixture: FixtureState = {
@@ -36,7 +36,7 @@ test("Pi 1.2 delegation：原生分类与三款聊天模型四路并行竞速，
 			SettingsManager, VERSION,
 		} = await import("@earendil-works/pi-coding-agent");
 		const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai");
-		assert.match(VERSION, /^1\.2\./, "此宿主集成回归的已验证基线是 Pi 1.2 SDK");
+		assert.ok(["1.2.0", "1.4.0"].includes(VERSION), `未验证的宿主 SDK 版本：${VERSION}`);
 		writeFileSync(join(sandbox.agentDir, "settings.json"),
 			JSON.stringify({ tsgw: { baseUrl: TEST_ROOT } }));
 		const guardedFetch = globalThis.fetch;

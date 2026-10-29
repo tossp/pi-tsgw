@@ -54,14 +54,14 @@ function codemodeResponse(code: string, custom: boolean): Response {
 }
 
 // 独立进程，SDK 仅在 HostSandbox 隔离环境和网络后导入；不读个人配置、不请求生产。
-test("Pi 1.2 classifier：源码加载、原生认证/解析、codemode、过滤刷新与重载", { timeout: 60_000 }, async t => {
+test("Pi SDK classifier：源码加载、原生认证/解析、codemode、过滤刷新与重载", { timeout: 60_000 }, async t => {
 	const entry = sourceEntry();
 	const sandbox = new HostSandbox();
 	let session: AgentSession | undefined;
 	try {
 		const { createAgentSession, createCodemodeExtension, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, VERSION } =
 			await import("@earendil-works/pi-coding-agent");
-		assert.match(VERSION, /^1\.2\./, "此宿主集成回归的已验证基线是 Pi 1.2 SDK");
+		assert.ok(["1.2.0", "1.4.0"].includes(VERSION), `未验证的宿主 SDK 版本：${VERSION}`);
 		const configure = (extra = {}) => writeFileSync(join(sandbox.agentDir, "settings.json"),
 			JSON.stringify({ tsgw: { baseUrl: TEST_ROOT, ...extra } }));
 		configure();

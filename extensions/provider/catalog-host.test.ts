@@ -146,7 +146,7 @@ async function withSandbox(run: (sandbox: HostSandbox) => Promise<void>): Promis
 	try { await run(sandbox); } finally { sandbox.restore(); }
 }
 
-test("Pi 1.2 真实宿主：目录加载、命令刷新与退出语义", { timeout: 120_000 }, async t => {
+test("Pi SDK 真实宿主：目录加载、命令刷新与退出语义", { timeout: 120_000 }, async t => {
 	await t.test("两个真实会话和一个后台 runtime 共享 GET，退出一个会话不取消其余登记", async () => {
 		await withSandbox(async sandbox => {
 			const sdk = await sdkFor();
@@ -201,7 +201,7 @@ test("Pi 1.2 真实宿主：目录加载、命令刷新与退出语义", { timeo
 	await t.test("带凭据无缓存：加载/绑定零网络，挂起请求不阻塞，放行后 registry 更新；dispose 不发 shutdown", async () => {
 		await withSandbox(async sandbox => {
 			const sdk = await sdkFor();
-			assert.match(sdk.VERSION, /^1\.2\./, "此回归的已验证基线是 Pi 1.2 SDK");
+			assert.ok(["1.2.0", "1.4.0"].includes(sdk.VERSION), `未验证的宿主 SDK 版本：${sdk.VERSION}`);
 			const key = `no-cache-${randomUUID()}`;
 			const catalog = interceptCatalog(sandbox, key, true);
 			let shutdowns = 0;
