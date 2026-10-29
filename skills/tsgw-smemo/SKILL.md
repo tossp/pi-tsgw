@@ -1,6 +1,6 @@
 ---
 name: tsgw-smemo
-description: 当用户提到 smemo、Blinko、记忆或笔记时用于判断记录落点；发现外部调研、通用知识、有效资讯及可复用解决方案时主动检索和维护。Blinko 是各设备 PiWeb／OC 共用的统一知识库，不记录个人倾向或具体现场事实；项目资料与本机 ctx 另有职责。
+description: 涉及 smemo、Blinko、记忆或笔记，以及开展外部调研或沉淀通用知识时使用。
 license: MIT
 compatibility: Pi / Pi Web and OpenCode with Blinko tools from the ts_tool MCP server
 metadata:

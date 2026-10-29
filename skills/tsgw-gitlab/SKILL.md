@@ -1,6 +1,6 @@
 ---
 name: tsgw-gitlab
-description: "使用 ts_gitlab MCP 处理砼砼 GitLab（code.tossp.com）的仓库、MR、Issue 与 CI/CD 等任务；该实例的 Git 远程仓库地址统一使用 SSH 表述。"
+description: 处理砼砼 GitLab（code.tossp.com）的仓库、MR、Issue 与 CI/CD 时使用。
 license: MIT
 ---
 

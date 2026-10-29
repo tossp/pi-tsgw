@@ -1,6 +1,6 @@
 ---
 name: tsgw-programmer-go
-description: "用于所有 Go 开发任务：编写、审查、重构、调试 Go 程序及回答 Go 问题。结合 Go 官方文档阅读要点与本技能强制约定，落实 PascalCase JSON、零值省略优先 omitzero，以及真实功能或修复变更中的旧 JSON 标签同步迁移；遇到明确协议或兼容性冲突先暴露并确认。"
+description: 编写、审查、重构、调试 Go 代码或回答 Go 问题时使用。
 license: MIT
 ---
 

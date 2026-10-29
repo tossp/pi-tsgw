@@ -1,6 +1,6 @@
 ---
 name: tsgw-git-commit
-description: 核验 Git 暂存内容、按功能拆分提交并生成中文提交说明。用户要求 commit、提交代码或跨仓库分批提交时使用；遵循项目提交规范及明确授权范围。
+description: 执行 Git 提交、准备提交说明或跨仓库分批提交时使用。
 license: MIT
 compatibility: 需要 Git；附带的只读仓库发现脚本需要 Node.js。
 ---

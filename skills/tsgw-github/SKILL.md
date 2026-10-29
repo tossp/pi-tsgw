@@ -1,6 +1,6 @@
 ---
 name: tsgw-github
-description: "优先使用 gh CLI 处理 GitHub issue、PR、评论、CI 与失败日志、Contents API 读取，以及 Actions 依赖升级核验；适用于需要精确仓库上下文和安全发布 Markdown 正文的任务。"
+description: 处理 GitHub 仓库、issue、PR、评论、Actions 与 CI 排障时使用。
 license: MIT
 ---
 

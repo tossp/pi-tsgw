@@ -1,6 +1,6 @@
 ---
 name: tsgw-delegate-model-selection
-description: 将适合的任务派给独立子代理。直接调用 Agent 并提供完整任务；未指定模型时由插件自动选型。
+description: 将任务委派给子代理，或协调多个子代理并行工作时使用。
 license: MIT
 compatibility: 自动选型需要 Pi 1.2+ 及参数兼容的 Agent 工具。
 ---

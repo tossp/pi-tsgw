@@ -1,6 +1,6 @@
 ---
 name: tsgw-image-generation
-description: 当用户要求生成图片、生图或画图，以及修改图片、参考图创作或蒙版编辑时使用。通过 `codemode` 工具调用 tsgw_generate_image 或 tsgw_edit_image，根据草稿或成稿选择模型与参数，再按用户意图保存、发送、展示或继续编辑。
+description: 生成、绘制或编辑图片时使用，包括参考图创作与蒙版编辑。
 license: MIT
 compatibility: 需要 Pi 1.2+、`codemode` 工具、pi-tsgw 图片工具及可用的 tsgw 图片模型。
 ---
