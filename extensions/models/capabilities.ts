@@ -12,7 +12,7 @@ export function supportsImageModels(version: string): boolean {
 	return supportsStablePi12(version);
 }
 
-/** 分类目录与桥接沿用 Pi 1.2 稳定版基线，不提高聊天最低 peer。 */
+/** 分类目录与桥接沿用插件的 Pi 1.2 稳定版基线。 */
 export function supportsClassifierModels(version: string): boolean {
 	return supportsStablePi12(version);
 }

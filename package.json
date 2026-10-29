@@ -32,7 +32,7 @@
     "test:upload:live": "tsc -p tsconfig.test.json && node scripts/prepare-test-runtime.mjs && node dist/extensions/upload/live.test.js"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.82.0",
+    "@earendil-works/pi-coding-agent": ">=1.2.0",
     "typebox": "*"
   },
   "devDependencies": {
