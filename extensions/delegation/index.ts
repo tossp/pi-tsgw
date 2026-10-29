@@ -9,7 +9,7 @@ import {
 	type DelegationCandidate,
 } from "./policy.ts";
 import { failureGuidance, type DelegationFailureKind } from "./failure.ts";
-import { raceSelection } from "./selection-race.ts";
+import { raceSelection, type SelectionError } from "./selection-race.ts";
 
 const TIMEOUT_MS = 15_000;
 const MAX_CONTEXT_BYTES = 28 * 1024;
@@ -21,6 +21,8 @@ type Decision = {
 	status: "selected" | "blocked";
 	classifier?: string;
 	chatModel?: string;
+	chatModels?: string[];
+	selectionErrors?: SelectionError[];
 	selectionSource?: { type: "classifier" | "chat"; model: string };
 	model?: string;
 	kind?: string;
@@ -37,10 +39,16 @@ interface Attempt {
 	candidates?: DelegationCandidate[];
 }
 
+function selectionErrorsText(decision: Decision): string {
+	return decision.selectionErrors?.length ? "\n选型通道报错（返回前已收到）：\n" +
+		decision.selectionErrors.map(error => `- ${error.source.model}：${error.reason}`).join("\n") : "";
+}
+
 function failureText(decision: Decision): string {
 	return `TSGW ${decision.reason ?? "分类选型未完成。"}${failureGuidance(decision.failureKind)}` +
 		`\n选型来源：无（未完成有效选型${decision.classifier ? `；已尝试分类模型 ${decision.classifier}` : ""}` +
-		`${decision.chatModel ? `；已尝试聊天模型 ${decision.chatModel}` : ""}）。` +
+		`${decision.chatModels?.length ? `；已尝试聊天模型 ${decision.chatModels.join("、")}` : ""}）。` +
+		selectionErrorsText(decision) +
 		(decision.selectionGuide ? `\n\n${decision.selectionGuide}` : "");
 }
 
@@ -135,10 +143,12 @@ export function registerDelegation(pi: ExtensionAPI): void {
 			...(typeof input.run_in_background === "boolean" ? { run_in_background: input.run_in_background } : {}),
 		};
 		let classifierId: string | undefined;
-		let chatModelId: string | undefined;
+		const chatModelIds: string[] = [];
+		const selectionErrors: SelectionError[] = [];
 		const failure = (reason: string, kind: DelegationFailureKind): Decision => {
 			return { ...blocked(reason, kind), ...(classifierId ? { classifier: classifierId } : {}),
-				...(chatModelId ? { chatModel: chatModelId } : {}),
+				...(chatModelIds.length ? { chatModel: chatModelIds[0], chatModels: [...chatModelIds] } : {}),
+				...(selectionErrors.length ? { selectionErrors: [...selectionErrors] } : {}),
 				...(kind === "cancelled" ? {} : { selectionGuide: buildDelegationGuide(attempt.candidates) }) };
 		};
 		try {
@@ -163,9 +173,10 @@ export function registerDelegation(pi: ExtensionAPI): void {
 				models, signal, deadlineMs: started + TIMEOUT_MS,
 				onStart: source => {
 					if (source.type === "classifier") classifierId = source.model;
-					else chatModelId = source.model;
+					else chatModelIds.push(source.model);
 				},
 				onUsage: usage => { attempt.usage = addUsage(attempt.usage, usage); },
+				onError: error => { selectionErrors.push(error); },
 			}), signal);
 			if ("failure" in result) return failure(result.failure.reason, result.failure.failureKind);
 			const { selected, kind, source } = result.winner;
@@ -175,7 +186,9 @@ export function registerDelegation(pi: ExtensionAPI): void {
 			if (!current.some(candidate => candidate.model === selected.model))
 				return failure("选定模型或思考档位已不在当前可用候选中。", "model_unavailable");
 			return { status: "selected", classifier: classifierId, model: selected.model,
-				selectionSource: source, ...(chatModelId ? { chatModel: chatModelId } : {}),
+				selectionSource: source,
+				...(chatModelIds.length ? { chatModel: chatModelIds[0], chatModels: [...chatModelIds] } : {}),
+				...(selectionErrors.length ? { selectionErrors: [...selectionErrors] } : {}),
 				...(kind ? { kind } : {}), durationMs: Date.now() - started };
 		} catch {
 			if (cancellation.aborted) return failure("分类选型已取消（调用或会话已结束）。", "cancelled");
@@ -219,8 +232,9 @@ export function registerDelegation(pi: ExtensionAPI): void {
 			summary = `TSGW 创建前选型：${decision.model}；选型来源：${sourceType} ${decision.selectionSource?.model}`;
 			summary += "（并行竞速，采用首个有效结果）";
 			summary += `；${event.isError ? "原 Agent 调用未成功。" : "已交由原 Agent 执行。"}`;
-			if (decision.classifier && decision.chatModel)
+			if ((decision.classifier ? 1 : 0) + (decision.chatModels?.length ?? 0) > 1)
 				summary += " 并行用量仅累计汇总前已报告部分；取消不保证远端停止处理或计费。";
+			summary += selectionErrorsText(decision);
 		} else {
 			summary = failureText(decision);
 		}

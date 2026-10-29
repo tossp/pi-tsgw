@@ -1,16 +1,15 @@
 import type { Api, ClassifierContext, Model, Usage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { selectWithLuna } from "./chat-selection.ts";
-import { classifierFailure, type DelegationFailureKind } from "./failure.ts";
+import { CHAT_SELECTION_IDS, selectWithChat } from "./chat-selection.ts";
+import { chatFailure, classifierFailure, type SelectionFailure } from "./failure.ts";
 import { chooseClassifier, resolveDelegationChoice, type DelegationCandidate } from "./policy.ts";
 
 export interface SelectionSource {
 	type: "classifier" | "chat";
 	model: string;
 }
-interface SelectionFailure {
-	reason: string;
-	failureKind: DelegationFailureKind;
+export interface SelectionError extends SelectionFailure {
+	source: SelectionSource;
 }
 interface RaceOptions {
 	models: readonly Model<Api>[];
@@ -18,6 +17,7 @@ interface RaceOptions {
 	deadlineMs: number;
 	onStart: (source: SelectionSource) => void;
 	onUsage: (usage: Usage) => void;
+	onError: (error: SelectionError) => void;
 }
 interface SelectionWinner {
 	selected: DelegationCandidate;
@@ -25,7 +25,7 @@ interface SelectionWinner {
 	source: SelectionSource;
 }
 
-/** 两路各发一次；失败或非法结果不是胜者，不为等待取消确认延长选型。 */
+/** 四路各发一次；失败或非法结果不是胜者，不为等待取消确认延长选型。 */
 export async function raceSelection(
 	registry: ExtensionContext["modelRegistry"],
 	context: ClassifierContext,
@@ -39,6 +39,7 @@ export async function raceSelection(
 		reason: "选型结果无效、未决或不符合固定审阅规则。", failureKind: "invalid_result",
 	};
 	const native = async (): Promise<SelectionWinner> => {
+		let source: SelectionSource | undefined;
 		try {
 			signal.throwIfAborted();
 			if (typeof registry.classify !== "function") {
@@ -57,7 +58,7 @@ export async function raceSelection(
 				nativeFailure = { reason: "选型预算已耗尽。", failureKind: "timeout" };
 				throw new Error("选型预算已耗尽。");
 			}
-			const source: SelectionSource = { type: "classifier", model: `${classifier.provider}/${classifier.id}` };
+			source = { type: "classifier", model: `${classifier.provider}/${classifier.id}` };
 			options.onStart(source);
 			const result = await registry.classify(classifier, context, { signal, timeoutMs: remaining, maxRetries: 0 });
 			if (result.usage) options.onUsage(result.usage);
@@ -76,25 +77,39 @@ export async function raceSelection(
 			return { selected, kind: answer?.type === "choice" ? answer.choice : undefined, source };
 		} catch {
 			nativeFailure ??= { reason: "分类请求失败（原因未明）。", failureKind: "unknown" };
+			if (source && !signal.aborted) options.onError({ source, ...nativeFailure });
 			throw new Error("原生选型通道未提供有效结果。");
 		}
 	};
-	const chat = async (): Promise<SelectionWinner> => {
-		const result = await selectWithLuna(registry, context, candidates, {
-			...options, signal, onStart: model => options.onStart({ type: "chat", model }),
-		});
-		if (!result) throw new Error("聊天选型通道未提供有效结果。");
-		return { selected: result.selected, kind: result.kind, source: { type: "chat", model: result.model } };
+	const chat = async (modelId: (typeof CHAT_SELECTION_IDS)[number]): Promise<SelectionWinner> => {
+		let source: SelectionSource | undefined;
+		let failure: SelectionFailure | undefined;
+		try {
+			const result = await selectWithChat(registry, context, candidates, modelId, {
+				...options, signal, onStart: model => {
+					source = { type: "chat", model };
+					options.onStart(source);
+				},
+			});
+			if (result && !("failure" in result))
+				return { selected: result.selected, kind: result.kind, source: { type: "chat", model: result.model } };
+			if (result) failure = result.failure;
+		} catch (error) {
+			failure = chatFailure(error instanceof Error ? error.message : undefined);
+		}
+		// 未发起的通道和获胜/整体取消导致的中止不作为通道报错。
+		if (source && !signal.aborted) options.onError({ source, ...(failure ?? invalid) });
+		throw new Error("聊天选型通道未提供有效结果。");
 	};
 	try {
-		const winner = await Promise.any([native(), chat()]);
+		const winner = await Promise.any([native(), ...CHAT_SELECTION_IDS.map(chat)]);
 		options.signal.throwIfAborted();
 		return { winner };
 	} catch {
 		options.signal.throwIfAborted();
 		return { failure: nativeFailure ?? invalid };
 	} finally {
-		// 只取消两条选型请求，不中断获胜后的目录复核；不保证远端停止处理或计费。
+		// 只取消选型请求，不中断获胜后的目录复核；不保证远端停止处理或计费。
 		finished.abort();
 	}
 }

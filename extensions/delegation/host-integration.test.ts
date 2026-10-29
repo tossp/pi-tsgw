@@ -106,7 +106,13 @@ test("Pi 1.2 delegation：真实宿主分类选型、阻止与结果增强", { t
 				});
 			}
 			if (url.origin === TEST_ROOT && url.pathname === "/v1/responses") {
-				mainRequests.push(await request.clone().json() as AnyRecord);
+				const body = await request.clone().json() as AnyRecord;
+				// 此入口聚焦原生分类；并发聊天选型不能消费主模型的工具计划。
+				// 四路成功与首个有效结果的协议验收由 parallel-host.test.ts 覆盖。
+				if (body.model === "deepseek-flash")
+					return Response.json({ error: { message: "synthetic chat failure" } }, { status: 500 });
+				assert.equal(body.model, "gpt-6-sol");
+				mainRequests.push(body);
 				const call = plan.next;
 				plan.next = undefined;
 				return call ? toolCallSse(call) : textSse("fixture main reply");
