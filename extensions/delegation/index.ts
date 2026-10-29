@@ -13,13 +13,9 @@ import { raceSelection } from "./selection-race.ts";
 
 const TIMEOUT_MS = 15_000;
 const MAX_CONTEXT_BYTES = 28 * 1024;
-const GUIDANCE = "新建子代理时，直接调用 Agent，写清任务、必要事实、输入与工具条件、关键难点、验收标准和约束；未明确指定模型时省略 model，" +
-	"由 TSGW 在创建前自动分类选型，无需读取长选型表或编写 codemode 分类脚本。" +
-	"用户指定模型或固定审阅组合时显式传 model；resume 沿用原模型，不重新选型。" +
-	"分类模型与 gpt-6-luna 聊天模型并行选型，采用首个有效结果并取消另一请求；" +
-	"两路均失败或总超时时按工具报告的失败类型处理，" +
-	"由发起调用的主代理自行选型并显式指定 Agent.model 再调用；" +
-	"不重试分类器，调用已取消时不自动重新派遣。";
+const GUIDANCE = "新建子代理时，直接调用 Agent，写清任务、必要事实、输入与工具条件、关键难点、验收标准和约束。" +
+	"用户指定模型或固定审阅组合时按要求显式传 model；否则省略 model，由 TSGW 自动补入模型与思考档位。" +
+	"resume 沿用原模型，不重新选型。";
 
 type Decision = {
 	status: "selected" | "blocked";

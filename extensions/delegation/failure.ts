@@ -37,7 +37,6 @@ export function classifierFailure(message: string | undefined, aborted = false):
 }
 
 export function failureGuidance(kind: DelegationFailureKind | undefined): string {
-	if (kind === "cancelled") return "本次未创建子代理；请尊重取消状态，不自动重新派遣。";
-	return "自动分类选型暂时无法使用。本次未创建子代理。请由发起调用的主代理按照以下指导选择当前可用模型，" +
-		"显式指定 Agent.model 后重新派遣代理；遵守用户指定和固定审阅要求，不重试分类器或自动更换分类模型。";
+	if (kind === "cancelled") return "本次未创建子代理。";
+	return "本次未创建子代理。请按以下选型指导处理，不重试自动选型。";
 }

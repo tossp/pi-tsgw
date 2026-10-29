@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { getSupportedThinkingLevels, type Api, type Model } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DELEGATION_KNOWLEDGE } from "./knowledge.ts";
+import { registerDelegation } from "./index.ts";
+import { failureGuidance } from "./failure.ts";
 import {
 	buildDelegationCandidates, buildDelegationContext, buildDelegationGuide, resolveDelegationKeys,
 } from "./policy.ts";
@@ -18,6 +21,36 @@ function chatModel(id: string, provider = "tsgw"): Model<Api> {
 
 const models = [...new Set(DELEGATION_KNOWLEDGE.map(entry => entry.id))].map(id => chatModel(id));
 const guideRows = (guide: string) => guide.split("\n").filter(line => line.startsWith("| tsgw/"));
+
+test("渐进式暴露：常驻注入只提供调用契约，保留宿主提示且不提前提供接管材料", async () => {
+	const handlers = new Map<string, (event: any) => any>();
+	const pi = {
+		on: (event: string, handler: (event: any) => any) => { handlers.set(event, handler); },
+		getActiveTools: () => ["Agent"],
+		getAllTools: () => [{ name: "Agent", parameters: { type: "object", properties: {
+			prompt: { type: "string" }, model: { type: "string" }, resume: { type: "string" },
+		} } }],
+	};
+	// 测试替身仅覆盖本例执行的事件与工具元数据接口，不调用其他宿主能力。
+	registerDelegation(pi as unknown as ExtensionAPI);
+	await handlers.get("session_start")!({ type: "session_start" });
+	const sections: Record<string, string> = { host: "宿主提示标记" };
+	const inject = handlers.get("before_agent_start")!;
+	assert.equal(await inject({ systemPromptOptions: { sections } }), undefined);
+	assert.equal(sections.host, "宿主提示标记");
+	const guidance = sections.tsgw_delegation;
+	assert.ok(guidance);
+	assert.ok(guidance.includes("Agent") && guidance.includes("model") && guidance.includes("resume"));
+	for (const row of DELEGATION_KNOWLEDGE) assert.equal(guidance.includes(row.id), false);
+	for (const kind of ["unknown", "cancelled"] as const)
+		assert.equal(guidance.includes(failureGuidance(kind)), false);
+	const candidates = buildDelegationCandidates(models, getSupportedThinkingLevels);
+	assert.equal(guidance.includes(buildDelegationGuide(candidates)), false);
+	const legacy = await inject({ systemPrompt: "宿主原始提示" });
+	assert.equal(legacy.systemPrompt, `宿主原始提示\n\n${guidance}`);
+	await handlers.get("session_shutdown")!({ type: "session_shutdown" });
+	assert.equal(await inject({ systemPrompt: "结束后" }), undefined);
+});
 
 test("有效候选：目录、会话型号与显式档位一次取交集，过滤后生成连续 choice key", () => {
 	const deepseek = models.find(model => model.id === "deepseek-flash")!;

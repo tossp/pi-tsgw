@@ -113,7 +113,7 @@ export function buildDelegationGuide(candidates: readonly DelegationCandidate[] 
 		"选型指导（本次已核验的有效候选）",
 		SELECTION_GUIDELINES,
 		SELECTION_CONSTRAINTS,
-		"将所选模型与档位完整填入 Agent.model，不填写分类器的 option key 或 unresolved；没有匹配候选或约束不清时交回主代理查证，不猜测型号。本指导不代替授权或创建子代理。",
+		"从下表选择符合任务与约束的候选，将首列完整值（provider/modelId:level）填入 Agent.model，保留原任务参数并直接调用 Agent；无匹配项或约束不清时先查证，不猜测型号，不扩大授权。",
 		"| 模型与思考档位（Agent.model） | 适用条件、思考投入与参考成本 |",
 		"| --- | --- |",
 		...candidates.map(candidate => `| ${candidate.model} | ${candidate.instructions} |`),

@@ -357,12 +357,15 @@ test("失败后显式 Agent.model 重发跳过分类，每个新失败最多一�
 	assert.equal(first.delegation.failureKind, "http");
 	assert.equal(registry.classifyCalls, 1);
 
+	const model = candidate().model;
+	assertGuideRow(first.delegation.selectionGuide, model);
+	assert.ok(first.text.includes("Agent.model"), "错误结果应提供实际参数的使用说明");
 	const before = { chat: registry.chatCalls, classifier: registry.classifierCalls, classify: registry.classifyCalls };
 	const explicitEvent = callEvent("explicit-after-failure", {
-		prompt: "重新派遣任务", model: "tsgw/gpt-6-astra:max",
+		prompt: "重新派遣任务", model,
 	});
 	assert.equal(await pi.emit("tool_call", explicitEvent, context(registry)), undefined);
-	assert.equal((explicitEvent.input as AnyRecord).model, "tsgw/gpt-6-astra:max");
+	assert.equal((explicitEvent.input as AnyRecord).model, model);
 	assert.deepEqual(
 		{ chat: registry.chatCalls, classifier: registry.classifierCalls, classify: registry.classifyCalls },
 		before,
