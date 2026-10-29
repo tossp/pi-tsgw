@@ -1,6 +1,6 @@
 {
   "name": "pi-tsgw",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "面向 TOSSP AIH gateway 的 Pi 扩展：按厂商维护聊天与图片模型目录及思考策略，支持四种聊天协议、图片生成与编辑工具，以及原生 System One 分类模型。",
   "type": "module",
   "keywords": [
