@@ -196,7 +196,7 @@ export function resolveDelegationChoice(
 	return resolveDelegationKeys(kind, selection, candidates);
 }
 
-/** 原生分类与聊天兜底共用相同的候选、档位和固定审阅约束；兜底不伪造概率。 */
+/** 原生分类与聊天通道共用相同的候选、档位和固定审阅约束；聊天结果不伪造概率。 */
 export function resolveDelegationKeys(
 	kind: unknown,
 	selection: unknown,

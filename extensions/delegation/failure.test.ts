@@ -215,7 +215,8 @@ test("外层 15 秒超时：请求禁用重试并归类 timeout", async () => {
 		await tick();
 		assert.equal(registry.classifyCalls, 1);
 		assert.equal(requestedMs, 15_000);
-		assert.equal(registry.lastOptions?.timeoutMs, 15_000);
+		assert.ok(registry.lastOptions?.timeoutMs > 0 && registry.lastOptions?.timeoutMs <= 15_000,
+			"请求使用剩余总预算，不重置为完整 15 秒");
 		assert.equal(registry.lastOptions?.maxRetries, 0);
 		assert.ok(registry.lastOptions?.signal instanceof AbortSignal);
 
@@ -257,7 +258,7 @@ test("外层 15 秒超时：请求禁用重试并归类 timeout", async () => {
 	}
 });
 
-test("主调用方取消与分类器 aborted 均归类 cancelled", async () => {
+test("仅主调用方取消归类 cancelled；单通道 aborted 不冒充整体取消", async () => {
 	const cancelled = new Registry();
 	const gate = deferred<ClassifierResult>();
 	cancelled.classifyImpl = () => gate.promise;
@@ -292,8 +293,8 @@ test("主调用方取消与分类器 aborted 均归类 cancelled", async () => {
 	});
 	const abortedPi = await harness();
 	const outcome = await blockedOutcome(abortedPi, aborted, "classifier-aborted");
-	assert.equal(outcome.delegation.failureKind, "cancelled");
-	assertNoGuide(outcome.blocked, outcome.text, outcome.delegation);
+	assert.equal(outcome.delegation.failureKind, "unknown");
+	assertGuideOnce(outcome.text, "单通道中止后的整体失败");
 	assertSafe(outcome.blocked);
 	assertSafe(outcome.message);
 	assert.doesNotMatch(outcome.text, new RegExp(SECRETS.join("|")));
