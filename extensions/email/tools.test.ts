@@ -110,6 +110,21 @@ test("账户发现不泄露主机或认证，也不为库存查询初始化缓�
 	assert.equal(disposed.mock.calls.length, 0);
 });
 
+test("账户发现展示规范化可用发件域，不泄露凭据或创建运行时", async t => {
+	const disposed = t.mock.method(EmailCache.prototype, "dispose");
+	const h = harness();
+	registerEmailTools(h.pi, parseEmailConfig({ ...rawConfig, smtp: { outbound: {
+		...rawConfig.smtp.outbound, allowSenderOverride: true, allowedFromDomains: ["EXAMPLE.INVALID", "屮.test"],
+	} } }));
+	const result = await h.execute("accounts");
+	assert.deepEqual((result.structuredContent as any).data.smtp.outbound, {
+		fromAddress: "sender@example.invalid", allowSenderOverride: true, allowedFromDomains: ["example.invalid", "xn--oht.test"],
+	});
+	assert.doesNotMatch(JSON.stringify(result), /dummy-secret|dummy-smtp-login|smtp\.example\.invalid/);
+	await h.emit("session_shutdown");
+	assert.equal(disposed.mock.calls.length, 0);
+});
+
 test("缓存仅实际操作才建，切换与退出清理，旧调用不可重新创建运行时", async t => {
 	const disposed = t.mock.method(EmailCache.prototype, "dispose");
 	const read = t.mock.method(EmailReader.prototype, "mailboxes", async () => ({ mailboxes: [] }));

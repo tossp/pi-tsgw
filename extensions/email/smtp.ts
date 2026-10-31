@@ -1,6 +1,7 @@
 import { constants, type ReadStream } from "node:fs";
 import { open } from "node:fs/promises";
 import { basename } from "node:path";
+import { normalizeFromDomain } from "./sender-domain.ts";
 import nodemailer, { type NodemailerError, type SendMailOptions, type SentMessageInfo, type SMTPPoolOptions } from "nodemailer";
 import type { EmailConfig, SmtpConfig } from "./config.ts";
 import { EmailError, type MessageRef, type SendInput, type SendResult, type ThreadHeaders } from "./types.ts";
@@ -76,6 +77,8 @@ export class EmailSender {
 		const name = input.fromName ?? config.fromName;
 		if (!config.allowSenderOverride && (address !== config.fromAddress || name !== config.fromName))
 			return failed(smtp, "此 SMTP 出口不允许修改发件人地址或名称。");
+		if (config.allowedFromDomains && !config.allowedFromDomains.includes(normalizeFromDomain(address.split("@")[1]) ?? ""))
+			return failed(smtp, "发件地址的域不在此 SMTP 出口的 allowedFromDomains 范围内，尚未发送。");
 
 		return new Promise<SendResult>((resolve) => {
 			let release!: () => void;

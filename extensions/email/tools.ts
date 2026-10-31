@@ -60,6 +60,7 @@ export function registerEmailTools(pi: ExtensionAPI, config: EmailConfig): void 
 		smtp: Object.fromEntries(Object.entries(config.smtp).map(([id, value]) => [id, {
 			fromAddress: value.fromAddress, ...(value.fromName === undefined ? {} : { fromName: value.fromName }),
 			allowSenderOverride: value.allowSenderOverride,
+			...(value.allowedFromDomains === undefined ? {} : { allowedFromDomains: value.allowedFromDomains }),
 		}])), defaultSmtp: config.defaultSmtp,
 	}), true);
 	register("mailboxes", schemas.mailboxes, "列出指定 IMAP 账户的文件夹；不自动创建目录。",
@@ -89,7 +90,7 @@ export function registerEmailTools(pi: ExtensionAPI, config: EmailConfig): void 
 		(p, s) => { const r = getRuntime(); return mutateEmail("junk", p, config, r.sessions, r.cache, s); }, false);
 	register("not_junk", schemas.not_junk, "将明确邮件移回 INBOX，不自动修改其他标记。",
 		(p, s) => { const r = getRuntime(); return mutateEmail("not_junk", p, config, r.sessions, r.cache, s); }, false);
-	register("send", schemas.send, "低频发送：默认使用 defaultSmtp，遵守该出口 From 限制；可引用原邮件线程，不猜收件人、不自动存档或重发。",
+	register("send", schemas.send, "低频发送：默认使用 defaultSmtp，遵守该出口 allowSenderOverride 和 allowedFromDomains 限制；域名精确匹配，子域须单列，Unicode 与 Punycode 等价；该限制不代表已通过域认证。可引用原邮件线程，不猜收件人、不自动存档或重发。",
 		async (p, s, ctx) => {
 			const attachments = p.attachments ? await Promise.all(p.attachments.map(async file => ({
 				...file, path: await emailFilePath(file.path, ctx.cwd),

@@ -108,6 +108,57 @@ test("可覆盖 From 与固定/跟随 envelope；收件人与主题只用显式�
 	sender.dispose();
 });
 
+test("可用发件域精确匹配并兼容大小写和 IDN，信封独立配置不受影响", async () => {
+	const c = config();
+	c.smtp.first.allowSenderOverride = true;
+	c.smtp.first.allowedFromDomains = ["example.test", "other.test", "xn--oht.test"];
+	c.smtp.first.envelopeFrom = "bounce@separate.test";
+	const { sender, pools } = fixture(c);
+	try {
+		for (const fromAddress of [undefined, "User@EXAMPLE.TEST", "sender@other.test", "sender@屮.test", "sender@XN--OHT.TEST"]) {
+			const result = await sender.send({ ...input, fromAddress, fromName: "自定义名称" });
+			assert.equal(result.status, "success");
+		}
+		assert.equal(pools.length, 1);
+		assert.equal(pools[0].messages.length, 5);
+		for (const message of pools[0].messages) {
+			assert.equal(message.envelope?.from, "bounce@separate.test");
+			assert.equal((message.from as { name: string }).name, "自定义名称");
+		}
+		assert.equal((pools[0].messages[3].from as { address: string }).address, "sender@屮.test");
+	} finally { sender.dispose(); }
+});
+
+test("越界发件域在读取线程、准备附件或建池前拒绝，不自动回退默认身份", async () => {
+	const c = config();
+	c.smtp.first.allowSenderOverride = true;
+	c.smtp.first.allowedFromDomains = ["example.test"];
+	let reads = 0, creates = 0;
+	const sender = new EmailSender(c, async () => { reads++; return thread; }, () => { creates++; throw new Error("不得建池"); });
+	try {
+		for (const fromAddress of ["sender@sub.example.test", "sender@badexample.test", "sender@example.test.evil", "sender@other.test", "sender@屮.test", "sender@example.test/path", "sender@example.test?query", "sender@example.test#fragment", "sender@example.test%2fpath"]) {
+			const result = await sender.send({ ...input, fromAddress, replyToMessage: reference, attachments: [{ path: "/nonexistent-domain-test-attachment" }] });
+			assert.equal(result.status, "failed");
+			assert.match(result.message!, /allowedFromDomains.*尚未发送/);
+		}
+		assert.equal(reads, 0); assert.equal(creates, 0);
+	} finally { sender.dispose(); }
+});
+
+test("发件域限制按出口独立生效，不取代禁止覆盖发件人的设置", async () => {
+	const c = config();
+	c.smtp.first.allowedFromDomains = ["example.test"];
+	c.smtp.second.allowSenderOverride = true;
+	c.smtp.second.allowedFromDomains = ["example.test", "other.test"];
+	const { sender, pools } = fixture(c);
+	try {
+		assert.equal((await sender.send({ ...input, fromAddress: "other@example.test" })).status, "failed");
+		assert.equal(pools.length, 0);
+		assert.equal((await sender.send({ ...input, smtp: "second", fromAddress: "sender@other.test" })).status, "success");
+		assert.equal(pools.length, 1);
+	} finally { sender.dispose(); }
+});
+
 test("reply 使用 resolver 线程头与 signal，不推导原邮件收件人/主题", async () => {
 	const calls: unknown[] = [];
 	let message: SendMailOptions | undefined;

@@ -1,6 +1,7 @@
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { normalizeFromDomain } from "./sender-domain.ts";
 
 /**
  * 邮件配置只读取宿主 agent 目录下的 `tsgw-email.json`。
@@ -37,6 +38,7 @@ export interface SmtpConfig {
 	fromAddress: string;
 	fromName?: string;
 	allowSenderOverride: boolean;
+	allowedFromDomains?: string[];
 	envelopeFrom?: string;
 }
 
@@ -66,6 +68,7 @@ const SMTP_FIELDS = [
 	"fromAddress",
 	"fromName",
 	"allowSenderOverride",
+	"allowedFromDomains",
 	"envelopeFrom",
 ] as const;
 const ROOT_FIELDS = ["imap", "smtp", "defaultSmtp"] as const;
@@ -209,11 +212,27 @@ function parseSmtpConfigs(raw: unknown): Record<string, SmtpConfig> {
 				? booleanField(value, "allowSenderOverride", where)
 				: false,
 		};
+		if ("allowedFromDomains" in value) {
+			config.allowedFromDomains = fromDomainsField(value.allowedFromDomains, where);
+			if (!config.allowedFromDomains.includes(normalizeFromDomain(config.fromAddress.split("@")[1]) ?? ""))
+				fail(`${where}的默认 fromAddress 域必须属于 allowedFromDomains。`);
+		}
 		if ("fromName" in value) config.fromName = stringField(value, "fromName", where);
 		if ("envelopeFrom" in value) config.envelopeFrom = addressField(value, "envelopeFrom", where);
 		entries.push([id, config]);
 	}
 	return Object.fromEntries(entries);
+}
+
+function fromDomainsField(raw: unknown, where: string): string[] {
+	if (!Array.isArray(raw) || raw.length === 0)
+		fail(`${where}的 allowedFromDomains 必须是非空域名数组。`);
+	return raw.map(value => {
+		const domain = typeof value === "string" ? normalizeFromDomain(value) : undefined;
+		if (!domain)
+			fail(`${where}的 allowedFromDomains 必须包含有效域名，不支持通配符或地址。`);
+		return domain;
+	});
 }
 
 /**

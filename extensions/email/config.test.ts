@@ -278,6 +278,35 @@ test("allowSenderOverride 只接受布尔值且缺省为 false", () => {
 	assert.equal(parseEmailConfig(raw).smtp.work!.allowSenderOverride, false);
 });
 
+test("可用发件域按大小写和 IDN 归一化，不修改原始配置或发件地址", () => {
+	const raw = input();
+	const smtp = smtpAccount(raw, "work");
+	smtp.allowedFromDomains = ["EXAMPLE.INVALID", "屮.test", "XN--OHT.TEST"];
+	const before = structuredClone(raw);
+	const parsed = parseEmailConfig(deepFreeze(raw));
+	assert.deepEqual(parsed.smtp.work!.allowedFromDomains, ["example.invalid", "xn--oht.test", "xn--oht.test"]);
+	assert.equal(parsed.smtp.work!.fromAddress, "work@example.invalid");
+	assert.equal(parsed.smtp.personal!.allowedFromDomains, undefined);
+	assert.deepEqual(raw, before);
+	const unicode = input();
+	smtpAccount(unicode, "work").fromAddress = "sender@屮.test";
+	smtpAccount(unicode, "work").allowedFromDomains = ["xn--oht.test"];
+	assert.equal(parseEmailConfig(unicode).smtp.work!.fromAddress, "sender@屮.test");
+});
+
+test("可用发件域拒绝非法值且不回显配置内容，默认地址必须匹配", () => {
+	for (const domains of [null, true, "example.invalid", [], [null], [1], [""], [" "],
+		["*.example.invalid"], ["@example.invalid"], ["https://example.invalid"],
+		["example.invalid/path"], ["example.invalid?query"], ["example.invalid#fragment"],
+		["example.invalid%2fpath"], ["example.invalid\\path"], ["example.invalid\n"],
+		[".example.invalid"], ["example.invalid."], ["example..invalid"],
+		["-example.invalid"], ["example-.invalid"], ["exam_ple.invalid"],
+		[`${"a".repeat(64)}.invalid`]])
+		reject(value => { smtpAccount(value, "work").allowedFromDomains = domains; }, /allowedFromDomains/);
+	reject(value => { smtpAccount(value, "work").allowedFromDomains = ["other.invalid"]; }, /默认 fromAddress 域必须属于/);
+	reject(value => { smtpAccount(value, "work").allowedFromDomains = ["sub.example.invalid"]; }, /默认 fromAddress 域必须属于/);
+});
+
 test("defaultSmtp 必须是 smtp 的自有键，不能依赖原型", () => {
 	reject(value => { delete value.defaultSmtp; }, /defaultSmtp/);
 	reject(value => { value.defaultSmtp = ""; }, /defaultSmtp/);
