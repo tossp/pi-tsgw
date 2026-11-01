@@ -99,7 +99,7 @@ await withUi(async ({ pi, ctx, statuses, dialogs, notices, choices }) => {
 	choices.push(0);
 	await pi.invokeCommand("tsgw-search", ctx);
 	equal(dialogs.length, dialogCount + 1);
-	equal(pi.activeTools.includes("tsgw_search"), true);
+	equal(pi.activeTools.includes("tsgw_search"), false, "代理可用也不自动激活 deferred 工具");
 	ctx.model = { ...ctx.model, provider: "other" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
 	equal(statuses.has("command:/tsgw-search"), false);
@@ -123,7 +123,7 @@ await withUi(async ({ pi, ctx, key, notices, statuses, refreshModels }) => {
 	equal(notices.length, 1);
 	equal(notices.at(-1)!.level, "info");
 	deepStrictEqual(providerRequest(pi, {}), before);
-	equal(pi.activeTools.includes("tsgw_search"), true);
+	equal(pi.activeTools.includes("tsgw_search"), false, "Grok 代理也通过按需调用，不自动激活");
 });
 
 

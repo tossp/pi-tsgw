@@ -191,18 +191,21 @@ await withUi(async ({ pi, ctx, statuses, setConfigured, refreshCalls, notices })
 
 
 await withUi(async ({ pi, ctx, key, statuses, refreshModels }) => {
-	// 后台刷新后，代理激活状态随生效目录变化。
+	// 后台刷新更新代理支持状态，但不自动激活 deferred 工具。
 	ctx.model = { ...ctx.model, id: "glm-5.2", api: "openai-completions" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
-	equal(pi.activeTools.includes("tsgw_search"), true);
+	equal(statuses.get("command:/tsgw-search"), searchLabel("live", "proxy-gpt"));
+	equal(pi.activeTools.includes("tsgw_search"), false);
 	globalThis.fetch = async () => modelResponse(["glm-5.2"]);
 	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key },
 		force: true, signal: new AbortController().signal });
 	equal(pi.activeTools.includes("tsgw_search"), false);
+	equal(statuses.get("command:/tsgw-search"), searchLabel("live", undefined));
 	globalThis.fetch = async () => modelResponse(["gpt-6-luna"]);
 	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key },
 		force: true, signal: new AbortController().signal });
-	equal(pi.activeTools.includes("tsgw_search"), true);
+	equal(statuses.get("command:/tsgw-search"), searchLabel("live", "proxy-gpt"));
+	equal(pi.activeTools.includes("tsgw_search"), false);
 	ctx.hasUI = false;
 	const setStatus = ctx.ui.setStatus;
 	ctx.ui.setStatus = () => { throw new Error("无界面刷新访问了 UI"); };
@@ -379,12 +382,14 @@ await withUi(async ({ pi, ctx, statuses, notices }) => {
 	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 4, source: "network", storedAt: Date.now(), loading: false }, true, true));
 	ctx.model = { ...ctx.model, id: "glm-5.2", api: "openai-completions" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
-	equal(pi.activeTools.includes("tsgw_search"), true, "有 GPT 候选时先确认代理已激活");
+	equal(statuses.get("command:/tsgw-search"), searchLabel("live", "proxy-gpt"));
+	equal(pi.activeTools.includes("tsgw_search"), false, "有 GPT 候选也不自动激活");
 	globalThis.fetch = async () => modelResponse(["jev-preview"]);
 	await pi.invokeCommand("tsgw-refresh", ctx);
 	match(notices.at(-1)!.text, /4 → 1/);
 	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "network", storedAt: Date.now(), loading: false }, true, true));
-	// 只余 classifier 时撤下已激活的代理；不能把分类器当聊天候选。
+	// 只余 classifier 时代理不可用；不能把分类器当聊天候选。
+	equal(statuses.get("command:/tsgw-search"), searchLabel("live", undefined));
 	equal(pi.activeTools.includes("tsgw_search"), false);
 });
 

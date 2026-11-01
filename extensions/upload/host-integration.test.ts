@@ -6,7 +6,7 @@ import type { AgentSession, ExtensionError, ToolCallEvent, ToolResultEvent, Tool
 import type { CallToolResult, JsonRpcMessage } from "@earendil-works/pi-mcp";
 import { HostSandbox, TEST_KEY, TEST_ROOT } from "#tsgw/host-test-support.test";
 
-const OUTER = "upload_local_file";
+const OUTER = "tsgw_upload_local_file";
 const UPLOAD = "mcp__ts_oht__upload_file";
 const LINK = "mcp__ts_oht__get_file_url";
 const CONTENT = "isolated upload fixture\n";
@@ -201,11 +201,15 @@ test("Pi SDK 上传：真实 MCP 嵌套执行、权限、校验及脱敏", { tim
 				assert.deepEqual(await runtime.listCredentials(), []);
 				({ session } = await createAgentSession({ cwd: sandbox.cwd, agentDir: sandbox.agentDir,
 					modelRuntime: runtime, resourceLoader: loader, settingsManager: settings,
-					sessionManager: SessionManager.inMemory(sandbox.cwd), tools: [OUTER, UPLOAD, LINK], thinkingLevel: "off" }));
+					sessionManager: SessionManager.inMemory(sandbox.cwd), thinkingLevel: "off" }));
 				const model = runtime.getModel("upload-fixture", "fixture-model");
 				assert.ok(model);
 				await session.setModel(model);
 				await session.bindExtensions({ mode: "print", onError: error => errors.push(error) });
+				// deferred 注册：上传工具默认不声明给模型；本用例显式激活，以覆盖模型直接调用外层工具的宿主流水线。
+				assert.equal(session.getActiveToolNames().includes(OUTER), false);
+				session.setActiveToolsByName([...session.getActiveToolNames(), OUTER]);
+				assert.ok(session.getActiveToolNames().includes(OUTER));
 				await session.prompt("我授权使用测试选项上传 report.txt。");
 				assert.equal(session.getLastAssistantText(), "Upload fixture finished.");
 				assert.equal(modelRequests.length, 2);

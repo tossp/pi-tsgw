@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { builtinSearchSupport, resolveSearchDelegate } from "#tsgw/models/web-search";
 import type { WebSearchMode } from "#tsgw/models/_tools";
 import { searchLabel, type SearchSupport } from "#tsgw/provider/status";
-import { registerSearchProxyTool, SEARCH_PROXY_TOOL } from "./proxy.ts";
+import { registerSearchProxyTool } from "./proxy.ts";
 
 interface SearchOptions {
 	defaultMode: WebSearchMode;
@@ -17,7 +17,6 @@ interface SearchOptions {
 interface SearchController {
 	mode(): WebSearchMode;
 	support(): SearchSupport | undefined;
-	sync(): void;
 	reset(): void;
 	stop(): void;
 }
@@ -40,14 +39,6 @@ export function registerSearch(pi: ExtensionAPI, options: SearchOptions): Search
 		return target ? (target.kind === "gpt" ? "proxy-gpt" : "proxy-grok") : undefined;
 	};
 	registerSearchProxyTool(pi, { delegate, mode: () => mode });
-	const sync = () => {
-		if (stopped) return;
-		const active = pi.getActiveTools();
-		const enabled = delegate() !== undefined;
-		if (active.includes(SEARCH_PROXY_TOOL) === enabled) return;
-		pi.setActiveTools(enabled ? [...active, SEARCH_PROXY_TOOL]
-			: active.filter(name => name !== SEARCH_PROXY_TOOL));
-	};
 	pi.registerCommand("tsgw-search", {
 		description: "更改原生或代理内置联网搜索设置，仅对当前会话生效",
 		handler: async (args, ctx) => {
@@ -55,7 +46,6 @@ export function registerSearch(pi: ExtensionAPI, options: SearchOptions): Search
 			await ctx.waitForIdle();
 			if (revision !== options.revision()) return;
 			options.refreshState(ctx);
-			sync();
 			options.bindStatus(ctx);
 			const current = support();
 			const target = delegate()?.modelId;
@@ -88,7 +78,7 @@ export function registerSearch(pi: ExtensionAPI, options: SearchOptions): Search
 		},
 	});
 	return {
-		mode: () => mode, support, sync,
+		mode: () => mode, support,
 		reset: () => { mode = options.defaultMode; stopped = false; },
 		stop: () => { stopped = true; },
 	};

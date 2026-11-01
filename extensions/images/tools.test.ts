@@ -57,11 +57,13 @@ async function cleanup(result: Awaited<ReturnType<Tool["execute"]>>): Promise<vo
 	await Promise.all([...new Set(paths)].map(path => rm(path, { recursive: true, force: true })));
 }
 
-test("工具 direct 默认启用；普通生成仅 prompt 必填，编辑要求 images；schema不丢未知字段", () => {
+test("工具 deferred 注册并归入 tsgw_images 命名空间；普通生成仅 prompt 必填，编辑要求 images；schema不丢未知字段", () => {
 	const f = fixture();
 	assert.deepEqual(f.tools.map(tool => tool.name), ["tsgw_generate_image", "tsgw_edit_image"]);
 	for (const tool of f.tools) {
-		assert.equal(tool.exposure, "direct"); assert.equal(tool.defaultActive, true);
+		assert.equal(tool.exposure, "deferred"); assert.equal(tool.defaultActive, undefined);
+		assert.equal(tool.namespace?.name, "tsgw_images");
+		assert.ok(tool.namespace?.description && tool.namespace?.instructions, "命名空间需给出用途和调用边界");
 		assert.equal(tool.annotations?.openWorldHint, true);
 	}
 	const generation = Compile(generateImageSchema), edit = Compile(editImageSchema);

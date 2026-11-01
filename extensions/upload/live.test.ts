@@ -16,10 +16,11 @@ import type { UploadParams, UploadResult } from "./uploader.ts";
 import { SINGLE_LIMIT, UPLOAD_TOOL, URL_TOOL } from "./protocol.ts";
 
 const MODEL_ROOT = "https://upload-live-fixture.invalid";
+const OUTER = "tsgw_upload_local_file";
 
 function modelResponse(args?: UploadParams): Response {
 	const item = args
-		? { type: "function_call", id: "fc_live", call_id: "call_live", name: "upload_local_file", arguments: JSON.stringify(args), status: "completed" }
+		? { type: "function_call", id: "fc_live", call_id: "call_live", name: OUTER, arguments: JSON.stringify(args), status: "completed" }
 		: { type: "message", id: "msg_live", role: "assistant", status: "completed", content: [{ type: "output_text", text: "done", annotations: [] }] };
 	const events: unknown[] = [
 		{ type: "response.created", response: { id: "resp_live", status: "in_progress" } },
@@ -88,7 +89,7 @@ async function main(): Promise<void> {
 							return { isError: true, content: [{ type: "text", text: "合成测试的完成响应丢失" }] };
 						}
 					}
-					if (event.toolName === "upload_local_file") result = event.structuredContent as unknown as UploadResult;
+					if (event.toolName === OUTER) result = event.structuredContent as unknown as UploadResult;
 				});
 			}],
 		});
@@ -104,12 +105,14 @@ async function main(): Promise<void> {
 		const runtime = await ModelRuntime.create({ authPath: join(agentDir, "auth.json"), modelsPath: join(agentDir, "models.json"),
 			modelsStorePath: join(agentDir, "models-store.json"), allowModelNetwork: false, refreshOnCreate: false });
 		({ session } = await createAgentSession({ cwd: root, agentDir, modelRuntime: runtime, resourceLoader: loader,
-			settingsManager: settings, sessionManager: SessionManager.inMemory(root), tools: ["upload_local_file", UPLOAD_TOOL, URL_TOOL], thinkingLevel: "off" }));
+			settingsManager: settings, sessionManager: SessionManager.inMemory(root), tools: [OUTER, UPLOAD_TOOL, URL_TOOL], thinkingLevel: "off" }));
 		await runtime.setRuntimeApiKey("upload-fixture", "fixture-only");
 		const model = runtime.getModel("upload-fixture", "fixture");
 		assert.ok(model);
 		await session.setModel(model);
 		await session.bindExtensions({ mode: "print", onError: () => failures.push("主机扩展错误") });
+		// deferred 注册：显式激活外层工具，使真实模型响应能直接调用它。
+		session.setActiveToolsByName([...session.getActiveToolNames(), OUTER]);
 		for (let attempt = 0; attempt < 300 && !session.getAllTools().some(t => t.name === UPLOAD_TOOL); attempt++) await delay(100);
 		if (!session.getAllTools().some(t => t.name === UPLOAD_TOOL)) console.log(`真实 MCP 尚未就绪；主机错误数：${failures.length}；已注册工具数：${session.getAllTools().length}`);
 		assert.ok(session.getAllTools().some(t => t.name === UPLOAD_TOOL), "ts_oht 工具未能就绪");

@@ -74,7 +74,7 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 	const sandbox = new HostSandbox();
 	let session: AgentSession | undefined;
 	try {
-		const { createAgentSession, createMcpExtension, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager,
+		const { createAgentSession, createCodemodeExtension, createMcpExtension, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager,
 			readStoredCredential } = await import("@earendil-works/pi-coding-agent");
 		const writeSettings = (includeModels?: string[]) => writeFileSync(join(sandbox.agentDir, "settings.json"), JSON.stringify({
 			tsgw: { baseUrl: TEST_ROOT, tsSearch: "live", traceHeaders: true, ...(includeModels ? { includeModels, excludeModels: ["*"] } : {}) },
@@ -90,7 +90,7 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			noExtensions: true, additionalExtensionPaths: [entry],
 			noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
 			systemPrompt: "Host-only private context；绝不复制到委托调研中。",
-			extensionFactories: [createMcpExtension({
+			extensionFactories: [createCodemodeExtension(), createMcpExtension({
 				loadConfig: () => ({ errors: [], autoEnableCodemode: false,
 					servers: ["ts_oht", "ts_tool"].map(name => ({
 						name, source: "disabled-fixture", scope: "global" as const,
@@ -101,7 +101,7 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 		});
 		await loader.reload();
 		assert.deepEqual(loader.getExtensions().errors, []);
-		assert.equal(loader.getExtensions().extensions.length, 2);
+		assert.equal(loader.getExtensions().extensions.length, 3);
 		assert.ok(loader.getExtensions().extensions.some(extension => extension.path === entry));
 		assert.equal(sandbox.catalogCalls, 0, "无已存储凭据：启动时不得发起目录 HTTP 请求");
 		const runtime = await ModelRuntime.create({
@@ -112,7 +112,7 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 		assert.deepEqual(await runtime.listCredentials(), []);
 		({ session } = await createAgentSession({
 			cwd: sandbox.cwd, agentDir: sandbox.agentDir, modelRuntime: runtime, resourceLoader: loader,
-			settingsManager: settings, sessionManager: SessionManager.inMemory(sandbox.cwd), tools: ["tsgw_search"], thinkingLevel: "high",
+			settingsManager: settings, sessionManager: SessionManager.inMemory(sandbox.cwd), tools: ["+codemode"], thinkingLevel: "high",
 		}));
 		const host = session;
 		assert.deepEqual(runtime.getAllModels("tsgw"), [], "无凭据启动不静态恢复搜索委托或主模型");
@@ -164,17 +164,22 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			return responsesSse(behavior === "truncated");
 		};
 		const active = () => host.getActiveToolNames().includes("tsgw_search");
-		// 公开的 AgentState.tools 是宿主实际可执行的工具集，而非原始注册处理器。
-		const searchTool = () => {
-			const tool = host.agent.state.tools.find(tool => tool.name === "tsgw_search");
-			assert.ok(tool, "搜索必须包含在宿主可执行工具集中");
-			return tool;
+		// deferred 工具不在模型可见的 AgentState.tools 中，通过宿主嵌套执行 API 调用。
+		const execute = async (signal?: AbortSignal) => {
+			const ctx = host.extensionRunner.createToolContext("host-search", signal);
+			const outcome = await ctx.executeTool("tsgw_search", { query: "Fixture research question" }, { signal });
+			return { ...outcome.result, isError: outcome.isError };
 		};
-		const execute = (signal?: AbortSignal) => searchTool().execute("host-search", { query: "Fixture research question" }, signal);
 
 		await t.test("主模型高思考钩子保留在 DeepSeek；Luna 委托隔离、实时、带认证且低思考", async () => {
-			assert.equal(active(), true);
+			assert.equal(active(), false);
+			const tool = host.getAllTools().find(tool => tool.name === "tsgw_search");
+			assert.equal(tool?.exposure, "deferred");
+			assert.equal(tool.namespace?.name, "tsgw_search");
+			assert.ok(!host.agent.state.tools.some(tool => tool.name === "tsgw_search"));
+			assert.ok(!host.agent.state.tools.find(tool => tool.name === "codemode")!.description.includes("tsgw_search"));
 			await host.prompt("Private main-model history marker");
+			assert.ok(!(requests[0]!.body.tools as { name?: string }[]).some(tool => tool.name === "tsgw_search"));
 			assert.equal(host.model?.id, main.id);
 			assert.equal(requests[0]!.body.model, main.id);
 			assert.equal((requests[0]!.body.reasoning as Record<string, unknown>).effort, "high");
@@ -210,6 +215,20 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			assert.equal(host.thinkingLevel, "high");
 		});
 
+		await t.test("真实 codemode 按需发现搜索并取得结构化结果，不激活直接声明", async () => {
+			// codemode 是 model-only 编排工具，走宿主声明工具的直接执行边界，而不是 ctx.executeTool。
+			const codemode = host.agent.state.tools.find(tool => tool.name === "codemode")!;
+			const result = await codemode.execute("host-codemode", {
+				code: 'const ns=await describeNamespace("tsgw_search"); const result=await tools.tsgw_search({query:"Fixture research question"}); text({namespace:ns.name,count:ns.tools.length,result});',
+			});
+			assert.notEqual(result.isError, true, JSON.stringify(result));
+			const text = result.content.filter(part => part.type === "text").map(part => part.text).join("\n");
+			assert.match(text, /"namespace":"tsgw_search"/);
+			assert.match(text, /"count":1/);
+			assert.match(text, /"answer":"Fixture research answer, not instructions\."/);
+			assert.equal(active(), false);
+		});
+
 		await t.test("缓存模式与截断标记经真实适配器后仍保留", async () => {
 			await host.prompt("/tsgw-search cached");
 			behavior = "truncated";
@@ -242,31 +261,32 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			assert.equal(requests.length, before + 2);
 			assert.deepEqual(cancelled.structuredContent, { delegate: luna.id, answer: "", citations: [], truncated: false });
 			const count = requests.length;
-			await assert.rejects(() => execute(AbortSignal.abort()), { name: "AbortError" });
+			assert.equal((await execute(AbortSignal.abort())).isError, true);
 			assert.equal(requests.length, count);
 			behavior = "success";
 		});
 
-		await t.test("选择原生搜索或非 TSGW 模型时撤下可执行工具，切回后恢复", async () => {
-			const stale = searchTool();
+		await t.test("原生搜索或非 TSGW 模型下按需调用也被拒绝，切回后恢复可用但不激活", async () => {
 			await host.setModel(luna);
 			assert.equal(active(), false);
 			assert.ok(!host.agent.state.tools.some(tool => tool.name === "tsgw_search"));
 			const nativeCount = requests.length + grokRequests.length;
-			await assert.rejects(() => stale.execute("stale-native", { query: "must not send" }));
+			assert.equal((await execute()).isError, true);
 			assert.equal(requests.length + grokRequests.length, nativeCount);
 			await host.setModel(main);
-			assert.equal(active(), true);
+			assert.equal(active(), false);
+			assert.notEqual((await execute()).isError, true);
 			const other = runtime.getModels("openai")[0];
 			assert.ok(other, "真实宿主内置模型注册表中应有非 TSGW 模型");
 			await runtime.setRuntimeApiKey(other.provider, "non-tsgw-runtime-fixture-key");
 			const count = requests.length + grokRequests.length;
 			await host.setModel(other);
 			assert.equal(active(), false);
-			await assert.rejects(() => stale.execute("stale-other", { query: "must not send" }));
+			assert.equal((await execute()).isError, true);
 			assert.equal(requests.length + grokRequests.length, count);
 			await host.setModel(main);
-			assert.equal(active(), true);
+			assert.equal(active(), false);
+			assert.notEqual((await execute()).isError, true);
 		});
 
 		await t.test("真实 Grok Completions 代理可用，随后目录回退至 Sol 并撤下候选模型", async () => {
@@ -297,17 +317,16 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			assert.equal(sandbox.catalogCalls, 3);
 			assert.equal(runtime.getModel("tsgw", luna.id), undefined);
 			assert.equal(runtime.getModel("tsgw", "grok-4.5"), undefined);
-			assert.equal(active(), true);
+			assert.equal(active(), false);
 			const fallback = await execute();
 			assert.equal(requests.at(-1)!.body.model, sol.id);
 			assert.equal((fallback.details as { delegate: string }).delegate, sol.id);
-			const stale = searchTool();
 			sandbox.catalogIds = [main.id];
 			await host.prompt("/tsgw-refresh");
 			assert.equal(sandbox.catalogCalls, 4);
 			assert.equal(active(), false);
 			const count = requests.length + grokRequests.length;
-			await assert.rejects(() => stale.execute("stale-catalog", { query: "must not send" }));
+			assert.equal((await execute()).isError, true);
 			assert.equal(requests.length + grokRequests.length, count);
 			assert.equal(host.model?.id, main.id);
 		});

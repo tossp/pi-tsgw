@@ -6,10 +6,16 @@ import { uploadLocalFile, type UploadDependencies } from "./uploader.ts";
 
 const linkSchema = Type.Object({ key: Type.String(), url: Type.String(), expiresAt: Type.String(), expiresIn: Type.Integer() });
 
+const namespace = {
+	name: "tsgw_upload",
+	description: "本地上传到私有 S3；仅通过 codemode 按需发现和调用。",
+	instructions: "调用前确认文件外传已获授权：文件位于 Pi 运行主机，不是浏览器所在机器。工具只经已连接的 ts_oht 工具上传，不建连接、不改配置。不会自动重试或补偿上传；失败或结果未知时保留 key／resume 凭条，仅在明确要求恢复时使用，恢复前停止其他客户端对同一文件的上传。返回的下载 URL 是持有者凭据，可能内联执行 HTML 等活动内容，不要记录预签名 URL。",
+};
+
 /** 不注册 MCP，也不访问凭据或配置：使用调用方当前可用的工具。 */
 export function registerUploadTool(pi: ExtensionAPI, dependencies: Pick<UploadDependencies, "put" | "remoteTimeoutMs"> = {}): void {
 	pi.registerTool({
-		name: "upload_local_file",
+		name: "tsgw_upload_local_file",
 		label: "上传本地文件",
 		description: "通过已连接的 ts_oht MCP，将明确授权的本地文件从 Pi 主机上传到私有 S3。" +
 			"返回持有者即可使用的临时下载 URL（inline 展示 HTML 可能执行）。存储内容约 7 天后清理。" +
@@ -34,6 +40,8 @@ export function registerUploadTool(pi: ExtensionAPI, dependencies: Pick<UploadDe
 			error: Type.Optional(Type.Object({ code: Type.String(), message: Type.String() })),
 		}),
 		reachesTools: () => [UPLOAD_TOOL, URL_TOOL],
+		exposure: "deferred",
+		namespace,
 		annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
 		async execute(_id, params, signal, onUpdate, ctx) {
 			const result = await uploadLocalFile(params, ctx.cwd, signal ?? ctx.signal ?? new AbortController().signal, {

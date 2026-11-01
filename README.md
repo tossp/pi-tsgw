@@ -29,6 +29,12 @@ pi install npm:pi-tsgw
 
 `/insagent` 显式安装标准子代理：覆盖当前定义，删除已退出清单的 `tsgw-*.md`，在代理目录的 `settings.json` 中启用 Agent 并停用 Pi Web 内置代理，最后自动重载当前会话；其他自定义代理和无关设置保留。
 
+## 工具入口
+
+图片、上传、代理搜索及可选邮件工具均为 `deferred` 注册，通过 codemode 按需发现和调用，不默认声明完整工具 schema。使用 `describeNamespace("tsgw_images")`、`describeNamespace("tsgw_upload")`、`describeNamespace("tsgw_search")` 或 `describeNamespace("tsgw_email")` 查看对应能力。用法见[图片技能](skills/tsgw-image-generation/SKILL.md)、[上传技能](skills/tsgw-upload/SKILL.md)、[搜索技能](skills/tsgw-search/SKILL.md)及[邮件技能](skills/tsgw-email/SKILL.md)。
+
+本地上传工具名为 `tsgw_upload_local_file`，不再提供旧名 `upload_local_file`；已有调用需更新。代理搜索仍遵守当前模型及可用目录限制，不因切换模型或刷新目录自动激活。
+
 ## 可选邮件配置
 
 邮件能力需要 Pi 1.2+。在宿主用户目录新增独立的 `tsgw-email.json`（权限 `0600`），然后 `/reload`；文件不存在就不注册邮件能力。以下地址与密码均为占位内容，`imap`、`smtp` 都支持任意多个自定义 ID：
@@ -61,6 +67,6 @@ pi install npm:pi-tsgw
 }
 ```
 
-`implicit` 表示连接即 TLS；`starttls` 必须成功升级 TLS，均校验证书。SMTP 可选 `fromName` 和 `envelopeFrom`；未配置后者时信封发件人跟随最终 From。邮件工具统一 `tsgw_email_` 前缀，通过 codemode 的 `describeNamespace("tsgw_email")` 按需发现，不直接声明或内联到模型上下文。无后台同步、磁盘缓存、自动重发、出口切换或发送后存档；读取不自动标已读。附件仅允许当前工作目录或系统临时目录，不允许访问宿主配置目录，符号链接按真实路径校验。超出读取预算、原始头部不是合法 UTF-8，或 inline 文本附件会被库转换字符集／flowed 格式时，会明确报告，不把截断或改写内容当作完整原文。
+`implicit` 表示连接即 TLS；`starttls` 必须成功升级 TLS，均校验证书。SMTP 可选 `fromName` 和 `envelopeFrom`；未配置后者时信封发件人跟随最终 From。`allowSenderOverride: true` 允许自定义发件地址和名称；可配非空 `allowedFromDomains` 数组限定最终 From 的域（含默认地址），忽略大小写，兼容 Unicode／Punycode，子域须单列；省略则不额外限制域，不影响已有配置。该字段不限制独立的 `envelopeFrom`，也不验证 SPF／DKIM／DMARC 或保证投递成功。邮件工具统一 `tsgw_email_` 前缀，通过 codemode 的 `describeNamespace("tsgw_email")` 按需发现，不直接声明或内联到模型上下文。无后台同步、磁盘缓存、自动重发、出口切换或发送后存档；读取不自动标已读。附件仅允许当前工作目录或系统临时目录，不允许访问宿主配置目录，符号链接按真实路径校验。超出读取预算、原始头部不是合法 UTF-8，或 inline 文本附件会被库转换字符集／flowed 格式时，会明确报告，不把截断或改写内容当作完整原文。
 
 开发维护约定见 [AGENTS.md](https://github.com/tossp/pi-tsgw/blob/main/AGENTS.md)。

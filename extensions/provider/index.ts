@@ -143,15 +143,12 @@ export async function registerTsgwProvider(
 	let publishStatus: (() => void) | undefined;
 	let refreshRevision = 0;
 	let lifecycleRevision = 0;
-	let sessionActive = false;
 	const rootConfigured = root !== DEFAULT_ROOT;
 	const directory = createCatalogState({ root, filter: modelFilter, cacheFilePath,
 		imagesEnabled, classifiersEnabled, initialKey: initialCatalogKey(),
 		onChange: () => {
 			latestModels = directory.models();
 			catalog = directory.status();
-			// 只加载 provider 的后台 runtime 没有 AgentSession，不能调用工具动作 API。
-			if (sessionActive) search.sync();
 			publishStatus?.();
 		},
 	});
@@ -297,10 +294,8 @@ export async function registerTsgwProvider(
 	pi.on("session_start", (_event, ctx) => {
 		stopRefreshes();
 		lifecycleRevision++;
-		sessionActive = true;
 		search.reset();
 		refreshRequestState(ctx);
-		search.sync();
 		bindStatus(ctx);
 		directory.enableNetwork();
 		// 只捕获宿主服务；session_start 不返回后台恢复的 Promise。
@@ -328,11 +323,9 @@ export async function registerTsgwProvider(
 	});
 	pi.on("agent_start", (_event, ctx) => {
 		refreshRequestState(ctx);
-		search.sync();
 		bindStatus(ctx);
 	});
 	pi.on("session_shutdown", () => {
-		sessionActive = false;
 		stopRefreshes();
 		directory.stop();
 		search.stop();
@@ -345,7 +338,6 @@ export async function registerTsgwProvider(
 			event.model,
 			requestState?.thinkingLevel ?? "off",
 		);
-		search.sync();
 		if (ctx) bindStatus(ctx);
 	});
 	pi.on("thinking_level_select", (event) => {

@@ -62,7 +62,8 @@ function fixture() {
 
 test("代理保存模式快照、向冻结请求体注入参数并保留 Pi 用量与引用 URL", async () => {
 	const f = fixture();
-	assert.equal(f.tool.defaultActive, false);
+	assert.equal(f.tool.exposure, "deferred");
+	assert.equal(f.tool.namespace?.name, "tsgw_search");
 	f.mode("cached");
 	const controller = new AbortController();
 	const result = await f.run(controller.signal);

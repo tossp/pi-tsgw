@@ -14,7 +14,7 @@ import { modelsForRoot, PROVIDER_ID } from "#tsgw/models/catalog";
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const BYTES = Buffer.from(PNG, "base64");
 const PROMPT = "isolated synthetic pixel, not a paid generation";
-const EXISTING_TOOLS = ["codemode", "tsgw_edit_image", "tsgw_generate_image", "tsgw_search", "upload_local_file"];
+const EXISTING_TOOLS = ["codemode", "tsgw_edit_image", "tsgw_generate_image", "tsgw_search", "tsgw_upload_local_file"];
 const context = { input: [{ type: "text" as const, text: PROMPT }] };
 
 /** 无论运行源码还是 dist，始终交给真实 DefaultResourceLoader/jiti 加载源码入口。 */
@@ -137,7 +137,7 @@ test("Pi SDK 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 		assert.deepEqual(await runtime.listCredentials(), []);
 		({ session } = await createAgentSession({ cwd: sandbox.cwd, agentDir: sandbox.agentDir,
 			modelRuntime: runtime, resourceLoader: loader, settingsManager: settings,
-			sessionManager: SessionManager.inMemory(sandbox.cwd), tools: ["codemode"], thinkingLevel: "off" }));
+			sessionManager: SessionManager.inMemory(sandbox.cwd), tools: ["+codemode"], thinkingLevel: "off" }));
 		await session.bindExtensions({ mode: "print", onError: error => { errors.push(error); } });
 		const activeSession = session;
 		const images = () => runtime.getModelsOfType("image", PROVIDER_ID);
@@ -193,7 +193,7 @@ test("Pi SDK 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 			}
 			assert.deepEqual(tools(), EXISTING_TOOLS, "仅增加两个明确图片工具，保持既有工具");
 			assert.deepEqual([...loader.getExtensions().extensions.find(extension => extension.path === entry)!.tools.keys()].sort(),
-				["tsgw_edit_image", "tsgw_generate_image", "tsgw_search", "upload_local_file"]);
+				["tsgw_edit_image", "tsgw_generate_image", "tsgw_search", "tsgw_upload_local_file"]);
 		});
 
 		await t.test("无认证图片不可用，失败不发 HTTP；同一个 runtime key 解锁 chat 和 image", async () => {
@@ -296,6 +296,30 @@ text("native-images-completed");`;
 			for (const block of blocks) assertPng(block);
 			assert.match(JSON.stringify(parent.content.filter(block => block.type === "text")), /native-images-completed/);
 			assert.equal(activeSession.getLastAssistantText(), "fixture reply");
+			assert.deepEqual(tools(), EXISTING_TOOLS);
+		});
+
+		await t.test("图片工具 deferred：默认不声明、不内联到 codemode，按需发现后可嵌套调用", async () => {
+			for (const name of ["tsgw_generate_image", "tsgw_edit_image"]) assert.equal(activeSession.getActiveToolNames().includes(name), false, "deferred 工具不自动激活");
+			const codemode = activeSession.agent.state.tools.find(tool => tool.name === "codemode")!;
+			assert.ok(!codemode.description.includes("tsgw_images"), "命名空间不应把逐工具 schema 内联到上下文");
+			const before = imageRequests.length;
+			script = `const ns = await describeNamespace("tsgw_images");
+if (!ns || ns.tools.length !== 2) throw new Error("expected the tsgw_images namespace");
+const result = await tools.tsgw_generate_image({ prompt: "nested deferred fixture" });
+if (result.requestStatus !== "succeeded" || result.phase !== "complete") throw new Error("nested image tool did not complete");
+text({ namespace: ns.name, files: result.files.length, phase: result.phase });`;
+			await activeSession.prompt("执行 deferred 图片工具的嵌套调用。");
+			assert.equal(script, undefined, "SSE 必须已由真实聊天适配器消费");
+			assert.equal(imageRequests.length, before + 1, "嵌套调用恰好一次 HTTP");
+			assert.equal(imageRequests.at(-1)!.body.prompt, "nested deferred fixture");
+			const parent = activeSession.messages.filter(message => message.role === "toolResult").at(-1)!;
+			assert.equal(parent.toolName, "codemode");
+			assert.equal(parent.isError, false, JSON.stringify(parent.content));
+			const report = parent.content.filter(block => block.type === "text").map(block => block.text).join("");
+			assert.match(report, /"namespace":"tsgw_images"/);
+			assert.match(report, /"files":1/);
+			assert.ok(!report.includes(PNG), "结构化结果不得内联图片字节");
 			assert.deepEqual(tools(), EXISTING_TOOLS);
 		});
 

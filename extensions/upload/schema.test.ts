@@ -11,7 +11,7 @@ import { decodeReceipt, encodeReceipt, type Receipt } from "./protocol.ts";
 import { openLocalFile } from "./local-file.ts";
 import { uploadLocalFile, type UploadDependencies } from "./uploader.ts";
 
-let tool!: Pick<Parameters<ExtensionAPI["registerTool"]>[0], "name" | "description" | "parameters" | "outputSchema">;
+let tool!: Pick<Parameters<ExtensionAPI["registerTool"]>[0], "name" | "description" | "parameters" | "outputSchema" | "exposure" | "namespace" | "defaultActive">;
 registerUploadTool({ registerTool: value => { tool = value; } } as ExtensionAPI);
 const validate = (args: JsonObject): Record<string, unknown> => validateToolArguments(tool, {
 	type: "toolCall", id: "validation-fixture", name: tool.name, arguments: args,
@@ -20,6 +20,13 @@ const receipt: Receipt = {
 	version: 1, key: "fixture/report.txt", mode: "single", phase: "upload", fingerprint: "a".repeat(64),
 	metadata: { filename: "report.txt", contentType: "text/plain", size: 3, mtimeMs: 1, ctimeMs: 1 },
 };
+
+test("上传工具使用统一前缀并以 deferred 注册，不默认激活", () => {
+	assert.equal(tool.name, "tsgw_upload_local_file");
+	assert.equal(tool.exposure, "deferred");
+	assert.equal(tool.defaultActive, undefined);
+	assert.equal(tool.namespace?.name, "tsgw_upload");
+});
 
 test("上传工具暴露的输入与输出 schema 均不包含 lookaround", () => {
 	const check = (value: unknown): void => {

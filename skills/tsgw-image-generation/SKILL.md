@@ -16,6 +16,8 @@ compatibility: 需要 Pi 1.2+、`codemode` 工具、pi-tsgw 图片工具及可�
 
 按用户任务选择模型和参数。`prompt` 写清主体、构图、风格、尺寸意图，以及需要呈现或保留的文字与细节；编辑时区分“修改什么”和“保留什么”。
 
+图片工具以 `deferred` 注册：不直接声明给模型，也不列在 `codemode` 描述中，但脚本可以直接按上面的名字调用。需要核对字段或发现可用工具时，先用 `describeNamespace("tsgw_images")`、`searchTools("图片")` 或 `describeTool("tsgw_generate_image")` 查看，再调用。
+
 ## 通过 `codemode` 工具调用
 
 生成和编辑都通过 `codemode` 工具脚本调用 `tools.tsgw_generate_image()` 或 `tools.tsgw_edit_image()`；不要直接调用图片工具。检查调用状态与返回文件，按用户意图保存、发送、继续编辑或展示，不强制预览。保存、发送或编辑直接使用返回文件；仅需在对话中展示时，才用 `tools.read()` 读取并调用 `image(block)`。`text(result)` 只报告状态和路径，不代表后续交付已完成；不要打印图片 base64。工具不可用时说明条件不足，不改用其他调用方式或擅自修改配置。
@@ -39,7 +41,7 @@ text(result);
 | --- | --- |
 | 展示图片 | 对返回文件执行 `tools.read()`，再 `image(block)` |
 | 保存图片 | 将原始文件保存到用户要求的位置；临时路径不等于已持久保存到指定位置 |
-| 发送或上传 | 在已有授权范围内交给相应工具，并依据结果确认完成 |
+| 发送或上传 | 在已有授权范围内交给相应工具；上传见[本地文件上传技能](../tsgw-upload/SKILL.md)，依据结果确认完成 |
 | 继续编辑 | 将原始文件路径用于下一次 `images[].path`，无需先读预览 |
 
 ## 编辑参考图

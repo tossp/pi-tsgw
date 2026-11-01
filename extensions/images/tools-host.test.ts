@@ -51,7 +51,7 @@ function toolSse(name: string, args: unknown, sequence: number): Response {
 
 // 仅替代HTTP响应。宿主、工具schema、权限钩子、认证、调度及tool result均真实执行。
 // 这不是自然语言模型选择技能/工具的验收。
-test("Pi 1.2 图片工具：没有 codemode 也能生成、编辑、展示并记录用量", { timeout: 60_000 }, async t => {
+test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也能生成、编辑、展示并记录用量", { timeout: 60_000 }, async t => {
 	const entry = sourceEntry();
 	const originalEnv = { ...process.env };
 	const originalCwd = process.cwd();
@@ -156,6 +156,10 @@ test("Pi 1.2 图片工具：没有 codemode 也能生成、编辑、展示并记
 		assert.ok(chat);
 		await session.setModel(chat);
 		const active = session;
+		// deferred 注册：图片工具默认不声明给模型；本用例显式激活，覆盖宿主已声明工具的直接调用路径。
+		assert.equal(active.getActiveToolNames().includes(GENERATED), false);
+		active.setActiveToolsByName([...active.getActiveToolNames(), GENERATED, EDITED]);
+		assert.ok(active.getActiveToolNames().includes(GENERATED) && active.getActiveToolNames().includes(EDITED));
 		const reloadWithCatalog = async () => {
 			const before = sandbox.catalogCalls;
 			await active.reload();

@@ -7,7 +7,7 @@ import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-age
 import type { JsonRpcMessage } from "@earendil-works/pi-mcp";
 import { HostSandbox, TEST_KEY, TEST_ROOT } from "#tsgw/host-test-support.test";
 
-const OUTER = "upload_local_file";
+const OUTER = "tsgw_upload_local_file";
 const UPLOAD = "mcp__ts_oht__upload_file";
 const LINK = "mcp__ts_oht__get_file_url";
 const CONTENT = "readiness fixture\n";
@@ -129,11 +129,13 @@ test("Pi 1.2 SDK：上传 reachesTools 等待真实 MCP 工具发现", { timeout
 						modelsPath: join(sandbox.agentDir, "models.json"), modelsStorePath: join(sandbox.agentDir, "models-store.json"),
 						allowModelNetwork: false, refreshOnCreate: false });
 					({ session } = await createAgentSession({ cwd: sandbox.cwd, agentDir: sandbox.agentDir, modelRuntime: runtime,
-						resourceLoader: loader, settingsManager: settings, sessionManager: SessionManager.inMemory(sandbox.cwd), tools: [OUTER] }));
+						resourceLoader: loader, settingsManager: settings, sessionManager: SessionManager.inMemory(sandbox.cwd) }));
 					const model = runtime.getModel("readiness-fixture", "fixture");
 					assert.ok(model);
 					await session.setModel(model);
 					await session.bindExtensions({ mode: "print", onError: error => errors.push(error) });
+					// deferred 注册：外层工具不靠激活也要经 ctx.executeTool 可按需调用。
+					assert.equal(session.getActiveToolNames().includes(OUTER), false);
 					// 嵌套流水线需要实际的助手消息。先通过真实 HTTP SSE 适配器
 					// 创建消息，再使用公开的上下文执行 API。
 					await session.prompt("我授权在隔离测试场景中上传 report.txt。");

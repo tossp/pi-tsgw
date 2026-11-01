@@ -48,7 +48,11 @@ async function testChatCompletionsCompatibility(): Promise<void> {
 
 async function testTsSearchRegistration(): Promise<void> {
 	const pi = await createPi();
-	deepStrictEqual(pi.tools.map(tool => (tool as { name: string }).name), ["upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_search"]);
+	deepStrictEqual(pi.tools.map(tool => (tool as { name: string }).name), ["tsgw_upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_search"]);
+	for (const tool of pi.tools as { exposure?: string; namespace?: { name: string } }[]) {
+		equal(tool.exposure, "deferred");
+		equal(typeof tool.namespace?.name, "string");
+	}
 }
 
 async function testSafeProviderHooksAfterContextStales(): Promise<void> {
