@@ -8,6 +8,8 @@ license: MIT
 
 通过 codemode 按需发现和调用 `tsgw_email` 命名空间：先用 `describeNamespace("tsgw_email")` 查看工具，再用 `describeTool("tsgw_email_<工具名>")` 读取本次所需工具的说明和参数，按其提示执行。不预加载整套工具 schema。
 
+工具是否可发现不取决于配置有无。遇到 `CONFIG_REQUIRED` 或 `CONFIG_INVALID` 时，按工具结果指导用户在宿主用户目录的 `tsgw.json` 中配置 `imap`／`smtp` 组，不索取聊天中的密码、不自动读取或迁移旧凭据。两类可独立配置；发信未指定账户时使用 `smtp` 组首项，不自动换出口。
+
 以下工具均带 `tsgw_email_` 前缀：
 
 | 工具 | 用途 |

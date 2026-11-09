@@ -39,7 +39,7 @@ pi install npm:pi-tsgw
 
 ## 可选邮件配置
 
-邮件能力需要 Pi 1.2+。在宿主用户目录新增独立的 `tsgw-email.json`（权限 `0600`），然后 `/reload`；文件不存在就不注册邮件能力。以下地址与密码均为占位内容，`imap`、`smtp` 都支持任意多个自定义 ID：
+邮件能力需要 Pi 1.2+，工具始终通过 codemode 按需发现；调用缺配置时会提示所需字段。在宿主用户目录配置统一的 `tsgw.json`（权限 `0600`），顶层按 `imap`、`smtp` 等协议类型分组，每组为 ID 到配置的映射；不同类型可使用同名 ID，IMAP 与 SMTP 可独立配置。以下地址与密码均为占位内容：
 
 ```json
 {
@@ -64,10 +64,11 @@ pi install npm:pi-tsgw
       "fromAddress": "sender@example.invalid",
       "allowSenderOverride": false
     }
-  },
-  "defaultSmtp": "outbound"
+  }
 }
 ```
+
+发信未指定 SMTP 时默认使用 `smtp` 组按对象枚举顺序注册的首项，显式指定账户优先，失败不切换；文件中不再配置 `defaultSmtp`。旧 `tsgw-email.json` 不再读取，不会自动迁移或删除；迁移时保留原账户字段，并通过账户工具返回的 `defaultSmtp` 核对默认身份；纯数字 ID 按对象枚举规则排序，必要时显式指定 SMTP。首次配置可在提示后重试；已加载账户的修改通过 `/reload` 生效，不在启动时连接服务。密码仅在本地填写，不要贴进聊天。
 
 `implicit` 表示连接即 TLS；`starttls` 必须成功升级 TLS，均校验证书。SMTP 可选 `fromName` 和 `envelopeFrom`；未配置后者时信封发件人跟随最终 From。`allowSenderOverride: true` 允许自定义发件地址和名称；可配非空 `allowedFromDomains` 数组限定最终 From 的域（含默认地址），忽略大小写，兼容 Unicode／Punycode，子域须单列；省略则不额外限制域，不影响已有配置。该字段不限制独立的 `envelopeFrom`，也不验证 SPF／DKIM／DMARC 或保证投递成功。邮件工具统一 `tsgw_email_` 前缀，通过 codemode 的 `describeNamespace("tsgw_email")` 按需发现，不直接声明或内联到模型上下文。无后台同步、磁盘缓存、自动重发、出口切换或发送后存档；读取不自动标已读。附件仅允许当前工作目录或系统临时目录，不允许访问宿主配置目录，符号链接按真实路径校验。超出读取预算、原始头部不是合法 UTF-8，或 inline 文本附件会被库转换字符集／flowed 格式时，会明确报告，不把截断或改写内容当作完整原文。
 

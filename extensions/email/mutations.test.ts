@@ -143,7 +143,6 @@ function emailConfig(): EmailConfig {
 				password: "smtp-pw", fromAddress: "work@example.invalid", allowSenderOverride: false,
 			},
 		},
-		defaultSmtp: "work",
 	};
 }
 

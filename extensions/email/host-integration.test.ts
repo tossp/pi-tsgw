@@ -34,7 +34,7 @@ function sourceModule(): string {
 }
 
 // SDK、扩展加载器与 codemode VM 均用真实实现；只用临时配置，网络套接字被全面阻断。
-test("真实 Pi：配置门控、全部 codemode-only、按需发现调用与重载撤下", { timeout: 60_000 }, async t => {
+test("真实 Pi：固定 deferred 注册、按需配置门控、codemode 调用与会话重载", { timeout: 60_000 }, async t => {
 	const module = sourceModule();
 	const sandbox = new HostSandbox();
 	let host: AgentSession | undefined;
@@ -86,22 +86,23 @@ test("真实 Pi：配置门控、全部 codemode-only、按需发现调用与重
 			assert.notEqual(result.isError, true, JSON.stringify(result));
 			return result.content.filter(part => part.type === "text").map(part => part.text).join("\n");
 		};
-		const path = join(sandbox.agentDir, "tsgw-email.json");
+		const path = join(sandbox.agentDir, "tsgw.json");
 
-		await t.test("无文件时完全不注册，不为邮件建磁盘缓存", async () => {
-			assert.deepEqual(emailTools(), []);
+		await t.test("无文件仍可发现工具，调用返回配置指导且不创建配置或磁盘缓存", async () => {
+			assert.ok(emailTools().some(tool => tool.name === "tsgw_email_accounts"));
 			assert.equal(existsSync(join(sandbox.agentDir, "cache/tsgw-email")), false);
-			const output = await execute('text({absent:(await describeNamespace("tsgw_email"))===undefined});');
-			assert.match(output, /"absent":true/);
+			const output = await execute('const ns=await describeNamespace("tsgw_email"); const r=await tools.tsgw_email_accounts({}); text({namespace:ns.name,result:r});');
+			assert.match(output, /"namespace":"tsgw_email"/);
+			assert.match(output, /CONFIG_REQUIRED/);
+			assert.match(output, /tsgw\.json/);
+			assert.equal(existsSync(path), false);
 		});
-		await t.test("有效配置后只注册 codemode 工具，模型可见工具与声明均不包含邮件 schema", async () => {
+		await t.test("补齐有效配置无需重载，工具始终只供 codemode 发现，不内联 schema", async () => {
 			writeFileSync(path, JSON.stringify({
 				imap: { aliases: { host: "imap.example.invalid", port: 993, tls: "implicit", user: "synthetic-login", password: "synthetic-secret-imap", trashMailbox: "Trash", junkMailbox: "Junk" } },
 				smtp: { outbound: { host: "smtp.example.invalid", port: 587, tls: "starttls", user: "synthetic-smtp-login", password: "synthetic-secret-smtp", fromAddress: "sender@example.invalid" } },
-				defaultSmtp: "outbound",
 			}), { mode: 0o600 });
 			chmodSync(path, 0o600);
-			await session.reload();
 			assert.deepEqual(loader.getExtensions().errors, []);
 			assert.equal(emailTools().length, 14);
 			for (const tool of emailTools()) {
@@ -130,14 +131,18 @@ test("真实 Pi：配置门控、全部 codemode-only、按需发现调用与重
 			assert.match(output, /"rejected":3/);
 			assert.deepEqual(sandbox.blocked, []);
 		});
-		await t.test("移除配置并重载后撤下工具；无效文件也不会留下旧工具", async () => {
+		await t.test("移除配置并重载后工具保留，缺文件或无效文件在调用时安全报错", async () => {
 			rmSync(path);
 			await session.reload();
-			assert.deepEqual(emailTools(), []);
+			assert.ok(emailTools().some(tool => tool.name === "tsgw_email_accounts"));
 			assert.ok(!session.agent.state.tools.find(tool => tool.name === "codemode")!.description.includes("tsgw_email"));
+			const missing = await execute('text(await tools.tsgw_email_accounts({}));');
+			assert.match(missing, /CONFIG_REQUIRED/);
 			writeFileSync(path, '{"password":"do-not-echo-broken-config"', { mode: 0o600 });
-			await session.reload();
-			assert.deepEqual(emailTools(), []);
+			const invalid = await execute('text(await tools.tsgw_email_accounts({}));');
+			assert.match(invalid, /CONFIG_INVALID/);
+			assert.ok(!invalid.includes("do-not-echo-broken-config"));
+			assert.ok(emailTools().every(tool => tool.exposure === "deferred"));
 		});
 		assert.deepEqual(errors, []);
 		assert.deepEqual(sandbox.blocked, []);

@@ -49,7 +49,9 @@ async function testChatCompletionsCompatibility(): Promise<void> {
 
 async function testTsSearchRegistration(): Promise<void> {
 	const pi = await createPi();
-	deepStrictEqual(pi.tools.map(tool => (tool as { name: string }).name), ["tsgw_upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_search"]);
+	const names = pi.tools.map(tool => (tool as { name: string }).name);
+	for (const name of ["tsgw_upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_search", "tsgw_email_accounts", "tsgw_email_send"])
+		equal(names.includes(name), true, `必须注册工具 ${name}`);
 	for (const tool of pi.tools as { exposure?: string; namespace?: { name: string } }[]) {
 		equal(tool.exposure, "deferred");
 		equal(typeof tool.namespace?.name, "string");

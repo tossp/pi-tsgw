@@ -68,7 +68,8 @@ export class EmailSender {
 	) {}
 
 	async send(input: SendInput, signal?: AbortSignal): Promise<SendResult> {
-		const smtp = input.smtp === undefined ? this.config.defaultSmtp : input.smtp;
+		const smtp = input.smtp ?? Object.keys(this.config.smtp)[0];
+		if (smtp === undefined) return failed("", "未配置 SMTP 账户；请在 tsgw.json 的 smtp 组中填写发信配置，尚未发送。");
 		if (this.disposed) return failed(smtp, "邮件发送器已关闭。");
 		if (signal?.aborted) return failed(smtp, "邮件发送已取消，尚未发送。");
 		if (!Object.hasOwn(this.config.smtp, smtp)) return failed(smtp, "指定的 SMTP 出口不存在。");

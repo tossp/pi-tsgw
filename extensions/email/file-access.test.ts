@@ -13,7 +13,8 @@ test("附件读写边界：工作/临时目录允许，配置/外部目录与越
 	const agent = join(root, "agent");
 	const outside = join(root, "outside");
 	for (const path of [cwd, temp, agent, outside]) mkdirSync(path);
-	for (const path of [join(cwd, "report.txt"), join(temp, "download.bin"), join(agent, "tsgw-email.json"), join(outside, "private.txt")])
+	const credentialFiles = ["tsgw.json", "tsgw-email.json", "email-config.json"];
+	for (const path of [join(cwd, "report.txt"), join(temp, "download.bin"), ...credentialFiles.map(name => join(agent, name)), join(outside, "private.txt")])
 		writeFileSync(path, "合成内容");
 	const previousAgent = process.env.PI_CODING_AGENT_DIR;
 	const previousTemp = process.env.TMPDIR;
@@ -24,14 +25,20 @@ test("附件读写边界：工作/临时目录允许，配置/外部目录与越
 		assert.equal(await emailFilePath(join(temp, "download.bin"), cwd), join(temp, "download.bin"));
 		assert.equal(await emailFilePath("new.bin", cwd, true), join(cwd, "new.bin"));
 		await assert.rejects(emailFilePath(join(outside, "private.txt"), cwd), /附件仅允许/);
-		await assert.rejects(emailFilePath(join(agent, "tsgw-email.json"), cwd), /附件仅允许/);
+		for (const name of credentialFiles) {
+			await assert.rejects(emailFilePath(join(agent, name), cwd), /附件仅允许/);
+			await assert.rejects(emailFilePath(join(agent, name), root), /附件仅允许/, "cwd覆盖agent时也不能读取凭据");
+			await assert.rejects(emailFilePath(join(agent, name), root, true), /附件仅允许/, "不能将附件写入凭据文件");
+		}
 		await assert.rejects(emailFilePath(join(agent, "new.json"), cwd, true), /附件仅允许/);
-		await assert.rejects(emailFilePath(join(agent, "tsgw-email.json"), root), /附件仅允许/, "cwd覆盖agent时也不能读取凭据");
 		await assert.rejects(emailFilePath("https://example.invalid/file", cwd), /路径不存在或不可访问/);
 		symlinkSync(join(outside, "private.txt"), join(cwd, "external-link"));
 		await assert.rejects(emailFilePath("external-link", cwd), /附件仅允许/);
-		symlinkSync(join(agent, "tsgw-email.json"), join(cwd, "credential-link"));
-		await assert.rejects(emailFilePath("credential-link", cwd), /附件仅允许/);
+		for (const [index, name] of credentialFiles.entries()) {
+			const link = `credential-link-${index}`;
+			symlinkSync(join(agent, name), join(cwd, link));
+			await assert.rejects(emailFilePath(link, cwd), /附件仅允许/);
+		}
 		symlinkSync(agent, join(cwd, "config-directory"));
 		await assert.rejects(emailFilePath("config-directory/new.json", cwd, true), /附件仅允许/);
 		symlinkSync(join(cwd, "report.txt"), join(cwd, "safe-link"));

@@ -14,7 +14,7 @@ import { modelsForRoot, PROVIDER_ID } from "#tsgw/models/catalog";
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 const BYTES = Buffer.from(PNG, "base64");
 const PROMPT = "isolated synthetic pixel, not a paid generation";
-const EXISTING_TOOLS = ["codemode", "tsgw_edit_image", "tsgw_generate_image", "tsgw_search", "tsgw_upload_local_file"];
+const IMAGE_TOOLS = ["tsgw_edit_image", "tsgw_generate_image"];
 const context = { input: [{ type: "text" as const, text: PROMPT }] };
 
 /** 无论运行源码还是 dist，始终交给真实 DefaultResourceLoader/jiti 加载源码入口。 */
@@ -146,7 +146,9 @@ test("Pi SDK 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 			assert.ok(model, `缺少图片模型 ${id}`);
 			return model;
 		};
-		const tools = () => activeSession.extensionRunner.getAllRegisteredTools().map(tool => tool.definition.name).sort();
+		const imageTools = () => activeSession.extensionRunner.getAllRegisteredTools()
+			.filter(tool => tool.definition.namespace?.name === "tsgw_images");
+		const imageToolNames = () => imageTools().map(tool => tool.definition.name).sort();
 		const reloadWithCatalog = async () => {
 			const before = sandbox.catalogCalls;
 			await activeSession.reload();
@@ -192,9 +194,10 @@ test("Pi SDK 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 				assert.equal(image(id).api, IMAGE_API);
 				assert.deepEqual(image(id).input, ["text", "image"]);
 			}
-			assert.deepEqual(tools(), EXISTING_TOOLS, "仅增加两个明确图片工具，保持既有工具");
-			assert.deepEqual([...loader.getExtensions().extensions.find(extension => extension.path === entry)!.tools.keys()].sort(),
-				["tsgw_edit_image", "tsgw_generate_image", "tsgw_search", "tsgw_upload_local_file"]);
+			assert.deepEqual(imageToolNames(), IMAGE_TOOLS, "图片命名空间只包含两个明确图片工具");
+			assert.ok(imageTools().every(tool => tool.definition.exposure === "deferred"));
+			assert.deepEqual([...loader.getExtensions().extensions.find(extension => extension.path === entry)!.tools.values()]
+				.filter(tool => tool.definition.namespace?.name === "tsgw_images").map(tool => tool.definition.name).sort(), IMAGE_TOOLS);
 		});
 
 		await t.test("无认证图片不可用，失败不发 HTTP；同一个 runtime key 解锁 chat 和 image", async () => {
@@ -297,7 +300,7 @@ text("native-images-completed");`;
 			for (const block of blocks) assertPng(block);
 			assert.match(JSON.stringify(parent.content.filter(block => block.type === "text")), /native-images-completed/);
 			assert.equal(activeSession.getLastAssistantText(), "fixture reply");
-			assert.deepEqual(tools(), EXISTING_TOOLS);
+			assert.deepEqual(imageToolNames(), IMAGE_TOOLS);
 		});
 
 		await t.test("图片工具 deferred：默认不声明、不内联到 codemode，按需发现后可嵌套调用", async () => {
@@ -321,7 +324,7 @@ text({ namespace: ns.name, files: result.files.length, phase: result.phase });`;
 			assert.match(report, /"namespace":"tsgw_images"/);
 			assert.match(report, /"files":1/);
 			assert.ok(!report.includes(PNG), "结构化结果不得内联图片字节");
-			assert.deepEqual(tools(), EXISTING_TOOLS);
+			assert.deepEqual(imageToolNames(), IMAGE_TOOLS);
 		});
 
 		await t.test("预取消不发 HTTP；进行中取消、网络错误及 503 都不自动重试", async () => {
@@ -387,7 +390,7 @@ text({ namespace: ns.name, files: result.files.length, phase: result.phase });`;
 			assert.ok(image(IMAGE_MODEL_IDS[0]), "重载并真实刷新后图片模型及其实现仍可调度");
 			const result = await runtime.generateImages(image(IMAGE_MODEL_IDS[0]), context);
 			assert.equal(result.stopReason, "stop", result.errorMessage ?? "重载后图片应仍可生成");
-			assert.deepEqual(tools(), EXISTING_TOOLS);
+			assert.deepEqual(imageToolNames(), IMAGE_TOOLS);
 			sandbox.catalogIds = ["unknown-chat"];
 			await activeSession.prompt("/tsgw-refresh");
 			assert.deepEqual(runtime.getAllModels(PROVIDER_ID).map(model => model.id), [...IMAGE_MODEL_IDS]);

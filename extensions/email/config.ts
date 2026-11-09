@@ -1,13 +1,6 @@
-import { getAgentDir } from "@earendil-works/pi-coding-agent";
-import { readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
 import { normalizeFromDomain } from "./sender-domain.ts";
 
-/**
- * 邮件配置只读取宿主 agent 目录下的 `tsgw-email.json`。
- * 文件不存在表示邮件功能关闭；配置无效时只让邮件不可用，不抛错影响其他功能。
- * 文件与返回值都含明文凭据：调用方不得普通记录 ready 的 config 或原始文件内容。
- */
+/** 仅负责账户字段校验；文件定位与按类型加载交给统一配置入口。返回值含凭据，不得普通记录。 */
 
 export type EmailTls = "implicit" | "starttls";
 
@@ -42,14 +35,11 @@ export interface SmtpConfig {
 	envelopeFrom?: string;
 }
 
-/** 顶层 `imap`、`smtp` 是账户 ID 映射；`defaultSmtp` 必须是 `smtp` 的自有键。 */
+/** IMAP 与 SMTP 独立配置；默认发信账户由 SMTP 映射首项决定。 */
 export interface EmailConfig {
 	imap: Record<string, ImapAccountConfig>;
 	smtp: Record<string, SmtpConfig>;
-	defaultSmtp: string;
 }
-
-const CONFIG_FILE = "tsgw-email.json";
 const IMAP_FIELDS = [
 	"host",
 	"port",
@@ -71,15 +61,15 @@ const SMTP_FIELDS = [
 	"allowedFromDomains",
 	"envelopeFrom",
 ] as const;
-const ROOT_FIELDS = ["imap", "smtp", "defaultSmtp"] as const;
+const ROOT_FIELDS = ["imap", "smtp", "dav"] as const;
 
 // 控制字符会污染邮件头或日志，凭据以外的一切字符串都在入口拒绝。
 const CONTROL = /[\u0000-\u001f\u007f]/;
 // 只做基础格式与头注入防护，不实现 RFC 5322 解析器。
 const ADDRESS_FORBIDDEN = /[\s<>(),;:\\"[\]]/;
 
-/** 内部错误类型：`readEmailConfig` 只向调用方转发本类型的安全消息。 */
-class EmailConfigError extends Error {}
+/** 只有入口主动构造的安全消息可进入配置或工具结果。 */
+export class EmailConfigError extends Error {}
 
 function fail(message: string): never {
 	throw new EmailConfigError(`邮件配置无效：${message}`);
@@ -163,10 +153,9 @@ function checkAccountId(channel: string, index: number, id: string): void {
 		fail(`${channel} 第 ${index + 1} 个账户的 ID 必须是非空且不含控制字符的字符串。`);
 }
 
-function parseImapAccounts(raw: unknown): Record<string, ImapAccountConfig> {
+export function parseImapAccounts(raw: unknown): Record<string, ImapAccountConfig> {
 	if (!isRecord(raw)) fail("imap 必须是账户 ID 到账户配置的映射对象。");
 	const ids = Object.keys(raw);
-	if (ids.length === 0) fail("imap 至少需要一个账户。");
 	const entries: [string, ImapAccountConfig][] = [];
 	for (const [index, id] of ids.entries()) {
 		checkAccountId("imap", index, id);
@@ -190,10 +179,9 @@ function parseImapAccounts(raw: unknown): Record<string, ImapAccountConfig> {
 	return Object.fromEntries(entries);
 }
 
-function parseSmtpConfigs(raw: unknown): Record<string, SmtpConfig> {
+export function parseSmtpConfigs(raw: unknown): Record<string, SmtpConfig> {
 	if (!isRecord(raw)) fail("smtp 必须是账户 ID 到账户配置的映射对象。");
 	const ids = Object.keys(raw);
-	if (ids.length === 0) fail("smtp 至少需要一个账户。");
 	const entries: [string, SmtpConfig][] = [];
 	for (const [index, id] of ids.entries()) {
 		checkAccountId("smtp", index, id);
@@ -242,55 +230,8 @@ function fromDomainsField(raw: unknown, where: string): string[] {
 export function parseEmailConfig(raw: unknown): EmailConfig {
 	if (!isRecord(raw)) fail("顶层必须是 JSON 对象。");
 	rejectUnknownFields(raw, ROOT_FIELDS, "顶层");
-	const imap = parseImapAccounts(raw.imap);
-	const smtp = parseSmtpConfigs(raw.smtp);
-	const defaultSmtp = raw.defaultSmtp;
-	if (typeof defaultSmtp !== "string" || defaultSmtp.length === 0)
-		fail("defaultSmtp 必须是已定义 SMTP 账户的 ID。");
-	// 用自有键判断，避免 toString、constructor 等原型属性冒充已定义账户。
-	if (!Object.hasOwn(smtp, defaultSmtp))
-		fail("defaultSmtp 必须是 smtp 中已定义的账户 ID。");
-	return { imap, smtp, defaultSmtp };
-}
-
-/**
- * 读取宿主 agent 目录中的邮件配置（测试可显式传入 agentDir）。
- * 只读批准文件：不创建目录或文件、不扫描旧配置、不迁移凭据、不联网。
- */
-export function readEmailConfig(agentDir?: string):
-	| { status: "disabled" }
-	| { status: "invalid"; message: string }
-	| { status: "ready"; config: EmailConfig } {
-	let path: string;
-	try {
-		path = join(agentDir ?? getAgentDir(), CONFIG_FILE);
-	} catch {
-		return { status: "invalid", message: "无法定位邮件配置文件。" };
-	}
-	let text: string;
-	try {
-		const stats = statSync(path);
-		if (!stats.isFile()) return { status: "invalid", message: "邮件配置路径不是普通文件。" };
-		if ((stats.mode & 0o777) !== 0o600)
-			return { status: "invalid", message: "邮件配置文件权限必须是 0600。" };
-		text = readFileSync(path, "utf8");
-	} catch (error) {
-		// 无文件（含 agent 目录尚不存在）视为关闭，其余读取失败视为配置无效。
-		const code = (error as { code?: unknown } | null)?.code;
-		if (code === "ENOENT" || code === "ENOTDIR") return { status: "disabled" };
-		return { status: "invalid", message: "邮件配置文件无法读取。" };
-	}
-	let raw: unknown;
-	try {
-		raw = JSON.parse(text.startsWith("\uFEFF") ? text.slice(1) : text);
-	} catch {
-		// 不回显 JSON.parse 的原始错误，避免带出文件内容片段。
-		return { status: "invalid", message: "邮件配置文件不是有效的 JSON。" };
-	}
-	try {
-		return { status: "ready", config: parseEmailConfig(raw) };
-	} catch (error) {
-		if (error instanceof EmailConfigError) return { status: "invalid", message: error.message };
-		return { status: "invalid", message: "邮件配置无效。" };
-	}
+	return {
+		imap: Object.hasOwn(raw, "imap") ? parseImapAccounts(raw.imap) : {},
+		smtp: Object.hasOwn(raw, "smtp") ? parseSmtpConfigs(raw.smtp) : {},
+	};
 }

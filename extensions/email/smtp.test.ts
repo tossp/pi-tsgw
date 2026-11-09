@@ -18,7 +18,7 @@ function config(): EmailConfig {
 		user: "login-not-from", password: "secret-password", fromAddress: "from@example.test",
 		fromName: "配置名称", allowSenderOverride: false,
 	};
-	return { imap: {}, smtp: { first: smtp, second: { ...smtp, tls: "starttls", port: 587 } }, defaultSmtp: "first" };
+	return { imap: {}, smtp: { first: smtp, second: { ...smtp, tls: "starttls", port: 587 } } };
 }
 function info(accepted = input.to, rejected: string[] = []): SentMessageInfo {
 	return { messageId: "<sent@example.test>", envelope: { from: "from@example.test", to: input.to }, accepted, rejected };
@@ -57,6 +57,25 @@ test("懒建、默认与显式出口、自有键检查、池复用与幂等销�
 	assert.deepEqual(pools.map((p) => p.closed), [1, 1]);
 	assert.equal((await sender.send(input)).status, "failed");
 	assert.equal(pools.length, 2);
+});
+
+test("未指定出口取映射首项而非按名排序，显式出口优先且失败不切换", async () => {
+	const c = config();
+	c.smtp = { zLastByName: c.smtp.second, aFirstByName: c.smtp.first };
+	const { sender, pools } = fixture(c, async () => { throw Object.assign(new Error("synthetic-auth-error"), { code: "EAUTH" }); });
+	try {
+		const implicit = await sender.send(input);
+		assert.equal(implicit.smtp, "zLastByName");
+		assert.equal(implicit.status, "failed");
+		assert.equal(pools.length, 1);
+		assert.equal(pools[0].messages.length, 1);
+		assert.equal(pools[0].options.port, 587);
+		const explicit = await sender.send({ ...input, smtp: "aFirstByName" });
+		assert.equal(explicit.smtp, "aFirstByName");
+		assert.equal(explicit.status, "failed");
+		assert.deepEqual(pools.map(pool => pool.messages.length), [1, 1]);
+		assert.equal(pools[1].options.port, 465);
+	} finally { sender.dispose(); }
 });
 
 test("强制 TLS、验证证书、关闭日志、有限超时、单连接与零重入队", async () => {

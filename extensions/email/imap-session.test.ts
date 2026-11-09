@@ -10,7 +10,6 @@ function config() {
 	return parseEmailConfig({
 		imap: { first: account, second: { ...account, tls: "starttls", port: 143 } },
 		smtp: { outbound: { host: "smtp.example.invalid", port: 465, tls: "implicit", user: "smtp-user", password: "dummy-smtp", fromAddress: "sender@example.invalid" } },
-		defaultSmtp: "outbound",
 	});
 }
 

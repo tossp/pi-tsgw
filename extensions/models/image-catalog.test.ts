@@ -48,8 +48,8 @@ test("图片登记：同一个 tsgw 保留聊天模型并复用宿主密钥声�
 	assert.ok(provider.models?.some(model => model.id === "deepseek-flash"));
 	assert.equal(provider.models?.some(model => model.id === "gpt-6-luna"), false);
 	assert.equal(typeof provider.images?.[IMAGE_API]?.generateImages, "function");
-	assert.deepEqual(pi.tools.map(tool => (tool as { name: string }).name),
-		["tsgw_upload_local_file", "tsgw_generate_image", "tsgw_edit_image", "tsgw_search"],
+	assert.deepEqual(pi.tools.filter(tool => (tool as { namespace?: { name: string } }).namespace?.name === "tsgw_images")
+		.map(tool => (tool as { name: string }).name), ["tsgw_generate_image", "tsgw_edit_image"],
 		"两个图片工具与原生图片 API 共用 provider");
 });
 
