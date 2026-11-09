@@ -15,7 +15,7 @@ export interface CatalogStatus {
 
 const SOURCE_LABELS = {
 	static: "内置静态",
-	empty: "无可用目录",
+	empty: "无网关目录缓存",
 	cache: "缓存",
 	network: "网关",
 } as const;

@@ -6,6 +6,14 @@ import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import { createCatalogState } from "./catalog-state.ts";
 import { gatewayModelCacheScope, saveGatewayModelCache, DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "#tsgw/models/gateway-catalog";
+import { OPENAI_IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
+
+/** 固定登记的图片 ID 与网关派生目录分开断言，避免锁静态目录快照。 */
+const IMAGE_IDS = [...OPENAI_IMAGE_MODEL_IDS];
+const gatewayIds = (models: ReadonlyArray<{ id: string; type?: string }>): string[] =>
+	models.filter(model => model.type !== "image").map(model => model.id);
+const imageIds = (models: ReadonlyArray<{ id: string; type?: string }>): string[] =>
+	models.filter(model => model.type === "image").map(model => model.id);
 
 function fixture(t: TestContext, age?: number) {
 	const dir = mkdtempSync(join(tmpdir(), "tsgw-state-"));
@@ -29,8 +37,15 @@ function fixture(t: TestContext, age?: number) {
 for (const age of [undefined, 1000, 2 * TTL]) {
 	test(`初始化与会话就绪前只读本地，缓存年龄 ${age}`, async t => {
 		const f = fixture(t, age);
-		assert.deepEqual(f.directory.models().map(m => m.id), age === undefined ? [] : ["gpt-6-luna"]);
-		await f.directory.refresh(f.context(false));
+		assert.deepEqual(gatewayIds(f.directory.models()), age === undefined ? [] : ["gpt-6-luna"],
+			"聊天/分类仍只来自网关目录交集");
+		assert.deepEqual(imageIds(f.directory.models()), IMAGE_IDS, "无缓存也固定登记图片");
+		assert.equal(f.directory.status().source, age === undefined ? "empty" : "cache",
+			"empty 只表示网关目录缺席，不表示没有模型");
+		assert.equal(f.directory.status().count, f.directory.models().length, "状态计数包含固定图片");
+		const local = await f.directory.refresh(f.context(false));
+		assert.deepEqual(gatewayIds(local), age === undefined ? [] : ["gpt-6-luna"]);
+		assert.deepEqual(imageIds(local), IMAGE_IDS);
 		assert.equal(f.calls(), 0);
 		assert.equal(f.directory.needsRefresh(), age === undefined || age >= TTL);
 		await f.directory.refresh(f.context(true));
@@ -44,10 +59,13 @@ test("非强制刷新采用更新磁盘并同步目录，获取时间不重置",
 	const storedAt = Date.now() - 1000;
 	saveGatewayModelCache(f.cacheFilePath, gatewayModelCacheScope(f.root, f.key), ["gpt-6-sol", "unknown"], storedAt);
 	const result = await f.directory.refresh(f.context());
-	assert.deepEqual(result.map(m => m.id), ["gpt-6-sol"]);
+	assert.deepEqual(gatewayIds(result), ["gpt-6-sol"]);
+	assert.deepEqual(imageIds(result), IMAGE_IDS);
 	assert.equal(f.calls(), 0);
-	assert.deepEqual(f.directory.summary(), { cacheFilePath: f.cacheFilePath, storedAt, count: 2 });
+	assert.deepEqual(f.directory.summary(), { cacheFilePath: f.cacheFilePath, storedAt, count: 2 },
+		"摘要仍只统计网关目录本身");
 	assert.equal(f.directory.status().storedAt, storedAt);
+	assert.equal(f.directory.status().count, result.length, "状态计数 = 网关目录 + 固定图片");
 });
 
 test("过期缓存非强制联网，失败不丢旧目录；成功重新应用交集", async t => {
@@ -56,11 +74,14 @@ test("过期缓存非强制联网，失败不丢旧目录；成功重新应用�
 	const original = readFileSync(f.cacheFilePath, "utf8");
 	globalThis.fetch = async () => new Response(null, { status: 503 });
 	await assert.rejects(f.directory.refresh(f.context()));
-	assert.deepEqual(f.directory.models().map(m => m.id), ["gpt-6-luna"]);
+	assert.deepEqual(gatewayIds(f.directory.models()), ["gpt-6-luna"], "失败保留原网关目录");
+	assert.deepEqual(imageIds(f.directory.models()), IMAGE_IDS, "失败不影响固定图片");
 	assert.equal(readFileSync(f.cacheFilePath, "utf8"), original);
 	assert.equal(f.directory.retryable(), true);
 	globalThis.fetch = async () => Response.json({ data: [{ id: "gpt-6-sol" }, { id: "unregistered" }] });
-	assert.deepEqual((await f.directory.refresh(f.context())).map(m => m.id), ["gpt-6-sol"]);
+	const recovered = await f.directory.refresh(f.context());
+	assert.deepEqual(gatewayIds(recovered), ["gpt-6-sol"]);
+	assert.deepEqual(imageIds(recovered), IMAGE_IDS);
 	assert.equal(f.directory.status().error, undefined);
 	assert.equal(f.directory.summary()?.count, 2);
 });
@@ -72,14 +93,15 @@ test("401/403 不进入网络退避重试，强制失败不冒充缓存成功", 
 		globalThis.fetch = async () => new Response(null, { status });
 		await assert.rejects(f.directory.refresh(f.context(true)));
 		assert.equal(f.directory.retryable(), false);
-		assert.deepEqual(f.directory.models().map(m => m.id), ["gpt-6-luna"]);
+		assert.deepEqual(gatewayIds(f.directory.models()), ["gpt-6-luna"]);
+		assert.deepEqual(imageIds(f.directory.models()), IMAGE_IDS);
 	}
 });
 
 test("旧宿主省略 signal 时可读缓存、强制联网；实例仍可取消自身请求", async t => {
 	const f = fixture(t, 1000);
-	assert.deepEqual((await f.directory.refresh({ allowNetwork: false,
-		credential: { type: "api_key", key: f.key } })).map(m => m.id), ["gpt-6-luna"]);
+	assert.deepEqual(gatewayIds(await f.directory.refresh({ allowNetwork: false,
+		credential: { type: "api_key", key: f.key } })), ["gpt-6-luna"]);
 	let requestSignal: AbortSignal | null | undefined;
 	let release!: (response: Response) => void;
 	globalThis.fetch = async (_input, init) => {
@@ -96,7 +118,8 @@ test("旧宿主省略 signal 时可读缓存、强制联网；实例仍可取消
 	assert.equal(f.directory.status().loading, false);
 	release(Response.json({ data: [{ id: "gpt-6-sol" }] }));
 	await assert.rejects(pending, /取消/);
-	assert.deepEqual(f.directory.models().map(m => m.id), ["gpt-6-luna"]);
+	assert.deepEqual(gatewayIds(f.directory.models()), ["gpt-6-luna"]);
+	assert.deepEqual(imageIds(f.directory.models()), IMAGE_IDS);
 	assert.equal(readFileSync(f.cacheFilePath, "utf8"), original);
 });
 
@@ -122,7 +145,7 @@ test("外部普通/强制回调共享实际获取；取消一个等待者不影�
 	await rejected;
 	assert.equal(signal?.aborted, false);
 	release(Response.json({ data: [{ id: "gpt-6-sol" }] }));
-	assert.deepEqual((await second).map(model => model.id), ["gpt-6-sol"]);
+	assert.deepEqual(gatewayIds(await second), ["gpt-6-sol"]);
 	assert.equal(calls, 1);
 	assert.equal(f.directory.refreshKind(), undefined);
 	assert.equal(f.directory.status().loading, false);
@@ -150,8 +173,35 @@ test("实际共享获取最后一个等待者取消后，新请求不能接到�
 	await second;
 	releases[0](Response.json({ data: [{ id: "gpt-6-luna" }] }));
 	for (let index = 0; index < 12; index++) await Promise.resolve();
-	assert.deepEqual(f.directory.models().map(model => model.id), ["gpt-6-sol"]);
+	assert.deepEqual(gatewayIds(f.directory.models()), ["gpt-6-sol"]);
+	assert.deepEqual(imageIds(f.directory.models()), IMAGE_IDS);
 	assert.equal(f.directory.status().error, undefined, "迟到取消任务不能污染新任务的状态");
+});
+
+test("无凭据、无缓存初始化只登记固定图片；聊天与分类仍取交集并过滤", async t => {
+	const dir = mkdtempSync(join(tmpdir(), "tsgw-state-"));
+	const root = `https://${randomUUID()}.invalid`;
+	const cacheFilePath = join(dir, "models.json");
+	saveGatewayModelCache(cacheFilePath, gatewayModelCacheScope(root, "filtered-key"),
+		["gpt-6-sol", "jev-latest", "jev-preview"], Date.now());
+	const previous = globalThis.fetch;
+	globalThis.fetch = async () => { throw new Error("初始化不得联网"); };
+	const filtered = createCatalogState({ root,
+		filter: { exclude: ["*"], include: ["gpt-6-sol", "jev-preview"] },
+		cacheFilePath, imagesEnabled: true, classifiersEnabled: true,
+		initialKey: "filtered-key", onChange() {} });
+	const unkeyed = createCatalogState({ root, filter: {}, cacheFilePath,
+		imagesEnabled: true, classifiersEnabled: true, onChange() {} });
+	t.after(() => { filtered.stop(); unkeyed.stop(); globalThis.fetch = previous;
+		rmSync(dir, { recursive: true, force: true }); });
+	assert.deepEqual(gatewayIds(filtered.models()), ["gpt-6-sol", "jev-preview"],
+		"聊天与分类仍只保留网关交集内、且被 include/exclude 允许的型号");
+	assert.deepEqual(imageIds(filtered.models()), IMAGE_IDS, "排除全部前缀也不影响固定图片");
+	assert.equal(filtered.status().count, filtered.models().length);
+	assert.deepEqual(unkeyed.models().map(model => model.id), IMAGE_IDS,
+		"无凭据时不读他人作用域缓存，但仍登记固定图片");
+	assert.equal(unkeyed.status().source, "empty");
+	assert.equal(unkeyed.status().count, IMAGE_IDS.length);
 });
 
 test("更换密钥后不能返回旧配置的缓存摘要或目录", async t => {
@@ -159,7 +209,11 @@ test("更换密钥后不能返回旧配置的缓存摘要或目录", async t => 
 	f.directory.enableNetwork();
 	const ctx = f.context(false, false);
 	ctx.credential.key = "replacement-key";
-	assert.deepEqual(await f.directory.refresh(ctx), []);
+	const replaced = await f.directory.refresh(ctx);
+	assert.deepEqual(gatewayIds(replaced), [], "旧网关目录必须作废");
+	assert.deepEqual(imageIds(replaced), IMAGE_IDS, "换凭据重置仍保留固定图片");
+	assert.equal(f.directory.status().source, "empty");
+	assert.equal(f.directory.status().count, IMAGE_IDS.length);
 	assert.equal(f.directory.summary(), undefined);
 	assert.equal(f.calls(), 0);
 });
@@ -219,9 +273,14 @@ test("不同实例共用实际 GET，各自过滤和退出不干扰另一实例"
 	assert.equal(calls, 1);
 	assert.equal(networkSignal?.aborted, false);
 	release(Response.json({ data: [{ id: "gpt-6-sol" }, { id: "glm-5.2" }, { id: "unknown" }] }));
-	assert.deepEqual((await other).map(model => model.id), ["glm-5.2"]);
-	assert.deepEqual((await background).map(model => model.id), ["gpt-6-sol"]);
-	assert.deepEqual(f.directory.models().map(model => model.id), ["gpt-6-luna"]);
+	const otherModels = await other;
+	assert.deepEqual(gatewayIds(otherModels), ["glm-5.2"]);
+	assert.deepEqual(imageIds(otherModels), IMAGE_IDS, "include/exclude 不影响固定图片");
+	const backgroundModels = await background;
+	assert.deepEqual(gatewayIds(backgroundModels), ["gpt-6-sol"]);
+	assert.deepEqual(imageIds(backgroundModels), [], "宿主不支持图片能力时不登记图片");
+	assert.deepEqual(gatewayIds(f.directory.models()), ["gpt-6-luna"]);
+	assert.deepEqual(imageIds(f.directory.models()), IMAGE_IDS, "退出取消刷新但保留已有目录与固定图片");
 	assert.equal(calls, 1);
 	assert.equal(second.status().error, undefined);
 	assert.equal(third.status().error, undefined);
@@ -241,7 +300,8 @@ test("截止或退出使迟到请求失效；不能覆盖失败提示、模型�
 	controller.abort();
 	release(Response.json({ data: [{ id: "gpt-6-sol" }] }));
 	await assert.rejects(pending);
-	assert.deepEqual(f.directory.models().map(m => m.id), ["gpt-6-luna"]);
+	assert.deepEqual(gatewayIds(f.directory.models()), ["gpt-6-luna"]);
+	assert.deepEqual(imageIds(f.directory.models()), IMAGE_IDS);
 	assert.equal(f.directory.status().error, message);
 	assert.equal(readFileSync(f.cacheFilePath, "utf8"), original);
 });

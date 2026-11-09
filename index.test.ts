@@ -112,13 +112,13 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		}));
 		const staticModels = modelsForRoot(TEST_ROOT);
 		assert.deepEqual(runtime.getModels(PROVIDER_ID), []);
-		assert.deepEqual(runtime.getAllModels(PROVIDER_ID), [], "无凭据启动不得静态恢复聊天或图片模型");
-		for (const type of ["chat", "image", "classifier"] as const)
+		assert.deepEqual(runtime.getAllModels(PROVIDER_ID).map(model => model.id), [...IMAGE_MODEL_IDS], "无凭据启动仅固定登记图片");
+		for (const type of ["chat", "classifier"] as const)
 			assert.deepEqual(runtime.getModelsOfType(type, PROVIDER_ID), []);
 		const names = session.extensionRunner.getRegisteredCommands().map((command) => command.name).sort();
 		assert.deepEqual(names, ["insagent", "tsgw", "tsgw-refresh", "tsgw-search"]);
 		await runtime.setRuntimeApiKey(PROVIDER_ID, TEST_KEY);
-		assert.deepEqual(runtime.getAllModels(PROVIDER_ID), [], "仅配置密钥不等于已成功获取目录");
+		assert.deepEqual(runtime.getAllModels(PROVIDER_ID).map(model => model.id), [...IMAGE_MODEL_IDS], "仅配置密钥不恢复聊天目录");
 		sandbox.catalogIds = [...staticModels.map(model => model.id), ...IMAGE_MODEL_IDS];
 		const bootstrap = await runtime.refresh({ providers: [PROVIDER_ID], allowNetwork: true, force: true });
 		assert.equal(bootstrap.aborted, false);
@@ -198,7 +198,7 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		assert.equal(existsSync(join(sandbox.agentDir, "agents")), false, "插件重载不得自动安装子代理");
 		assert.deepEqual(loader.getExtensions().errors, []);
 		assert.equal(sandbox.catalogCalls, 3, "重载无已存储凭据时不得发起启动网络请求");
-		assert.deepEqual(runtime.getAllModels(PROVIDER_ID), [], "无已存储凭据的源码重载不得静态恢复模型");
+		assert.deepEqual(runtime.getAllModels(PROVIDER_ID).map(model => model.id), [...IMAGE_MODEL_IDS], "无已存储凭据的源码重载仅保留固定图片");
 		await session.prompt("/tsgw-refresh");
 		assert.equal(sandbox.catalogCalls, 4);
 		assert.deepEqual(runtime.getModels(PROVIDER_ID).map(model => model.id).sort(), expectedIds);

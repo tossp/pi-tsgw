@@ -116,7 +116,7 @@ function gatewayHasModel(gatewayIds: ReadonlySet<string>, id: string): boolean {
 	return false;
 }
 
-/** 全类型目录：按宿主能力拼接，再取网关交集并应用用户过滤。 */
+/** 聊天/分类取网关交集并应用用户过滤；图片按宿主能力固定登记，由调用时确认上游支持。 */
 export function effectiveModelsForGateway(
 	root: string,
 	filter: ModelFilter | undefined,
@@ -126,11 +126,10 @@ export function effectiveModelsForGateway(
 ): AnyModelConfig[] {
 	const staticModels: AnyModelConfig[] = [
 		...modelsForRoot(root),
-		...(imagesEnabled ? openaiImageModels(root) : []),
 		...(classifiersEnabled ? typesafeClassifierModels(root) : []),
 	];
 	const intersected = gatewayIds
 		? staticModels.filter((model) => gatewayHasModel(gatewayIds, model.id))
 		: [];
-	return filterModels(intersected, filter);
+	return [...filterModels(intersected, filter), ...(imagesEnabled ? openaiImageModels(root) : [])];
 }

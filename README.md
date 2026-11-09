@@ -33,6 +33,8 @@ pi install npm:pi-tsgw
 
 图片、上传、代理搜索及可选邮件工具均为 `deferred` 注册，通过 codemode 按需发现和调用，不默认声明完整工具 schema。使用 `describeNamespace("tsgw_images")`、`describeNamespace("tsgw_upload")`、`describeNamespace("tsgw_search")` 或 `describeNamespace("tsgw_email")` 查看对应能力。用法见[图片技能](skills/tsgw-image-generation/SKILL.md)、[上传技能](skills/tsgw-upload/SKILL.md)、[搜索技能](skills/tsgw-search/SKILL.md)及[邮件技能](skills/tsgw-email/SKILL.md)。
 
+图片工具固定登记已接入的两款模型，不受 `tsgw.includeModels` / `excludeModels` 或网关模型目录缺席影响；仍复用宿主认证，由实际调用确认上游支持，失败不自动重试或换模型。
+
 本地上传工具名为 `tsgw_upload_local_file`，不再提供旧名 `upload_local_file`；已有调用需更新。代理搜索仍遵守当前模型及可用目录限制，不因切换模型或刷新目录自动激活。
 
 ## 可选邮件配置

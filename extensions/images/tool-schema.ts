@@ -2,10 +2,10 @@ import { Type } from "typebox";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { normalizeImageParameters, type ImageOperation } from "#tsgw/models/adapter/images/parameters";
 
-export const DEFAULT_IMAGE_MODEL = "gpt-image-2.5-sunburst";
+export const DEFAULT_IMAGE_MODEL = "gpt-image-2.6-sunburst";
 export const DEFAULT_IMAGE_TIMEOUT_MS = 600_000;
 export const MAX_IMAGE_TIMEOUT_MS = 2_147_483_647;
-const IMAGE_MODELS = ["gpt-image-2.5-sunburst", "gpt-image-2.5-flare"] as const;
+const IMAGE_MODELS = ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare"] as const;
 const optional = <T extends import("typebox").TSchema>(schema: T) => Type.Optional(Type.Union([schema, Type.Null()]));
 
 export const imageSourceSchema = Type.Union([
@@ -17,7 +17,7 @@ export const imageSourceSchema = Type.Union([
 // Type.Enum 仅输出 enum；Moonshot 拒绝联合分支中缺 type 的枚举，使用宿主显式 string 表达。
 const common = {
 	prompt: Type.String({ minLength: 1, maxLength: 32_000, description: "图片生成或编辑要求。" }),
-	model: Type.Optional(StringEnum(IMAGE_MODELS, { description: "默认 gpt-image-2.5-sunburst，适合成稿；AI 草稿任务可选 gpt-image-2.5-flare，常配 quality=low。" })),
+	model: Type.Optional(StringEnum(IMAGE_MODELS, { description: "默认 gpt-image-2.6-sunburst，适合成稿；AI 草稿任务可选 gpt-image-2.6-flare，常配 quality=low。" })),
 	quality: optional(StringEnum(["auto", "low", "medium", "high", "xhigh", "max"], { description: "质量，默认 auto；选择 Flare 不会自动改为 low。" })),
 	size: optional(Type.String({ description: "默认 auto；也可宽x高，均为16倍数、边≤3840、宽高比≤3、像素655360..8294400。" })),
 	background: optional(StringEnum(["auto", "opaque", "transparent"], { description: "背景，默认 auto。透明背景需 PNG/WebP。" })),

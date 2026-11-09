@@ -1,7 +1,7 @@
 import { deepStrictEqual, equal, match } from "node:assert/strict";
 import { CATALOG_RECOVERY_WINDOW_MS } from "./catalog-recovery.ts";
 import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "#tsgw/models/gateway-catalog";
-import { modelResponse, waitUntil, withUi } from "./catalog-test-support.test.ts";
+import { modelResponse, waitUntil, withUi, sortedWithFixedImages } from "./catalog-test-support.test.ts";
 
 /*
  * 模型可调用的目录刷新工具已撤下，本文件只经真实用户入口验证协调语义：
@@ -129,7 +129,7 @@ await withUi(async ({ pi, ctx, notices, refreshCalls }) => {
 		match(notice.text, /已刷新/);
 		equal(notice.level, "info");
 	}
-	deepStrictEqual(availableIds(ctx.modelRegistry), ["glm-5.2", "gpt-6-sol"]);
+	deepStrictEqual(availableIds(ctx.modelRegistry), sortedWithFixedImages("glm-5.2", "gpt-6-sol"));
 });
 
 // 2. 后台恢复已开始实际联网时，强制命令复用同一 GET，不启动第二轮，也不取消共享请求。
@@ -159,7 +159,7 @@ await withUi(async ({ pi, ctx, notices, refreshCalls, restoreCalls }) => {
 		equal(notices.length, noticesBefore + 1, "恢复成功不额外告警，只有命令报告结果");
 		match(notices.at(-1)?.text ?? "", /已刷新/);
 		equal(notices.at(-1)?.level, "info");
-		deepStrictEqual(availableIds(ctx.modelRegistry), ["glm-5.2"]);
+		deepStrictEqual(availableIds(ctx.modelRegistry), sortedWithFixedImages("glm-5.2"));
 	} finally {
 		restoreClock();
 	}
@@ -197,7 +197,7 @@ await withUi(async ({ pi, ctx, notices, refreshCalls, restoreCalls }) => {
 		equal(refreshCalls(), before + 2);
 		match(notices.at(-1)?.text ?? "", /已刷新/);
 		equal(notices.at(-1)?.level, "info", "命令仍必须收到共享任务的网络结果");
-		deepStrictEqual(availableIds(ctx.modelRegistry), ["glm-5.2"]);
+		deepStrictEqual(availableIds(ctx.modelRegistry), sortedWithFixedImages("glm-5.2"));
 	} finally {
 		deadline.restore();
 		restoreClock();

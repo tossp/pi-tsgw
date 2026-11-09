@@ -1,6 +1,20 @@
 import { equal } from "node:assert/strict";
 import registerTsgw from "../../index.ts";
 import { FakePi, TSGW_SOL, withAgentDir, seedSuccessfulCatalog } from "#tsgw/test-support.test";
+import { OPENAI_IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
+
+/** 固定登记的图片 ID；不随网关目录、过滤器或凭据变化。 */
+export const FIXED_IMAGE_IDS: readonly string[] = [...OPENAI_IMAGE_MODEL_IDS];
+
+/** 固定图片与网关派生目录分开断言，不锁静态目录快照。 */
+export function imageIdsOf(models: ReadonlyArray<{ id: string; type?: string }>): string[] {
+	return models.filter(model => model.type === "image").map(model => model.id);
+}
+
+/** 排序后的整目录：网关目录在前断言顺序无关，固定图片必然存在。 */
+export function sortedWithFixedImages(...gatewayIds: string[]): string[] {
+	return [...gatewayIds, ...FIXED_IMAGE_IDS].sort();
+}
 
 type Refresh = (context: {
 	allowNetwork: boolean;

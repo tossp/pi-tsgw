@@ -11,10 +11,10 @@ compatibility: 需要 Pi 1.2+、`codemode` 工具、pi-tsgw 图片工具及可�
 
 - 从文字创建图片：在 `codemode` 工具的脚本中调用 `tools.tsgw_generate_image()`，填写 `prompt`。
 - 根据一张或多张图片修改、参考创作：在 `codemode` 工具的脚本中调用 `tools.tsgw_edit_image()`，填写 `prompt` 和 `images`；局部修改可增加 `mask`。
-- **草稿、构图探索、速度优先**：选择 `gpt-image-2.5-flare`，质量可用 `low`。
-- **正式成图、精细修改、质量优先**：选择 `gpt-image-2.5-sunburst`，这是工具的默认模型；质量按需求从 `auto` 或 `high` 起选。
+- **草稿、构图探索、速度优先**：选择 `gpt-image-2.6-flare`，质量可用 `low`。
+- **正式成图、精细修改、质量优先**：选择 `gpt-image-2.6-sunburst`，这是工具的默认模型；质量按需求从 `auto` 或 `high` 起选。
 
-按用户任务选择模型和参数。`prompt` 写清主体、构图、风格、尺寸意图，以及需要呈现或保留的文字与细节；编辑时区分“修改什么”和“保留什么”。
+按用户任务选择模型和参数。两款图片模型固定登记，不受 `tsgw.includeModels` / `excludeModels` 或网关模型目录缺席影响；实际支持情况以调用结果为准，仍须宿主认证，不自动换模型或重试。`prompt` 写清主体、构图、风格、尺寸意图，以及需要呈现或保留的文字与细节；编辑时区分“修改什么”和“保留什么”。
 
 图片工具以 `deferred` 注册：不直接声明给模型，也不列在 `codemode` 描述中，但脚本可以直接按上面的名字调用。需要核对字段或发现可用工具时，先用 `describeNamespace("tsgw_images")`、`searchTools("图片")` 或 `describeTool("tsgw_generate_image")` 查看，再调用。
 

@@ -70,11 +70,12 @@ test("工具 deferred 注册并归入 tsgw_images 命名空间；普通生成仅
 	assert.equal(generation.Check({ prompt: "test" }), true);
 	assert.equal(edit.Check({ prompt: "test" }), false);
 	assert.equal(edit.Check({ prompt: "test", images: [{ path: "input.png" }] }), true);
-	for (const input of [{ prompt: "test", unknown: 1 }, { prompt: "test", n: 1.5 }, { prompt: "test", model: "other" }])
+	for (const input of [{ prompt: "test", unknown: 1 }, { prompt: "test", n: 1.5 }, { prompt: "test", model: "other" },
+		{ prompt: "test", model: "gpt-image-2.5-flare" }, { prompt: "test", model: "gpt-image-2.5-sunburst" }])
 		assert.equal(generation.Check(input), false);
 	assert.equal(edit.Check({ prompt: "test", images: [{ path: "a", file_id: "b" }] }), false);
 	assert.equal(generation.Check({ prompt: "test", n: null, stream: null }), true);
-	const typed: Static<typeof generateImageSchema> = { prompt: "test", model: "gpt-image-2.5-flare", quality: "low",
+	const typed: Static<typeof generateImageSchema> = { prompt: "test", model: "gpt-image-2.6-flare", quality: "low",
 		background: "transparent", output_format: "webp", moderation: "auto", n: 2, stream: true, partial_images: 1 };
 	assert.equal(generation.Check(typed), true);
 	// @ts-expect-error schema静态类型必须拒绝未知型号，而非never或任意string。
@@ -169,7 +170,7 @@ test("默认Sunburst与auto通过context.tsgw；600000超时、实际图片块�
 test("完整可选参数、Flare与显式延长超时传递；多图输出分别保存且调用间路径唯一", async () => {
 	const f = fixture();
 	f.reply({ output: [block, block] });
-	const args = { prompt: "draft", model: "gpt-image-2.5-flare", quality: "low", size: "1024x1024", background: "opaque",
+	const args = { prompt: "draft", model: "gpt-image-2.6-flare", quality: "low", size: "1024x1024", background: "opaque",
 		output_format: "png", n: 2, moderation: "low", stream: true, partial_images: 3, safety_identifier: "synthetic", user: "compat", timeout_ms: 900_000 };
 	const first = await f.run(args), second = await f.run(args);
 	try {
@@ -224,7 +225,7 @@ test("编辑原始文件和mask保真，不向结构化结果泄露引用、URL�
 	} finally { await rm(cwd, { recursive: true, force: true }); }
 });
 
-test("runtime拒绝未知参数和非法组合，模型过滤/预取消/非法来源在调用前失败", async () => {
+test("runtime拒绝未知参数和非法组合，宿主缺少图片登记/预取消/非法来源在调用前失败", async () => {
 	for (const args of [
 		{ prompt: "test", unknown: true }, { prompt: "x".repeat(32_001) }, { prompt: "test", response_format: "b64_json" }, { prompt: "test", style: "vivid" },
 		{ prompt: "test", input_fidelity: "high" }, { prompt: "test", n: 0 }, { prompt: "test", n: 11 }, { prompt: "test", quality: "hd" },
@@ -235,8 +236,8 @@ test("runtime拒绝未知参数和非法组合，模型过滤/预取消/非法�
 		const f = fixture();
 		assert.equal((await f.run(args)).isError, true); assert.equal(f.calls.length, 0);
 	}
-	const filtered = fixture(); filtered.missing();
-	const missing = await filtered.run(); assert.equal(details(missing).error?.code, "model-unavailable"); assert.equal(filtered.calls.length, 0);
+	const unregistered = fixture(); unregistered.missing();
+	const missing = await unregistered.run(); assert.equal(details(missing).error?.code, "model-unavailable"); assert.equal(unregistered.calls.length, 0);
 	const cancelled = fixture(); assert.equal((await cancelled.run(undefined, false, AbortSignal.abort())).isError, true); assert.equal(cancelled.calls.length, 0);
 	const edit = fixture();
 	for (const images of [[], Array(17).fill({ file_id: "file-test" }), [{ path: "/secret-missing", file_id: "file-test" }], [{ image_url: "https://user:secret@private.invalid/" }]]) {

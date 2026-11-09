@@ -7,7 +7,7 @@ import { ImageToolFileError, resolveImageSources, saveImageOutput, validateImage
 const namespace = {
 	name: "tsgw_images",
 	description: "tsgw 图片生成与编辑；仅通过 codemode 按需发现和调用。",
-	instructions: "生成用 tsgw_generate_image，编辑用 tsgw_edit_image；两者都需 prompt，编辑另需 images（每项 path、image_url、file_id 择一），局部修改可加 mask。模型固定 gpt-image-2.5-sunburst（默认，成稿）与 gpt-image-2.5-flare（草稿，常用 quality=low）。成功以 requestStatus=succeeded、phase=complete 和 files[] 为准；失败、取消或结果未知不自动重试、不换模型。返回文件是本地临时路径，展示时先 tools.read() 再 image(block)，不打印图片 base64；编辑读取的本地原文件会外传。",
+	instructions: "生成用 tsgw_generate_image，编辑用 tsgw_edit_image；两者都需 prompt，编辑另需 images（每项 path、image_url、file_id 择一），局部修改可加 mask。模型固定 gpt-image-2.6-sunburst（默认，成稿）与 gpt-image-2.6-flare（草稿，常用 quality=low）。成功以 requestStatus=succeeded、phase=complete 和 files[] 为准；失败、取消或结果未知不自动重试、不换模型。返回文件是本地临时路径，展示时先 tools.read() 再 image(block)，不打印图片 base64；编辑读取的本地原文件会外传。",
 };
 
 export interface ImageToolDetails {
@@ -22,7 +22,7 @@ export interface ImageToolDetails {
 	error?: { code: string; message: string };
 }
 
-/** 图片工具复用宿主目录/过滤、认证与图片适配器；不解析凭据、不自行发 HTTP。 */
+/** 图片工具复用宿主固定图片登记、认证与图片适配器；不解析凭据、不自行发 HTTP。 */
 export function registerImageTools(pi: ExtensionAPI): void {
 	for (const operation of ["generate", "edit"] as const) {
 		pi.registerTool({
@@ -50,7 +50,7 @@ export function registerImageTools(pi: ExtensionAPI): void {
 						throw new ImageToolFileError("unsupported-host", "图片工具需要支持 modelRegistry.getModelOfType/generateImages 的 Pi 1.2 或更新宿主。");
 					const model = registry.getModelOfType("image", "tsgw", prepared.model);
 					if (!model || model.provider !== "tsgw" || model.id !== prepared.model)
-						throw new ImageToolFileError("model-unavailable", "所选图片模型未在当前宿主目录中启用；不会绕过目录过滤或自动切换型号。");
+						throw new ImageToolFileError("model-unavailable", "固定图片模型未在宿主中登记；请检查插件加载状态，不会自动切换型号。");
 					details.phase = "input";
 					const references = operation === "edit" ? await resolveImageSources(prepared.images, prepared.mask, ctx.cwd, caller) : {};
 					const context: TsgwImagesContext = { input: [{ type: "text", text: prepared.prompt }],

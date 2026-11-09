@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ProviderConfig } from "@earendil-works/pi-coding-agent";
-import { filterModels, modelsForRoot } from "./catalog.ts";
+import { effectiveModelsForGateway, modelsForRoot } from "./catalog.ts";
 import { createPiWithCatalog, TEST_ROOT, withAgentDir, FakePi } from "#tsgw/test-support.test";
 import registerTsgw from "../../index.ts";
 import { OPENAI_IMAGE_API as IMAGE_API, OPENAI_IMAGE_MODEL_IDS as IMAGE_MODEL_IDS, openaiImageModels as imageModelsForRoot } from "#tsgw/models/vendors/openai";
@@ -29,18 +29,17 @@ test("图片目录：仅两个精确 ID，能力、地址与未知价格显式�
 		"原聊天目录不混入图片，聊天策略和模型选择不受影响");
 });
 
-test("图片目录：沿用 include 优先与尾部前缀规则，不修改冻结输入", () => {
-	const models = Object.freeze(imageModelsForRoot(root).map(model => Object.freeze(model)));
-	const filters = Object.freeze({ include: Object.freeze(["gpt-image-2.5*"]), exclude: Object.freeze(["gpt-*"]) });
-	assert.deepEqual(filterModels(models, filters), models);
-	assert.deepEqual(filterModels(models, { exclude: ["gpt-*"] }), []);
-	assert.deepEqual(filterModels(models, { include: [IMAGE_MODEL_IDS[1]], exclude: ["gpt-*"] }).map(model => model.id), [IMAGE_MODEL_IDS[1]]);
-	assert.equal(filterModels(models, { include: ["gpt-image-2.5"], exclude: ["gpt-*"] }).length, 0,
-		"裸别名不是已登记模型，精确 include 不隐式扩展");
+test("图片目录：固定登记不受过滤、网关缺席或未知别名影响，仍遵守宿主能力门", () => {
+	const models = imageModelsForRoot(root);
+	const filter = Object.freeze({ include: Object.freeze(["gpt-image-unknown"]), exclude: Object.freeze(["*"]) });
+	for (const gateway of [undefined, new Set<string>(), new Set([IMAGE_MODEL_IDS[0], "gpt-image-unknown"])]) {
+		assert.deepEqual(effectiveModelsForGateway(root, filter, gateway, true, true), models);
+		assert.deepEqual(effectiveModelsForGateway(root, filter, gateway, false, true), []);
+	}
 });
 
 test("图片登记：同一个 tsgw 保留聊天模型并复用宿主密钥声明", async () => {
-	const pi = await createPiWithCatalog({ tsgw: { includeModels: ["gpt-image-2.5*"], excludeModels: ["gpt-*"] } });
+	const pi = await createPiWithCatalog({ tsgw: { excludeModels: ["gpt-*"] } });
 	assert.equal(pi.providers.length, 1);
 	const provider = pi.providers[0].config as ProviderConfig;
 	assert.equal(provider.apiKey, "$TSGW_API_KEY");
@@ -54,11 +53,12 @@ test("图片登记：同一个 tsgw 保留聊天模型并复用宿主密钥声�
 		"两个图片工具与原生图片 API 共用 provider");
 });
 
-test("图片刷新：include 不突破网关交集，失败与离线保留混合目录", async () => {
-	await withAgentDir({ tsgw: { includeModels: ["gpt-image-2.5*"], excludeModels: ["gpt-*"] } }, async () => {
+test("图片刷新：无缓存启动固定登记，网关缺席、失败及离线均保留图片", async () => {
+	await withAgentDir({ tsgw: { excludeModels: ["gpt-*"] } }, async () => {
 		const pi = new FakePi();
 		await registerTsgw(pi);
 		const provider = pi.providers[0].config as ProviderConfig;
+		assert.deepEqual(provider.models?.map(model => model.id), [...IMAGE_MODEL_IDS]);
 		const refresh = provider.refreshModels as (context: {
 			credential: { type: "api_key"; key: string }; allowNetwork: boolean; force: boolean; signal: AbortSignal;
 		}) => Promise<NonNullable<ProviderConfig["models"]>>;
@@ -69,10 +69,10 @@ test("图片刷新：include 不突破网关交集，失败与离线保留混合
 		try {
 			globalThis.fetch = async () => {
 				calls++;
-				return Response.json({ data: ["deepseek-flash", IMAGE_MODEL_IDS[1], "gpt-image-2.5", "gpt-image-2"].map(id => ({ id })) });
+				return Response.json({ data: ["deepseek-flash", "gpt-image-2.6", "gpt-image-unknown"].map(id => ({ id })) });
 			};
 			const result = await refresh(context);
-			assert.deepEqual(result.map(model => model.id), ["deepseek-flash", IMAGE_MODEL_IDS[1]]);
+			assert.deepEqual(result.map(model => model.id), ["deepseek-flash", ...IMAGE_MODEL_IDS]);
 			assert.equal(calls, 1);
 			assert.deepEqual(await refresh({ ...context, allowNetwork: false }), result);
 			assert.equal(calls, 1);

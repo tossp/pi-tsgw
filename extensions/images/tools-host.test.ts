@@ -71,7 +71,7 @@ test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也�
 		const imageRequests: { path: string; body: Record<string, unknown>; headers: Headers }[] = [];
 		let next: { name: string; args: Record<string, unknown> } | undefined;
 		let sequence = 0, blockedByPolicy = false;
-		let mode: "ok" | "bad-image" | "http" | "wait" = "ok";
+		let mode: "ok" | "bad-image" | "http" | "missing-model" | "wait" = "ok";
 		let entered: ((signal: AbortSignal) => void) | undefined;
 		const seenTools = new Set<string>();
 		globalThis.fetch = async (input, init) => {
@@ -84,6 +84,7 @@ test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也�
 				imageRequests.push({ path: url.pathname, body, headers: req.headers });
 				assert.equal(req.headers.has("AH-Thread-Id"), false);
 				if (mode === "http") return new Response("synthetic failure", { status: 503 });
+				if (mode === "missing-model") return new Response("synthetic model not found", { status: 404 });
 				if (mode === "wait") {
 					entered?.(req.signal);
 					return new Promise<Response>((_resolve, reject) => {
@@ -143,10 +144,10 @@ test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也�
 		({ session } = await createAgentSession({ cwd: sandbox.cwd, agentDir: sandbox.agentDir, modelRuntime: runtime,
 			resourceLoader: loader, settingsManager: settings, sessionManager: SessionManager.inMemory(sandbox.cwd), thinkingLevel: "off" }));
 		await session.bindExtensions({ mode: "print", onError: error => errors.push(error) });
-		assert.deepEqual(runtime.getAllModels("tsgw"), [], "无凭据启动不静态登记图片或聊天模型");
+		assert.deepEqual(runtime.getAllModels("tsgw").map(model => model.id), [...IMAGE_MODEL_IDS], "无凭据启动仅固定登记图片，不恢复聊天");
 		assert.equal(sandbox.catalogCalls, 0);
 		await runtime.setRuntimeApiKey("tsgw", TEST_KEY);
-		assert.deepEqual(runtime.getAllModels("tsgw"), []);
+		assert.deepEqual(runtime.getAllModels("tsgw").map(model => model.id), [...IMAGE_MODEL_IDS]);
 		sandbox.catalogIds = [...modelsForRoot(TEST_ROOT).map(model => model.id), ...IMAGE_MODEL_IDS];
 		const bootstrap = await runtime.refresh({ providers: ["tsgw"], allowNetwork: true, force: true });
 		assert.equal(bootstrap.aborted, false);
@@ -163,7 +164,7 @@ test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也�
 		const reloadWithCatalog = async () => {
 			const before = sandbox.catalogCalls;
 			await active.reload();
-			assert.deepEqual(runtime.getAllModels("tsgw"), [], "无已存储凭据的重载必须为空目录");
+			assert.deepEqual(runtime.getAllModels("tsgw").map(model => model.id), [...IMAGE_MODEL_IDS], "无已存储凭据的重载仍保留固定图片");
 			assert.equal(sandbox.catalogCalls, before);
 			const result = await runtime.refresh({ providers: ["tsgw"], allowNetwork: true, force: true });
 			assert.equal(result.aborted, false);
@@ -186,7 +187,7 @@ test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也�
 
 		await t.test("默认Sunburst与显式Flare参数实际执行并直接附图", async () => {
 			const cases = [{ prompt: "合成生成测试" },
-				{ prompt: "合成草稿测试", model: "gpt-image-2.5-flare", quality: "low", size: "1024x1024" }];
+				{ prompt: "合成草稿测试", model: "gpt-image-2.6-flare", quality: "low", size: "1024x1024" }];
 			for (const [i, args] of cases.entries()) {
 				const before = imageRequests.length;
 				const result = await invoke(GENERATED, args);
@@ -194,7 +195,7 @@ test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也�
 				assert.equal(imageRequests.length, before + 1);
 				const request = imageRequests.at(-1)!;
 				assert.equal(request.path, "/v1/images/generations");
-				assert.equal(request.body.model, i === 0 ? "gpt-image-2.5-sunburst" : "gpt-image-2.5-flare");
+				assert.equal(request.body.model, i === 0 ? "gpt-image-2.6-sunburst" : "gpt-image-2.6-flare");
 				assert.equal(request.body.quality, i === 0 ? "auto" : "low");
 				assert.equal(result.content.filter(block => block.type === "image").length, 1);
 				assert.equal(result.usage?.totalTokens, 7);
@@ -290,7 +291,7 @@ test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也�
 			blockedByPolicy = false;
 		});
 
-		await t.test("坏图保留有效usage，HTTP失败不重试，过滤模型不能被工具恢复", async () => {
+		await t.test("坏图保留有效usage，上游拒绝不重试，过滤及网关缺席不阻止固定图片调用", async () => {
 			mode = "bad-image";
 			const bad = await invoke(GENERATED, { prompt: "fixture bad image" });
 			assert.equal(bad.isError, true);
@@ -302,11 +303,21 @@ test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也�
 			assert.equal(http.isError, true);
 			assert.equal(imageRequests.length, before + 1);
 			mode = "ok";
-			configure({ excludeModels: ["gpt-image-2.5-sunburst"] });
+			configure({ excludeModels: ["gpt-image-2.6-sunburst"] });
 			await reloadWithCatalog();
-			const filtered = await invoke(GENERATED, { prompt: "fixture unavailable" });
-			assert.equal(filtered.isError, true);
-			assert.equal(imageRequests.length, before + 1);
+			sandbox.catalogIds = modelsForRoot(TEST_ROOT).map(model => model.id);
+			await runtime.refresh({ providers: ["tsgw"], allowNetwork: true, force: true });
+			const fixed = await invoke(GENERATED, { prompt: "fixture fixed image" });
+			assert.equal(fixed.isError, false);
+			assert.equal(imageRequests.length, before + 2);
+			assert.equal(imageRequests.at(-1)!.body.model, IMAGE_MODEL_IDS[1]);
+			mode = "missing-model";
+			const rejected = await invoke(GENERATED, { prompt: "fixture unsupported upstream" });
+			assert.equal(rejected.isError, true);
+			assert.equal(imageRequests.length, before + 3, "网关目录缺席时仍发起一次图片请求，由上游拒绝且不重试");
+			assert.equal(toolDetails(rejected.details).error?.code, "request-failed");
+			assert.equal(imageRequests.at(-1)!.body.model, IMAGE_MODEL_IDS[1], "上游缺少默认模型时不切换到 Flare");
+			mode = "ok";
 			configure();
 			await reloadWithCatalog();
 		});

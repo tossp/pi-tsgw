@@ -243,14 +243,14 @@ function testEffectiveCatalog(): void {
 	const before = [...gateway];
 	for (const imagesEnabled of [false, true]) {
 		for (const classifiersEnabled of [false, true]) {
-			const expected = [...chats, ...(imagesEnabled ? images : []), ...(classifiersEnabled ? classifiers : [])];
+			const expected = [...chats, ...(classifiersEnabled ? classifiers : []), ...(imagesEnabled ? images : [])];
 			deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, gateway, imagesEnabled, classifiersEnabled), expected);
 		}
 	}
 	deepStrictEqual([...gateway], before, "不修改传入网关集合");
 	const filter = Object.freeze({ exclude: Object.freeze(["*"]), include: Object.freeze(["*"]) });
-	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, undefined, true, true), [], "没有网关目录不能回退静态目录");
-	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, new Set(), true, true), [], "include 不能突破空网关交集");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, undefined, true, true), images, "没有网关目录时仅保留固定图片");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, new Set(), true, true), images, "include 不恢复空网关交集中的聊天或分类");
 	const kimiId = "kimi-k3.1-pro";
 	const unselectedKimiIds = ["k3.1-pro", "k3.1-pro-highspeed", "kimi-k3.1-pro-highspeed"];
 	const kimiGateway = new Set([kimiId, ...unselectedKimiIds]);
@@ -282,17 +282,18 @@ function testEffectiveCatalog(): void {
 	const selected = [chats[0].id, images[0].id, classifiers[0].id];
 	const prefixed = new Set(selected.map(id => `vendor/${id}`));
 	prefixed.add("vendor/not-registered");
-	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, prefixed, true, true).map(model => model.id), selected,
-		"精确登记的型号可匹配网关厂商前缀，未知型号不自动登记");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, prefixed, true, true).map(model => model.id),
+		[chats[0].id, classifiers[0].id, ...images.map(model => model.id)],
+		"聊天和分类匹配网关厂商前缀，图片固定登记，未知型号不自动登记");
 	const mixed = new Set([chats[0].id, images[0].id, classifiers[0].id]);
 	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["*"], include: [images[0].id] }, mixed, true, true).map(model => model.id),
-		[images[0].id], "include 在交集中优先拉回，但不拉回其他型号");
-	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["*"], include: [images[1].id] }, mixed, true, true), [],
-		"include 不能恢复网关缺席的静态型号");
+		images.map(model => model.id), "图片不受 exclude 或 include 约束，聊天/分类仍被过滤");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["*"], include: [images[1].id] }, mixed, true, true), images,
+		"网关缺席不影响固定图片登记");
 	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, mixed, false, false).map(model => model.id), [chats[0].id],
 		"include 不能突破宿主能力门");
-	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, new Set([`vendor/${classifiers[0].id.toUpperCase()}`, `${images[0].id}-extra`]), true, true), [],
-		"匹配区分大小写且不接受型号后缀扩展");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, new Set([`vendor/${classifiers[0].id.toUpperCase()}`, `${images[0].id}-extra`]), true, true), images,
+		"分类匹配区分大小写，图片不接受网关新增的型号后缀扩展");
 	deepStrictEqual(modelsForRoot(ROOT), chats, "混合目录调用不污染聊天目录");
 }
 

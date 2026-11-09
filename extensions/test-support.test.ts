@@ -190,7 +190,7 @@ export async function createPi(settings?: unknown): Promise<FakePi> {
 	return pi;
 }
 
-/** 显式构造已成功获取的合成目录；不改变 createPi 的无凭据零模型启动语义。 */
+/** 显式构造已成功获取的合成目录；不改变 createPi 的无凭据仅固定图片启动语义。 */
 export async function createPiWithCatalog(settings?: unknown): Promise<FakePi> {
 	const pi = new FakePi();
 	await withAgentDir(settings, async (dir) => {

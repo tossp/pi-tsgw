@@ -115,9 +115,9 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			settingsManager: settings, sessionManager: SessionManager.inMemory(sandbox.cwd), tools: ["+codemode"], thinkingLevel: "high",
 		}));
 		const host = session;
-		assert.deepEqual(runtime.getAllModels("tsgw"), [], "无凭据启动不静态恢复搜索委托或主模型");
+		assert.deepEqual(runtime.getModels("tsgw"), [], "无凭据启动不静态恢复搜索委托或主模型");
 		await runtime.setRuntimeApiKey("tsgw", TEST_KEY);
-		assert.deepEqual(runtime.getAllModels("tsgw"), [], "仅配置 runtime key 不建立目录");
+		assert.deepEqual(runtime.getModels("tsgw"), [], "仅配置 runtime key 不建立聊天目录");
 		sandbox.catalogIds = modelsForRoot(TEST_ROOT).map(model => model.id);
 		const bootstrap = await runtime.refresh({ providers: ["tsgw"], allowNetwork: true, force: true });
 		assert.equal(bootstrap.aborted, false);
@@ -335,7 +335,7 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			writeSettings([main.id]);
 			await host.reload();
 			assert.deepEqual(loader.getExtensions().errors, []);
-			assert.deepEqual(runtime.getAllModels("tsgw"), [], "重载不能将无凭据的静态目录视为成功目录");
+			assert.deepEqual(runtime.getModels("tsgw"), [], "重载不能将无凭据的静态聊天目录视为成功目录");
 			assert.equal(active(), false);
 			assert.equal(sandbox.catalogCalls, 4, "重载不得使用不存在的已存储凭据发起请求");
 			assert.ok(!readStoredCredential("tsgw"));

@@ -142,7 +142,7 @@ export const openaiThinking = {
 } satisfies Record<string, ThinkingApplier>;
 
 export const OPENAI_IMAGE_API = "tsgw-openai-images";
-export const OPENAI_IMAGE_MODEL_IDS = ["gpt-image-2.5-flare", "gpt-image-2.5-sunburst"] as const;
+export const OPENAI_IMAGE_MODEL_IDS = ["gpt-image-2.6-flare", "gpt-image-2.6-sunburst"] as const;
 export type OpenAIImageModelConfig = Extract<AnyModelConfig, { type: "image" }>;
 
 /**
@@ -152,7 +152,7 @@ export type OpenAIImageModelConfig = Extract<AnyModelConfig, { type: "image" }>;
 export function openaiImageModels(root: string): OpenAIImageModelConfig[] {
 	return OPENAI_IMAGE_MODEL_IDS.map((id, index) => ({
 		type: "image", id,
-		name: index === 0 ? "GPT Image 2.5 Flare" : "GPT Image 2.5 Sunburst",
+		name: index === 0 ? "GPT Image 2.6 Flare" : "GPT Image 2.6 Sunburst",
 		api: OPENAI_IMAGE_API, baseUrl: `${root}/v1`,
 		input: ["text", "image"], output: ["image"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

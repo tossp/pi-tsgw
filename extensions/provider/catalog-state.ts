@@ -26,7 +26,7 @@ export interface CatalogSummary {
 export function catalogFailureMessage(hasCache: boolean): string {
 	return hasCache
 		? "TSGW 模型目录获取失败，正在沿用缓存。可运行 /tsgw-refresh 重试。"
-		: "TSGW 模型目录获取失败，当前无可用模型。请运行 /tsgw-refresh 重试。";
+		: "TSGW 模型目录获取失败，当前无网关目录缓存。请运行 /tsgw-refresh 重试；固定图片能力不受目录刷新影响。";
 }
 
 /** 实例只管理投影与自身等待者；实际目录、GET 和取消引用计数由进程共享服务管理。 */
@@ -40,8 +40,8 @@ export function createCatalogState(options: {
 	onChange(): void;
 }) {
 	const { root, filter, cacheFilePath, imagesEnabled, classifiersEnabled } = options;
-	let models: ProviderModelConfig[] = [];
-	let status: CatalogStatus = { count: 0, source: "empty", loading: false };
+	let models = effectiveModelsForGateway(root, filter, undefined, imagesEnabled, classifiersEnabled);
+	let status: CatalogStatus = { count: models.length, source: "empty", loading: false };
 	let snapshot: GatewayCatalogSnapshot | undefined;
 	let service: GatewayCatalogService | undefined;
 	let networkEnabled = false;
@@ -131,8 +131,8 @@ export function createCatalogState(options: {
 				invalidate();
 				service = selected;
 				snapshot = undefined;
-				models = [];
-				status = { count: 0, source: "empty", loading: false };
+				models = effectiveModelsForGateway(root, filter, undefined, imagesEnabled, classifiersEnabled);
+				status = { count: models.length, source: "empty", loading: false };
 			}
 			const current = revision;
 			const controller = new AbortController();

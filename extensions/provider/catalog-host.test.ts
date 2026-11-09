@@ -12,6 +12,12 @@ import {
 	gatewayModelCacheScope,
 	saveGatewayModelCache,
 } from "#tsgw/models/gateway-catalog";
+import { OPENAI_IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
+
+/** 当前测试宿主支持的固定图片。 */
+const FIXED_IMAGE_IDS = [...OPENAI_IMAGE_MODEL_IDS].sort();
+/** 排序后的整目录：网关目录 + 固定图片。 */
+const withFixedImages = (...gatewayIds: string[]): string[] => [...gatewayIds, ...FIXED_IMAGE_IDS].sort();
 
 type Sdk = typeof import("@earendil-works/pi-coding-agent");
 type Runtime = import("@earendil-works/pi-coding-agent").ModelRuntime;
@@ -176,14 +182,15 @@ test("Pi SDK 真实宿主：目录加载、命令刷新与退出语义", { timeo
 				sessions.shift();
 				assert.equal(catalog.calls(), 1);
 				assert.equal(catalog.signals[0].aborted, false);
-				sandbox.catalogIds = ["gpt-6-sol", "jev-latest", "gpt-image-2.5-flare", "unknown"];
+				sandbox.catalogIds = ["gpt-6-sol", "jev-latest", "gpt-image-2.6-flare", "unknown"];
 				catalog.release();
 				const result = await timeout(external, 3000, "后台 runtime 强制刷新");
 				assert.equal(result.aborted, false);
 				assert.equal(result.errors.size, 0, [...result.errors.values()].map(error => error.message).join("; "));
 				const mixedIds = (runtime: Runtime) => runtime.getAllModels("tsgw").map(model => model.id).sort();
-				await waitFor(() => mixedIds(second.runtime).length === 3, "第二会话独立登记");
-				const expected = ["gpt-6-sol", "gpt-image-2.5-flare", "jev-latest"];
+				await waitFor(() => mixedIds(second.runtime).length === withFixedImages("gpt-6-sol", "jev-latest").length,
+					"第二会话独立登记");
+				const expected = withFixedImages("gpt-6-sol", "jev-latest");
 				assert.deepEqual(mixedIds(second.runtime), expected);
 				assert.deepEqual(mixedIds(background.modelRuntime), expected);
 				assert.deepEqual(second.runtime.getAvailableSnapshot().filter(m => m.provider === "tsgw")
@@ -240,7 +247,9 @@ test("Pi SDK 真实宿主：目录加载、命令刷新与退出语义", { timeo
 				await timeout(catalog.started, 3_000, "后台 /v1/models 启动");
 				assert.deepEqual(errors, [], "session_start 不得因 auth snapshot 未填充而误报");
 				assert.equal(catalog.hits.length, 1, "后台恢复只发起一次目录请求");
-				assert.deepEqual(modelIds(runtime), [], "挂起期间不阻塞会话，也没有伪造模型");
+				assert.deepEqual(modelIds(runtime), [], "挂起期间不阻塞会话，也没有伪造聊天目录");
+				assert.deepEqual(runtime.getModelsOfType("image", "tsgw").map(model => model.id).sort(),
+					FIXED_IMAGE_IDS, "挂起期间固定图片已登记，不依赖网关目录");
 				sandbox.catalogIds = ["gpt-6-sol", "deepseek-flash", "not-in-static-catalog"];
 				catalog.release();
 				await waitFor(() => modelIds(runtime).length === 2, "后台目录应用到 registry");
@@ -275,6 +284,8 @@ test("Pi SDK 真实宿主：目录加载、命令刷新与退出语义", { timeo
 				const { runtime, errors } = host;
 				await waitFor(() => modelIds(runtime).length === 1, "过期缓存恢复");
 				assert.deepEqual(modelIds(runtime), ["gpt-6-sol"]);
+				assert.deepEqual(runtime.getModelsOfType("image", "tsgw").map(model => model.id).sort(),
+					FIXED_IMAGE_IDS, "固定图片不占聊天选择器");
 				await timeout(catalog.started, 3_000, "后台过期缓存恢复请求");
 				const hits = catalog.hits.length;
 				const restored = await runtime.refresh({ providers: ["tsgw"], allowNetwork: false, force: true });
@@ -294,7 +305,9 @@ test("Pi SDK 真实宿主：目录加载、命令刷新与退出语义", { timeo
 				assert.equal(catalog.hits.length, hits, "新鲜缓存非 force 不联网");
 				assert.deepEqual(before, ["gpt-6-sol"]);
 				assert.deepEqual(modelIds(runtime), ["deepseek-flash", "glm-5.2"],
-					"宿主刷新前后的模型必须同步");
+					"宿主刷新前后的聊天目录必须同步");
+				assert.deepEqual(runtime.getModelsOfType("image", "tsgw").map(model => model.id).sort(),
+					FIXED_IMAGE_IDS, "刷新不丢固定图片");
 				assert.deepEqual(errors, []);
 				assert.deepEqual(sandbox.blocked, []);
 			} finally {
@@ -323,7 +336,9 @@ test("Pi SDK 真实宿主：目录加载、命令刷新与退出语义", { timeo
 				await waitFor(() => modelIds(host.runtime).length === 2, "session_start 吸收绑定前新磁盘");
 				assert.deepEqual(before, ["gpt-6-sol"], "绑定前仍为启动时的新鲜缓存");
 				assert.deepEqual(modelIds(host.runtime), ["deepseek-flash", "glm-5.2"],
-					"session_start 恢复前后的模型必须同步到新磁盘");
+					"session_start 恢复前后的聊天目录必须同步到新磁盘");
+				assert.deepEqual(host.runtime.getModelsOfType("image", "tsgw").map(model => model.id).sort(),
+					FIXED_IMAGE_IDS, "目录同步不涉及固定图片");
 				assert.deepEqual(host.errors, []);
 				assert.equal(catalog.calls(), 0, "新鲜缓存启动不得联网");
 				await new Promise(resolve => setTimeout(resolve, 150));
@@ -388,6 +403,8 @@ test("Pi SDK 真实宿主：目录加载、命令刷新与退出语义", { timeo
 				assert.equal(catalog.calls(), 1, "命令刷新必须经宿主 provider 发起一次目录 GET");
 				assert.deepEqual(modelIds(runtime), ["deepseek-flash", "glm-5.2"],
 					"命令刷新必须把网络目录应用到真实 registry");
+				assert.deepEqual(runtime.getModelsOfType("image", "tsgw").map(model => model.id).sort(),
+					FIXED_IMAGE_IDS, "命令刷新不丢固定图片");
 				const cached = JSON.parse(readFileSync(cachePath(sandbox), "utf8")) as { ids: string[] };
 				assert.deepEqual(cached.ids, ["glm-5.2", "deepseek-flash"]);
 				assert.deepEqual(errors, []);
@@ -416,6 +433,8 @@ test("Pi SDK 真实宿主：目录加载、命令刷新与退出语义", { timeo
 				assert.deepEqual([...refreshed.errors], []);
 				assert.equal(catalog.calls(), 0, "PI_OFFLINE 下宿主默认 allowNetwork=false");
 				assert.deepEqual(modelIds(runtime), []);
+				assert.deepEqual(runtime.getModelsOfType("image", "tsgw").map(model => model.id).sort(),
+					FIXED_IMAGE_IDS, "离线只影响网关目录，固定图片仍登记");
 				assert.deepEqual(errors, []);
 				assert.deepEqual(sandbox.blocked, []);
 			} finally {

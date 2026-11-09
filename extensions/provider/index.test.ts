@@ -8,6 +8,7 @@ import {
 import { randomUUID } from "node:crypto";
 import registerTsgw from "../../index.ts";
 import { PROVIDER_ID } from "#tsgw/models/catalog";
+import { OPENAI_IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
 import { FakeContext, FakePi, createPi, createPiWithCatalog, sessionStart, agentStart, providerRequest, providerHeaders, withAgentDir, STALE_ERROR, TEST_ROOT, TSGW_SOL, TSGW_DEEPSEEK, TSGW_GLM } from "#tsgw/test-support.test";
 
 function assertUuid(value: string | null | undefined): void {
@@ -287,8 +288,9 @@ async function testDynamicModelRefresh(): Promise<void> {
 		const pi = new FakePi();
 		await registerTsgw(pi);
 		const provider = pi.providers.find(({ name }) => name === PROVIDER_ID);
-		deepStrictEqual((provider?.config as { models: unknown[] }).models, [],
-			"真实无凭据启动必须显式登记零模型");
+		const initialModels = (provider?.config as { models: Array<{ id: string; type?: string }> }).models;
+		deepStrictEqual(initialModels.filter(model => model.type !== "image"), [],
+			"真实无凭据启动不得凭空登记聊天或分类模型");
 		const refreshModels = (
 			provider?.config as
 				| {
@@ -297,7 +299,7 @@ async function testDynamicModelRefresh(): Promise<void> {
 							allowNetwork: boolean;
 							force?: boolean;
 							signal: AbortSignal;
-						}) => Promise<Array<{ id: string }>>;
+						}) => Promise<Array<{ id: string; type?: string }>>;
 				  }
 				| undefined
 		)?.refreshModels;
@@ -330,11 +332,13 @@ async function testDynamicModelRefresh(): Promise<void> {
 				allowNetwork: true,
 				signal,
 			});
-			deepStrictEqual(beforeStart, [], "session_start 前非 force 不得联网");
+			deepStrictEqual(beforeStart.map(model => model.id), [...OPENAI_IMAGE_MODEL_IDS],
+				"session_start 前非 force 不联网，只登记固定图片");
 			equal(calls, 0);
 			pi.invoke("session_start", { type: "session_start", reason: "startup" }, sessionContext);
 			const offline = await refreshModels({ allowNetwork: false, signal });
-			deepStrictEqual(offline, [], "无凭据且无匹配目录的启动不得回退静态模型");
+			deepStrictEqual(offline.map(model => model.id), [...OPENAI_IMAGE_MODEL_IDS],
+				"无凭据且无匹配目录不得回退静态模型，固定图片仍在");
 			equal(calls, 0);
 
 			const refreshed = await refreshModels({
@@ -343,10 +347,9 @@ async function testDynamicModelRefresh(): Promise<void> {
 				force: true,
 				signal,
 			});
-			deepStrictEqual(
-				refreshed.map(({ id }) => id),
-				["deepseek-flash", "glm-5.2"],
-			);
+			deepStrictEqual(refreshed.map(model => model.id),
+				["deepseek-flash", "glm-5.2", ...OPENAI_IMAGE_MODEL_IDS],
+				"网络刷新替换聊天目录，固定图片保留");
 			equal(calls, 1);
 
 			globalThis.fetch = async () =>
@@ -360,10 +363,8 @@ async function testDynamicModelRefresh(): Promise<void> {
 				}),
 			);
 			const preserved = await refreshModels({ allowNetwork: false, signal });
-			deepStrictEqual(
-				preserved.map(({ id }) => id),
-				["deepseek-flash", "glm-5.2"],
-			);
+			deepStrictEqual(preserved.map(model => model.id),
+				["deepseek-flash", "glm-5.2", ...OPENAI_IMAGE_MODEL_IDS]);
 			// 已退役 ID 不能通过网关刷新恢复；K3 256K 可以。
 			globalThis.fetch = async () => new Response(JSON.stringify({ data: [
 				"deepseek-flash", "glm-5.2", "kimi-k3-256k",
@@ -374,7 +375,8 @@ async function testDynamicModelRefresh(): Promise<void> {
 				credential: { type: "api_key", key: "test-key" },
 				allowNetwork: true, force: true, signal,
 			});
-			deepStrictEqual(curated.map(({ id }) => id), ["deepseek-flash", "glm-5.2", "kimi-k3-256k"]);
+			deepStrictEqual(curated.map(model => model.id),
+				["deepseek-flash", "glm-5.2", "kimi-k3-256k", ...OPENAI_IMAGE_MODEL_IDS]);
 		} finally {
 			pi.invoke("session_shutdown", { type: "session_shutdown" }, sessionContext);
 			globalThis.fetch = previousFetch;
@@ -395,7 +397,7 @@ async function testPreSessionExplicitForce(): Promise<void> {
 							allowNetwork: boolean;
 							force?: boolean;
 							signal: AbortSignal;
-						}) => Promise<Array<{ id: string }>>;
+						}) => Promise<Array<{ id: string; type?: string }>>;
 				  }
 				| undefined
 		)?.refreshModels;
@@ -418,7 +420,8 @@ async function testPreSessionExplicitForce(): Promise<void> {
 				allowNetwork: true,
 				signal,
 			});
-			deepStrictEqual(local, [], "未显式 force 时预 session 不联网");
+			deepStrictEqual(local.map(model => model.id), [...OPENAI_IMAGE_MODEL_IDS],
+				"未显式 force 时预 session 不联网，只登记固定图片");
 			equal(calls, 0);
 
 			const forced = await refreshModels({
@@ -427,11 +430,9 @@ async function testPreSessionExplicitForce(): Promise<void> {
 				force: true,
 				signal,
 			});
-			deepStrictEqual(
-				forced.map(({ id }) => id),
-				["deepseek-flash", "glm-5.2"],
-				"预 session 显式 force 仍可联网，兼容无会话 CLI",
-			);
+			deepStrictEqual(forced.map(model => model.id),
+				["deepseek-flash", "glm-5.2", ...OPENAI_IMAGE_MODEL_IDS],
+				"预 session 显式 force 仍可联网，兼容无会话 CLI");
 			equal(calls, 1);
 		} finally {
 			globalThis.fetch = previousFetch;

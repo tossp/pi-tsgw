@@ -6,6 +6,7 @@ import { test } from "node:test";
 import registerTsgw from "../../index.ts";
 import { FakePi, withAgentDir } from "#tsgw/test-support.test";
 import { PROVIDER_ID } from "#tsgw/models/catalog";
+import { OPENAI_IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
 import {
 	DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL,
 	gatewayModelCacheScope,
@@ -20,9 +21,16 @@ async function waitFor(predicate: () => boolean, message: string): Promise<void>
 	throw new Error(message);
 }
 
-function idsOf(models: Array<{ id: string }>): string[] {
-	return models.map(model => model.id);
+/** 网关派生目录与固定图片分开断言，不锁静态目录快照。 */
+function gatewayIds(models: Array<{ id: string; type?: string }>): string[] {
+	return models.filter(model => model.type !== "image").map(model => model.id);
 }
+
+function imageIds(models: Array<{ id: string; type?: string }>): string[] {
+	return models.filter(model => model.type === "image").map(model => model.id);
+}
+
+const FIXED_IMAGE_IDS = [...OPENAI_IMAGE_MODEL_IDS];
 
 test("Qwen 接入参考仍受网关交集过滤，include 不能恢复已移除 ID", async () => {
 	const previousFetch = globalThis.fetch;
@@ -38,9 +46,11 @@ test("Qwen 接入参考仍受网关交集过滤，include 不能恢复已移除 
 			const pi = new FakePi();
 			await registerTsgw(pi);
 			equal(calls, 0, "工厂只应用本地快照，不因 include 请求网关");
-			const provider = pi.providers[0].config as { models: Array<{ id: string; api: string }> };
-			deepStrictEqual(provider.models.map(({ id }) => id), [],
+			const provider = pi.providers[0].config as { models: Array<{ id: string; type?: string; api: string }> };
+			deepStrictEqual(gatewayIds(provider.models), [],
 				"静态保留的 qwen3.7-plus 不在网关列表时不可由 include 增加；已删除 ID 也不能通过 include 恢复");
+			deepStrictEqual(imageIds(provider.models), FIXED_IMAGE_IDS,
+				"无缓存启动仍固定登记图片，且不受 includeModels 约束");
 		});
 	} finally { globalThis.fetch = previousFetch; }
 });
@@ -59,7 +69,9 @@ test("分类启动目录：缓存交集与过滤生效，不额外联网；状�
 			const pi = new FakePi();
 			await registerTsgw(pi);
 			const provider = pi.providers[0].config as { models: Array<{ id: string; type?: string }> };
-			deepStrictEqual(provider.models.map(({ id, type }) => ({ id, type })), [{ id: "jev-preview", type: "classifier" }]);
+			deepStrictEqual(provider.models.filter(model => model.type !== "image")
+				.map(({ id, type }) => ({ id, type })), [{ id: "jev-preview", type: "classifier" }]);
+			deepStrictEqual(imageIds(provider.models), FIXED_IMAGE_IDS, "分类过滤不涉及固定图片");
 			equal(calls, 0);
 			let label = "";
 			const ctx = { hasUI: true, model: undefined, thinkingLevel: "off",
@@ -68,7 +80,7 @@ test("分类启动目录：缓存交集与过滤生效，不额外联网；状�
 			};
 			pi.invoke("session_start", { reason: "startup" }, ctx);
 			try {
-				match(label, /1/);
+				match(label, new RegExp(`· ${provider.models.length}`));
 				equal(calls, 0, "新鲜缓存不启动后台网络恢复");
 				equal(pi.activeTools.includes("tsgw_search"), false);
 			} finally {
@@ -103,10 +115,12 @@ for (const scenario of ["fresh", "expired", "wrong-key", "no-cache", "no-auth"] 
 				const pi = new FakePi();
 				await registerTsgw(pi);
 				equal(calls, 0, `${scenario} 场景工厂初始化必须零网络`);
-				const provider = pi.providers[0].config as { models: Array<{ id: string }> };
-				deepStrictEqual(idsOf(provider.models),
+				const provider = pi.providers[0].config as { models: Array<{ id: string; type?: string }> };
+				deepStrictEqual(gatewayIds(provider.models),
 					scenario === "fresh" || scenario === "expired" ? ["gpt-6-luna"] : [],
 					"仅应用当前 baseUrl 与凭据作用域内已保存的本地快照");
+				deepStrictEqual(imageIds(provider.models), FIXED_IMAGE_IDS,
+					`${scenario} 场景都固定登记图片`);
 			});
 		} finally { globalThis.fetch = previousFetch; }
 	});
@@ -130,20 +144,22 @@ for (const expired of [false, true]) {
 				const pi = new FakePi();
 				await registerTsgw(pi);
 				const provider = pi.providers[0].config as {
-					models: Array<{ id: string }>;
+					models: Array<{ id: string; type?: string }>;
 					refreshModels: (context: {
 						allowNetwork: boolean;
 						force?: boolean;
 						credential: { type: "api_key"; key: string };
 						signal: AbortSignal;
-					}) => Promise<Array<{ id: string }>>;
+					}) => Promise<Array<{ id: string; type?: string }>>;
 				};
 				const signal = new AbortController().signal;
 				const beforeStart = await provider.refreshModels({
 					allowNetwork: true,
 					credential: { type: "api_key", key }, signal,
 				});
-				deepStrictEqual(idsOf(beforeStart), ["gpt-6-luna"]);
+				deepStrictEqual(gatewayIds(beforeStart), ["gpt-6-luna"]);
+				deepStrictEqual(imageIds(beforeStart), FIXED_IMAGE_IDS,
+					"session_start 前不联网，但固定图片可用");
 				equal(calls, 0, "session_start 前非 force 只能返回本地快照");
 
 				const ctx = { hasUI: false, model: undefined, thinkingLevel: "off",
@@ -155,7 +171,8 @@ for (const expired of [false, true]) {
 						allowNetwork: false, force: true,
 						credential: { type: "api_key", key }, signal,
 					});
-					deepStrictEqual(idsOf(localOnly), ["gpt-6-luna"]);
+					deepStrictEqual(gatewayIds(localOnly), ["gpt-6-luna"]);
+					deepStrictEqual(imageIds(localOnly), FIXED_IMAGE_IDS);
 					equal(calls, 0, "allowNetwork:false 始终只读本地");
 
 					const automatic = await provider.refreshModels({
@@ -164,16 +181,19 @@ for (const expired of [false, true]) {
 					});
 					if (expired) {
 						equal(calls, 1, "非 force 发现缓存过期后必须联网");
-						deepStrictEqual(idsOf(automatic).sort(), ["gpt-6-luna", "glm-5.2"].sort());
+						deepStrictEqual(gatewayIds(automatic).sort(), ["gpt-6-luna", "glm-5.2"].sort());
+						deepStrictEqual(imageIds(automatic), FIXED_IMAGE_IDS);
 						const again = await provider.refreshModels({
 							allowNetwork: true, force: false,
 							credential: { type: "api_key", key }, signal,
 						});
-						deepStrictEqual(idsOf(again).sort(), ["gpt-6-luna", "glm-5.2"].sort());
+						deepStrictEqual(gatewayIds(again).sort(), ["gpt-6-luna", "glm-5.2"].sort());
+						deepStrictEqual(imageIds(again), FIXED_IMAGE_IDS);
 						equal(calls, 1, "联网后的新缓存不再重复请求");
 					} else {
 						equal(calls, 0, "非 force 命中新鲜缓存时不联网");
-						deepStrictEqual(idsOf(automatic), ["gpt-6-luna"]);
+						deepStrictEqual(gatewayIds(automatic), ["gpt-6-luna"]);
+						deepStrictEqual(imageIds(automatic), FIXED_IMAGE_IDS);
 					}
 				} finally {
 					pi.invoke("session_shutdown", {}, ctx);
@@ -205,25 +225,28 @@ test("session_start 前显式 force 可联网，兼容无会话 CLI", async () =
 					force?: boolean;
 					credential: { type: "api_key"; key: string };
 					signal: AbortSignal;
-				}) => Promise<Array<{ id: string }>>;
+				}) => Promise<Array<{ id: string; type?: string }>>;
 			};
 			const signal = new AbortController().signal;
 			const local = await provider.refreshModels({
 				allowNetwork: true, credential: { type: "api_key", key }, signal,
 			});
-			deepStrictEqual(idsOf(local), ["gpt-6-luna"]);
+			deepStrictEqual(gatewayIds(local), ["gpt-6-luna"]);
+			deepStrictEqual(imageIds(local), FIXED_IMAGE_IDS);
 			equal(calls, 0, "未显式 force 时预 session 不联网");
 
 			const forced = await provider.refreshModels({
 				allowNetwork: true, force: true, credential: { type: "api_key", key }, signal,
 			});
-			deepStrictEqual(idsOf(forced).sort(), ["gpt-6-luna", "glm-5.2"].sort());
+			deepStrictEqual(gatewayIds(forced).sort(), ["gpt-6-luna", "glm-5.2"].sort());
+			deepStrictEqual(imageIds(forced), FIXED_IMAGE_IDS);
 			equal(calls, 1, "预 session 显式 force 绕过新鲜缓存并联网");
 
 			const cached = await provider.refreshModels({
 				allowNetwork: true, credential: { type: "api_key", key }, signal,
 			});
-			deepStrictEqual(idsOf(cached).sort(), ["gpt-6-luna", "glm-5.2"].sort());
+			deepStrictEqual(gatewayIds(cached).sort(), ["gpt-6-luna", "glm-5.2"].sort());
+			deepStrictEqual(imageIds(cached), FIXED_IMAGE_IDS);
 			equal(calls, 1, "强制刷新写入的新鲜缓存不再重复请求");
 		});
 	} finally { globalThis.fetch = previousFetch; }

@@ -4,7 +4,11 @@ import { join } from "node:path";
 import { catalogLabel, searchLabel } from "./status.ts";
 import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL, gatewayModelCacheScope, saveGatewayModelCache } from "#tsgw/models/gateway-catalog";
 import { withAgentDir, providerRequest } from "#tsgw/test-support.test";
-import { fixture, modelResponse, nextFixtureId, waitUntil, withUi } from "./catalog-test-support.test.ts";
+import { fixture, modelResponse, nextFixtureId, waitUntil, withUi, FIXED_IMAGE_IDS, sortedWithFixedImages } from "./catalog-test-support.test.ts";
+
+/** 目录状态计数含固定图片；聊天/分类仍只来自网关目录。 */
+const FIXED_COUNT = FIXED_IMAGE_IDS.length;
+const catalogCount = (gatewayModels: number): number => gatewayModels + FIXED_COUNT;
 
 await withUi(async ({ pi, ctx, choices, statuses, updates, dialogs, notices, root, key,
 	refreshCalls, restoreCalls, networkRefreshCalls }) => {
@@ -21,7 +25,7 @@ await withUi(async ({ pi, ctx, choices, statuses, updates, dialogs, notices, roo
 	equal(networkRefreshCalls(), 1, "只有手动刷新进入联网路径");
 	equal(requests, 1);
 	deepStrictEqual(notices.map(notice => notice.level), ["info"]);
-	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 2, source: "network", storedAt: Date.now(), loading: false }, true, true));
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: catalogCount(2), source: "network", storedAt: Date.now(), loading: false }, true, true));
 	equal(updates.includes(catalogLabel({ count: 0, source: "cache", storedAt: Date.now(), loading: true }, true, true)), true);
 	choices.push(1, undefined);
 	await pi.invokeCommand("tsgw", ctx);
@@ -33,11 +37,11 @@ await withUi(async ({ pi, ctx, choices, statuses, updates, dialogs, notices, roo
 	equal(requests, 1); // 诊断仅在本地进行，绝不发起探测。
 	globalThis.fetch = async () => new Response("unavailable", { status: 503 });
 	await pi.invokeCommand("tsgw-refresh", ctx);
-	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 2, source: "network", storedAt: Date.now(), loading: false, error: "fixture-error" }, true, true));
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: catalogCount(2), source: "network", storedAt: Date.now(), loading: false, error: "fixture-error" }, true, true));
 	equal(notices.at(-1)?.level, "error");
 	globalThis.fetch = async () => modelResponse(["glm-5.2"]);
 	await pi.invokeCommand("tsgw-refresh", ctx);
-	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "network", storedAt: Date.now(), loading: false }, true, true));
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: catalogCount(1), source: "network", storedAt: Date.now(), loading: false }, true, true));
 });
 
 
@@ -107,8 +111,8 @@ await withUi(async ({ pi, ctx, notices, statuses, dir }) => {
 	equal(notices.at(-1)?.level, "info", "写盘失败不得把成功联网误报为目录失败");
 	match(notices.at(-1)?.text ?? "", /已刷新/);
 	deepStrictEqual(ctx.modelRegistry.getAvailable().map(model => model.id).sort(),
-		["gpt-6-sol", "glm-5.2"].sort(), "命令必须以网络结果更新 registry");
-	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 2, source: "network",
+		sortedWithFixedImages("gpt-6-sol", "glm-5.2"), "命令必须以网络结果更新 registry，并保留固定图片");
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: catalogCount(2), source: "network",
 		storedAt: Date.now(), loading: false }, true, true));
 
 	equal(cachePath.startsWith(dir), true, "仅操作临时夹具路径");
@@ -221,7 +225,7 @@ await withUi(async ({ pi, ctx, key, statuses, refreshModels }) => {
 	globalThis.fetch = async () => modelResponse();
 	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key },
 		force: true, signal: new AbortController().signal });
-	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 2, source: "network", storedAt: Date.now(), loading: false }, true, true));
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: catalogCount(2), source: "network", storedAt: Date.now(), loading: false }, true, true));
 	let resolveFetch!: (response: Response) => void;
 	globalThis.fetch = () => new Promise((resolve) => { resolveFetch = resolve; });
 	const pending = refreshModels({ allowNetwork: true, credential: { type: "api_key", key },
@@ -251,7 +255,7 @@ await withUi(async ({ refreshModels, key, statuses }) => {
 	await canceled;
 	resolvers[0](modelResponse(["glm-5.2"]));
 	await second;
-	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "network", storedAt: Date.now(), loading: false }, true, true));
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: catalogCount(1), source: "network", storedAt: Date.now(), loading: false }, true, true));
 });
 
 
@@ -271,7 +275,7 @@ for (const succeeds of [false, true]) {
 		if (succeeds) {
 			resolvers[0](modelResponse(["glm-5.2"]));
 			await Promise.all([command, newer]);
-			equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "network", storedAt: Date.now(), loading: false }, true, true));
+			equal(statuses.get("command:/tsgw"), catalogLabel({ count: catalogCount(1), source: "network", storedAt: Date.now(), loading: false }, true, true));
 			equal(notices.at(-1)?.level, "info");
 		} else {
 			const failed = rejects(newer, /目录获取失败/);
@@ -352,8 +356,9 @@ for (const stale of [false, true]) {
 			if (stale) await waitUntil(() => calls >= 1, "过期缓存的后台恢复没有启动");
 			else await new Promise<void>(resolve => setTimeout(resolve, 10));
 			equal(calls, stale ? 1 : 0, "24 小时内缓存不联网；过期先尝试一次并保留旧缓存");
-			deepStrictEqual(ctx.modelRegistry.getAvailable().map(model => model.id), ["gpt-6-sol"]);
-			equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "cache", storedAt,
+			deepStrictEqual(ctx.modelRegistry.getAvailable().map(model => model.id).sort(),
+				sortedWithFixedImages("gpt-6-sol"), "缓存目录保留固定图片");
+			equal(statuses.get("command:/tsgw"), catalogLabel({ count: catalogCount(1), source: "cache", storedAt,
 				ttlMs: TTL, loading: false, error: stale ? "fixture-error" : undefined }, true, true));
 			const noticeCount = notices.length;
 			pi.invoke("session_start", { reason: "new" }, ctx);
@@ -374,20 +379,22 @@ await withUi(async ({ pi, ctx, statuses, notices }) => {
 	Object.assign(ctx.modelRegistry, { getModelsOfType: (type: string, provider: string) =>
 		ctx.modelRegistry.getAvailable().filter(model => provider === "tsgw" && (model.type ?? "chat") === type) });
 	const before = ctx.modelRegistry.getAvailable().length;
-	globalThis.fetch = async () => modelResponse(["gpt-6-sol", "gpt-image-2.5-flare", "jev-latest", "jev-preview"]);
+	globalThis.fetch = async () => modelResponse(["gpt-6-sol", "gpt-image-2.6-flare", "jev-latest", "jev-preview"]);
 	await pi.invokeCommand("tsgw-refresh", ctx);
 	deepStrictEqual(ctx.modelRegistry.getAvailable().filter(model => model.type === "classifier")
 		.map(model => model.id), ["jev-latest", "jev-preview"]);
-	match(notices.at(-1)!.text, new RegExp(`${before} → 4`));
-	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 4, source: "network", storedAt: Date.now(), loading: false }, true, true));
+	match(notices.at(-1)!.text, new RegExp(`${before} → ${catalogCount(3)}`));
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: catalogCount(3), source: "network", storedAt: Date.now(), loading: false }, true, true));
+	equal(ctx.modelRegistry.getAvailable().filter(model => model.id === "gpt-image-2.6-flare").length, 1,
+		"网关重复返回图片 ID 也不会重复登记固定图片");
 	ctx.model = { ...ctx.model, id: "glm-5.2", api: "openai-completions" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
 	equal(statuses.get("command:/tsgw-search"), searchLabel("live", "proxy-gpt"));
 	equal(pi.activeTools.includes("tsgw_search"), false, "有 GPT 候选也不自动激活");
 	globalThis.fetch = async () => modelResponse(["jev-preview"]);
 	await pi.invokeCommand("tsgw-refresh", ctx);
-	match(notices.at(-1)!.text, /4 → 1/);
-	equal(statuses.get("command:/tsgw"), catalogLabel({ count: 1, source: "network", storedAt: Date.now(), loading: false }, true, true));
+	match(notices.at(-1)!.text, new RegExp(`${catalogCount(3)} → ${catalogCount(1)}`));
+	equal(statuses.get("command:/tsgw"), catalogLabel({ count: catalogCount(1), source: "network", storedAt: Date.now(), loading: false }, true, true));
 	// 只余 classifier 时代理不可用；不能把分类器当聊天候选。
 	equal(statuses.get("command:/tsgw-search"), searchLabel("live", undefined));
 	equal(pi.activeTools.includes("tsgw_search"), false);

@@ -7,6 +7,11 @@ import type { AgentSession, ExtensionError } from "@earendil-works/pi-coding-age
 import type { ClassifierContext } from "@earendil-works/pi-ai";
 import { HostSandbox, TEST_KEY, TEST_ROOT, type CapturedRequest } from "#tsgw/host-test-support.test";
 import { TYPESAFE_CLASSIFIER_MODEL_IDS as CLASSIFIER_MODEL_IDS } from "#tsgw/models/vendors/typesafe";
+import { OPENAI_IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
+
+/** 固定登记的图片与网关派生的聊天/分类分开断言。 */
+const FIXED_IMAGE_IDS = [...OPENAI_IMAGE_MODEL_IDS].sort();
+const withFixedImages = (...gatewayIds: string[]): string[] => [...gatewayIds, ...FIXED_IMAGE_IDS].sort();
 
 function sourceEntry(): string {
 	let dir = dirname(fileURLToPath(import.meta.url));
@@ -124,12 +129,19 @@ test("Pi SDK classifier：源码加载、原生认证/解析、codemode、过滤
 
 		await t.test("无凭据不静态恢复；交集只登记两款 Jev，非聊天/图片身份", async () => {
 			assert.deepEqual(classifiers(), []);
+			assert.deepEqual(runtime.getModels("tsgw"), [], "聊天目录不静态恢复");
+			assert.deepEqual(runtime.getModelsOfType("image", "tsgw").map(model => model.id).sort(),
+				FIXED_IMAGE_IDS, "固定图片不依赖凭据与网关目录");
 			assert.equal(sandbox.catalogCalls, 0);
 			await runtime.setRuntimeApiKey("tsgw", TEST_KEY);
-			sandbox.catalogIds = ["gpt-6-sol", "gpt-image-2.5-flare", ...CLASSIFIER_MODEL_IDS, "Kev-4B", "SemIf"];
+			sandbox.catalogIds = ["gpt-6-sol", "gpt-image-2.6-flare", ...CLASSIFIER_MODEL_IDS, "Kev-4B", "SemIf"];
 			await refresh();
 			assert.deepEqual(classifiers().map(m => m.id), [...CLASSIFIER_MODEL_IDS]);
-			assert.equal(runtime.getAllModels("tsgw").length, 4);
+			assert.equal(runtime.getAllModels("tsgw").length,
+				withFixedImages("gpt-6-sol", ...CLASSIFIER_MODEL_IDS).length);
+			assert.deepEqual(runtime.getAllModels("tsgw").map(model => model.id).sort(),
+				withFixedImages("gpt-6-sol", ...CLASSIFIER_MODEL_IDS),
+				"网关重复返回图片 ID 也不重复登记");
 			for (const id of CLASSIFIER_MODEL_IDS) {
 				assert.equal(runtime.getModel("tsgw", id), undefined);
 				assert.equal(runtime.getModelOfType("image", "tsgw", id), undefined);
@@ -179,11 +191,15 @@ test("Pi SDK classifier：源码加载、原生认证/解析、codemode、过滤
 			sandbox.catalogIds = ["gpt-6-sol"];
 			await refresh();
 			assert.deepEqual(classifiers(), []);
+			assert.deepEqual(runtime.getModelsOfType("image", "tsgw").map(model => model.id).sort(),
+				FIXED_IMAGE_IDS, "撤下分类不影响固定图片");
 		});
 		await t.test("重载和 include/exclude 过滤不绕过交集，未知型号不可恢复", async () => {
 			configure({ excludeModels: ["jev-*"], includeModels: ["jev-preview", "Kev-4B"] });
 			await activeSession.reload();
 			assert.deepEqual(classifiers(), []);
+			assert.deepEqual(runtime.getModelsOfType("image", "tsgw").map(model => model.id).sort(),
+				FIXED_IMAGE_IDS, "include/exclude 过滤不涉及固定图片");
 			sandbox.catalogIds = ["gpt-6-sol", ...CLASSIFIER_MODEL_IDS, "Kev-4B"];
 			await refresh();
 			assert.deepEqual(classifiers().map(m => m.id), ["jev-preview"]);

@@ -80,7 +80,11 @@ function testTtlAndTimestamps(): void {
 	strictEqual(catalogLabel(displayTtl, true, true, STORED_AT + 2 * TTL), "🟡 TSGW · 42");
 	const empty = { ...BASE, count: 0, source: "empty" as const };
 	strictEqual(catalogLabel(empty, true, true, NOW), "🟡 TSGW · 0");
-	match(catalogDiagnostics(empty, OPTIONS, NOW), /目录来源：无可用目录/);
+	// empty 只表示网关目录缺席：仍可计固定图片，且不能假装网关目录已获取。
+	const imagesOnly = { ...empty, count: 2 };
+	strictEqual(catalogLabel(imagesOnly, true, true, NOW), "🟡 TSGW · 2");
+	match(catalogDiagnostics(imagesOnly, OPTIONS, NOW), /目录数量：2/);
+	match(catalogDiagnostics(imagesOnly, OPTIONS, NOW), /目录来源：\S+/);
 
 	// 缺失/无效时间不得冒充新鲜目录，也不应使 ISO 格式化抛错。
 	for (const storedAt of [undefined, NaN, Infinity, -Infinity, -1, 1e20]) {

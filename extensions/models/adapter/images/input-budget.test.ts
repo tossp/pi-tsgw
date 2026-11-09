@@ -6,7 +6,7 @@ import { createImageRequest, serializeImageRequest } from "./request.ts";
 import type { ImageReference, TsgwImagesContext } from "./parameters.ts";
 import { REAL_IMAGE_FIXTURES } from "./image-fixtures.test.ts";
 
-const ID = "gpt-image-2.5-sunburst";
+const ID = "gpt-image-2.6-sunburst";
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+ip1sAAAAASUVORK5CYII=";
 const context = (images: ImageReference[], mask?: ImageReference): TsgwImagesContext => ({
 	input: [{ type: "text", text: "参考图编辑" }], tsgw: { operation: "edit", images, ...(mask ? { mask } : {}) },
