@@ -3,6 +3,7 @@ import { supportsClassifierModels, supportsImageModels } from "#tsgw/models/capa
 import { registerAgentInstallCommand } from "#tsgw/agents/command";
 import { registerPrompts } from "#tsgw/prompts";
 import { registerEmail } from "#tsgw/email/index";
+import { registerDav } from "#tsgw/dav/index";
 import { readTsgwSettings } from "#tsgw/provider/config";
 import { registerTsgwProvider } from "#tsgw/provider/index";
 import { registerUploadTool } from "#tsgw/upload/index";
@@ -12,6 +13,7 @@ export default async function registerTsgw(pi: ExtensionAPI): Promise<void> {
 	registerUploadTool(pi);
 	registerAgentInstallCommand(pi);
 	await registerEmail(pi);
+	registerDav(pi);
 	if (supportsImageModels(VERSION)) {
 		const { registerImageTools } = await import("#tsgw/images/tools");
 		registerImageTools(pi);

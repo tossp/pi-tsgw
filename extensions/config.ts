@@ -1,6 +1,7 @@
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { DavConfigError, parseDavAccounts, type DavAccountConfig } from "./dav/config.ts";
 import {
 	EmailConfigError, parseImapAccounts, parseSmtpConfigs,
 	type ImapAccountConfig, type SmtpConfig,
@@ -9,6 +10,7 @@ import {
 export interface ConfigMap {
 	imap: ImapAccountConfig;
 	smtp: SmtpConfig;
+	dav: DavAccountConfig;
 }
 
 export type ConfigResult<T> =
@@ -19,6 +21,7 @@ export type ConfigResult<T> =
 const factories: { [K in keyof ConfigMap]: (raw: unknown) => Record<string, ConfigMap[K]> } = {
 	imap: parseImapAccounts,
 	smtp: parseSmtpConfigs,
+	dav: parseDavAccounts,
 };
 
 /** 只读统一文件并校验本次所需类型；不探测旧入口、不迁移、不联网。 */
@@ -57,7 +60,7 @@ export function readConfig<K extends keyof ConfigMap>(
 		const config = factories[kind]((raw as Record<string, unknown>)[kind]);
 		return Object.keys(config).length ? { status: "ready", config } : { status: "missing" };
 	} catch (error) {
-		return { status: "invalid", message: error instanceof EmailConfigError
+		return { status: "invalid", message: error instanceof EmailConfigError || error instanceof DavConfigError
 			? error.message : "扩展配置类型无效。" };
 	}
 }
