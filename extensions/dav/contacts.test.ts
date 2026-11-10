@@ -110,7 +110,7 @@ test("详情 GET 后解析，参数 Map 转普通 JSON，保留分组、属性 r
 	const item = resource("detail.vcf", card("4.0", [
 		"UID:urn:uuid:detail", "FN:甲\\,乙",
 		"item1.EMAIL;TYPE=work,internet;X-LABEL=研发^n小组:dev@example.invalid",
-		"NOTE:第一行\\n第二行\\,结尾", "N:张;三;;;", "X-OPAQUE:a;b,c",
+		"NOTE:第一行\\n第二行\\,结尾", "N:张;三;;;", "NICKNAME:三\\,哥,小三", "ORG:甲\\;公司;研发\\,部", "X-OPAQUE:a;b,c",
 	]));
 	const { client, context } = fixture([item]);
 	const result = await getContact(context, { account, resourceUrl: item.url });
@@ -131,7 +131,13 @@ test("详情 GET 后解析，参数 Map 转普通 JSON，保留分组、属性 r
 		name: "NOTE", parameters: {}, rawValue: "第一行\\n第二行\\,结尾", value: "第一行\n第二行,结尾",
 	});
 	assert.deepEqual(result.properties.find(property => property.name === "N"), {
-		name: "N", parameters: {}, rawValue: "张;三;;;",
+		name: "N", parameters: {}, rawValue: "张;三;;;", components: [["张"], ["三"], [""], [""], [""]],
+	});
+	assert.deepEqual(result.properties.find(property => property.name === "NICKNAME"), {
+		name: "NICKNAME", parameters: {}, rawValue: "三\\,哥,小三", items: ["三,哥", "小三"],
+	});
+	assert.deepEqual(result.properties.find(property => property.name === "ORG"), {
+		name: "ORG", parameters: {}, rawValue: "甲\\;公司;研发\\,部", components: [["甲;公司"], ["研发,部"]],
 	});
 	assert.deepEqual(JSON.parse(JSON.stringify(result)), result);
 	assert.equal(Object.hasOwn(result, "raw"), false);

@@ -1,4 +1,6 @@
 import { Type } from "typebox";
+import { calendarWriteSchemas } from "./calendar-write-schema.ts";
+import { contactActionSchemas } from "./contact-action-schema.ts";
 
 const objectOptions = { additionalProperties: false } as const;
 const id = Type.String({ minLength: 1, pattern: "^[^\\u0000-\\u001f\\u007f]+$" });
@@ -14,6 +16,8 @@ const getCalendar = Type.Object({ ...account, resourceUrl: url, uid: id,
 }, objectOptions);
 
 export const schemas = {
+	...calendarWriteSchemas,
+	...contactActionSchemas,
 	accounts: Type.Object({}, objectOptions),
 	collections: Type.Object({ ...account, kind: Type.Union([Type.Literal("calendar"), Type.Literal("addressbook")]) }, objectOptions),
 	event_list: Type.Object({ ...collection, uid, start: windowTime, end: windowTime, timeZone }, objectOptions),
@@ -28,5 +32,5 @@ export const schemas = {
 
 export const davOutputSchema = Type.Object({
 	ok: Type.Boolean(), data: Type.Optional(Type.Unknown()),
-	error: Type.Optional(Type.Object({ code: Type.String(), message: Type.String() }, objectOptions)),
+	error: Type.Optional(Type.Object({ code: Type.String(), message: Type.String(), details: Type.Optional(Type.Unknown()) }, objectOptions)),
 }, objectOptions);

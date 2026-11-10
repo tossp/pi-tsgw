@@ -29,7 +29,7 @@ function response(code: string, custom: boolean): Response {
 	return new Response(events.map(event => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""), { headers: { "content-type": "text/event-stream" } });
 }
 
-test("真实宿主：DAV 按需发现、缺配置重试、集合调用及重载；不访问真实网络", { timeout: 60_000 }, async () => {
+test("真实宿主：DAV 按需发现、缺配置重试、集合与写入调用及重载；不访问真实网络", { timeout: 60_000 }, async () => {
 	const module = modulePath();
 	const sandbox = new HostSandbox();
 	let host: AgentSession | undefined;
@@ -60,6 +60,7 @@ test("真实宿主：DAV 按需发现、缺配置重试、集合调用及重载�
 		assert.ok(!session.agent.state.tools.some(tool => tool.name.startsWith("tsgw_dav_")));
 		let script: string | undefined;
 		let davRequests = 0;
+		let writes = 0;
 		const guardedFetch = globalThis.fetch;
 		globalThis.fetch = async (input, init) => {
 			const request = new Request(input, init);
@@ -73,6 +74,15 @@ test("真实宿主：DAV 按需发现、缺配置重试、集合调用及重载�
 				davRequests++; assert.equal(request.method, "PROPFIND");
 				assert.equal(request.headers.get("authorization"), `Basic ${Buffer.from("fixture:fixture-secret").toString("base64")}`);
 				return new Response('<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav"><d:response><d:href>/calendar/</d:href><d:propstat><d:prop><d:resourcetype><c:calendar/></d:resourcetype><d:displayname>合成集合</d:displayname></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response></d:multistatus>', { status: 207 });
+			}
+			if (request.url.startsWith("https://dav.example.invalid/ab/") && request.method === "PUT") {
+				writes++;
+				assert.equal(request.headers.get("if-none-match"), "*");
+				const { parseContact } = await import("davkit/vcard");
+				const contact = parseContact(await request.text());
+				assert.ok(contact.uid);
+				assert.ok(contact.properties.some(property => property.name === "REV"));
+				return new Response(null, { status: 201, headers: { etag: '\"created\"' } });
 			}
 			return guardedFetch(request);
 		};
@@ -90,6 +100,8 @@ test("真实宿主：DAV 按需发现、缺配置重试、集合调用及重载�
 		chmodSync(path, 0o600);
 		const ready = await execute('text(await tools.tsgw_dav_collections({account:"work",kind:"calendar"}));');
 		assert.match(ready, /合成集合/); assert.doesNotMatch(ready, /fixture-secret|Basic /); assert.equal(davRequests, 1);
+		const created = await execute('text(await tools.tsgw_dav_contact_create({account:"work",collectionUrl:"https://dav.example.invalid/ab/",name:"合成联系人"}));');
+		assert.match(created, /created/); assert.doesNotMatch(created, /fixture-secret|BEGIN:VCARD/); assert.equal(writes, 1);
 		await session.reload(); assert.deepEqual(loader.getExtensions().errors, []);
 		assert.ok(davTools().some(tool => tool.name === "tsgw_dav_accounts"));
 		assert.match(await execute('text(await tools.tsgw_dav_accounts({}));'), /work/);

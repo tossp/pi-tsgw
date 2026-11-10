@@ -6,7 +6,7 @@ export function supportsDavNode(version: string): boolean {
 	return /^(\d+)\./.test(version) && Number(version.split(".")[0]) >= 24;
 }
 
-/** 每次调用独立客户端与取消信号；不缓存密码、不重试、不在注册阶段加载可选库。 */
+/** 每次调用独立客户端与取消信号；记录写入确认状态，不缓存密码或自动重试。 */
 export async function withDavAccount<T>(
 	config: DavAccountConfig,
 	signal: AbortSignal | undefined,
@@ -23,12 +23,22 @@ export async function withDavAccount<T>(
 		? new URL(`/.well-known/${options.discoveryKind === "calendar" ? "caldav" : "carddav"}`, base).href
 		: config.url;
 	const fetchImpl = options.fetch ?? globalThis.fetch;
+	const mutation: { method?: string; resourceUrl?: string; status?: number } = {};
+	const writeConfirmed = () => mutation.status !== undefined
+		&& (mutation.method === "PUT" ? [200, 201, 204] : [200, 204]).includes(mutation.status);
 	const makeClient = (baseUrl: string, observe?: (url: string, response: Response) => void) => new library.dav.DavClient({
 		baseUrl, basicAuth: { username: config.user, password: config.password },
 		fetch: async (url, init) => {
 			const signals = [signal, init?.signal].filter((value): value is AbortSignal => !!value);
-			const response = await fetchImpl(url, { ...init,
-				signal: signals.length ? AbortSignal.any(signals) : undefined, redirect: "manual" });
+			const requestSignal = signals.length ? AbortSignal.any(signals) : undefined;
+			const writing = init?.method === "PUT" || init?.method === "DELETE";
+			if (writing) {
+				requestSignal?.throwIfAborted();
+				mutation.method = init.method;
+				mutation.resourceUrl = String(url);
+			}
+			const response = await fetchImpl(url, { ...init, signal: requestSignal, redirect: "manual" });
+			if (writing) mutation.status = response.status;
 			observe?.(String(url), response);
 			return response;
 		},
@@ -57,20 +67,28 @@ export async function withDavAccount<T>(
 			}
 		}
 	};
+	const context: DavReadContext = { client, ical: library.ical, vcard: library.vcard,
+		...(config.timeZone === undefined ? {} : { timeZone: config.timeZone }) };
 	try {
-		const data = await handler({ client, ical: library.ical, vcard: library.vcard,
-			...(config.timeZone === undefined ? {} : { timeZone: config.timeZone }) });
-		signal?.throwIfAborted();
+		const data = await handler(context);
+		// 已确认的写入不因随后取消被降为失败；调用方不做写后回读。
+		if (!writeConfirmed()) signal?.throwIfAborted();
 		return data;
 	} catch (error) {
-		if (signal?.aborted) throw new DavToolError("ABORTED", "DAV 读取已取消。");
 		if (error instanceof DavToolError) throw error;
-		if (error instanceof library.dav.DavError) {
+		if (mutation.method && (mutation.status === undefined
+			|| (mutation.status >= 200 && mutation.status < 300 && !writeConfirmed())))
+			throw new DavToolError("REMOTE_RESULT_UNKNOWN", "写入请求已发出，但远端结果尚未确认；不能假定未生效。请先读取目标资源核对，不会自动重发或补偿。",
+				{ ...context.writeIdentity, method: mutation.method, resourceUrl: mutation.resourceUrl });
+		if (error instanceof library.dav.DavConflictError)
+			throw new DavToolError("CONFLICT", "条件写入发生版本或创建冲突，未自动重试；请重新读取并确认变更。");
+		if (error instanceof library.dav.DavError && (error.status !== null || !signal?.aborted)) {
 			const code = error.status === 401 || error.status === 403 ? "DAV_AUTH_FAILED"
 				: error.status === 404 ? "NOT_FOUND" : "DAV_FAILED";
 			const status = error.status === null ? "连接或响应读取失败" : `HTTP ${error.status}`;
 			throw new DavToolError(code, `DAV 请求失败（${status}），未自动重试；请核对服务入口、账户与权限。`);
 		}
+		if (signal?.aborted) throw new DavToolError("ABORTED", "DAV 操作已取消，未发出写入请求。");
 		if (error instanceof library.dav.DavProtocolError)
 			throw new DavToolError("DAV_PROTOCOL", "服务器未返回有效 DAV 数据；请核对服务入口，不把网页响应视为认证成功。");
 		throw error;

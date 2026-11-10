@@ -14,20 +14,21 @@ function values(contact: Contact, name: "EMAIL" | "TEL"): string[] {
 		property.name === name && property.value !== undefined ? [property.value] : []);
 }
 
+export function contactSummary(contact: Contact, resource: { url: string; etag: string | null }) {
+	return {
+		resourceUrl: resource.url,
+		etag: resource.etag,
+		...(contact.uid === undefined ? {} : { uid: contact.uid }),
+		version: contact.version,
+		name: contact.name,
+		emails: values(contact, "EMAIL"),
+		phones: values(contact, "TEL"),
+	};
+}
+
 export async function listContacts(context: DavReadContext, input: ContactListInput) {
 	const resources = await context.client.query(input.collectionUrl, "addressbook");
-	const items = resources.map(resource => {
-		const contact = parseContact(context, resource.data);
-		return {
-			resourceUrl: resource.url,
-			etag: resource.etag,
-			...(contact.uid === undefined ? {} : { uid: contact.uid }),
-			version: contact.version,
-			name: contact.name,
-			emails: values(contact, "EMAIL"),
-			phones: values(contact, "TEL"),
-		};
-	});
+	const items = resources.map(resource => contactSummary(parseContact(context, resource.data), resource));
 	return { account: input.account, collectionUrl: input.collectionUrl, complete: true, items };
 }
 
@@ -50,6 +51,8 @@ export async function getContact(context: DavReadContext, input: ContactGetInput
 			parameters: Object.fromEntries(property.parameters),
 			rawValue: property.rawValue,
 			...(property.value === undefined ? {} : { value: property.value }),
+			...(property.components === undefined ? {} : { components: property.components }),
+			...(property.items === undefined ? {} : { items: property.items }),
 		})),
 		...(input.raw === true ? { raw: resource.data } : {}),
 	};

@@ -30,7 +30,7 @@ function harness(dir: string, fetchImpl?: typeof fetch, version = "1.2.0") {
 			assert.ok(tool && Compile(tool.parameters).Check(input), "测试输入须通过真实参数 schema");
 			const result = await tool.execute("dav-fixture", input, signal, undefined, {} as ExtensionToolContext);
 			assert.ok(Compile(tool.outputSchema!).Check(result.structuredContent));
-			return result as typeof result & { structuredContent: { ok: boolean; data?: any; error?: { code: string; message: string } } };
+			return result as typeof result & { structuredContent: { ok: boolean; data?: any; error?: { code: string; message: string; details?: Record<string, unknown> } } };
 		},
 	};
 }
@@ -50,10 +50,11 @@ test("兼容宿主始终 deferred 注册，注册和 session_start 不读取文�
 		h.register(); await h.emit("session_start");
 		assert.equal(read.mock.calls.length, 0); assert.equal(stat.mock.calls.length, 0);
 		assert.ok(h.tools.has("tsgw_dav_event_list") && h.tools.has("tsgw_dav_contact_get"));
-		assert.ok(!h.tools.has("tsgw_dav_contact_search") && !h.tools.has("tsgw_dav_event_delete"));
+		assert.ok(h.tools.has("tsgw_dav_contact_search") && h.tools.has("tsgw_dav_event_delete"));
 		for (const tool of h.tools.values()) {
 			assert.equal(tool.exposure, "deferred"); assert.equal(tool.namespace?.name, "tsgw_dav");
-			assert.equal(tool.annotations?.readOnlyHint, true);
+			assert.equal(tool.annotations?.readOnlyHint, !/_(create|update|delete)$/.test(tool.name));
+			assert.equal(tool.annotations?.destructiveHint, /_(update|delete)$/.test(tool.name));
 		}
 	} finally { read.mock.restore(); stat.mock.restore(); syncBuiltinESMExports(); rmSync(dir, { recursive: true, force: true }); }
 	for (const version of ["1.1.9", "1.2.0-rc.1", "bad"]) assert.equal(supportsDavTools(version), false);
@@ -140,5 +141,77 @@ test("会话关闭取消进行中读取，预取消不连接，重启后本地�
 		assert.equal((await pending).structuredContent.error?.code, "ABORTED");
 		assert.equal((await h.execute("accounts")).structuredContent.error?.code, "SESSION_CLOSED");
 		await h.emit("session_start"); assert.equal((await h.execute("accounts")).structuredContent.ok, true);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("日历三类型创建响应丢失时保留生成身份，floating 资源无需时区或列表即可直接回读", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "dav-calendar-unknown-"));
+	try {
+		save(dir, config);
+		for (const [prefix, kind, fields] of [["event", "VEVENT", { start: "20261112T090000" }],
+			["todo", "VTODO", {}], ["journal", "VJOURNAL", { date: "20261112" }]] as const) {
+			let stored = "", savedUrl = "";
+			const methods: string[] = [];
+			const h = harness(dir, async (url, init) => {
+				methods.push(init!.method!);
+				if (init!.method === "PUT") {
+					stored = String(init!.body); savedUrl = String(url);
+					throw new Error("synthetic-private-lost-response");
+				}
+				assert.equal(init!.method, "GET"); assert.equal(String(url), savedUrl);
+				return new Response(stored, { status: 200, headers: { etag: '\"saved\"' } });
+			}); h.register();
+			const unknown = await h.execute(`${prefix}_create`, { account: "work", collectionUrl: "https://dav.example.invalid/cal/",
+				summary: "合成创建", ...fields });
+			assert.equal(unknown.structuredContent.error?.code, "REMOTE_RESULT_UNKNOWN");
+			const details = unknown.structuredContent.error!.details!;
+			assert.equal(details.account, "work"); assert.equal(details.kind, kind);
+			assert.equal(details.method, "PUT"); assert.equal(details.resourceUrl, savedUrl);
+			assert.equal(typeof details.uid, "string");
+			assert.ok(stored.includes(`UID:${details.uid}\r\n`));
+			assert.doesNotMatch(JSON.stringify(unknown), /synthetic-private|synthetic-secret|synthetic-login|BEGIN:VCALENDAR|合成创建/);
+			const read = await h.execute(`${prefix}_get`, { account: details.account, resourceUrl: details.resourceUrl, uid: details.uid });
+			assert.equal(read.structuredContent.ok, true);
+			assert.equal(read.structuredContent.data.uid, details.uid);
+			assert.equal(read.structuredContent.data.etag, '\"saved\"');
+			assert.deepEqual(methods, ["PUT", "GET"]);
+		}
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("工具层保持已确认写入成功；远端结果未知保留目标用于核对", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "dav-write-result-"));
+	try {
+		save(dir, config);
+		const input = { account: "work", collectionUrl: "https://dav.example.invalid/ab/", name: "合成联系人" };
+		const controller = new AbortController();
+		const methods: string[] = [];
+		const h = harness(dir, async (_url, init) => {
+			methods.push(init!.method!);
+			assert.equal(new Headers(init!.headers).get("if-none-match"), "*");
+			return new Response(new ReadableStream({ cancel() { controller.abort(); } }), {
+				status: 201, headers: { etag: '\"created\"' },
+			});
+		}); h.register();
+		const result = await h.execute("contact_create", input, controller.signal);
+		assert.equal(controller.signal.aborted, true);
+		assert.equal(result.structuredContent.ok, true);
+		assert.equal(result.structuredContent.data.outcome, "created");
+		assert.equal(result.structuredContent.data.etag, '\"created\"');
+		assert.deepEqual(methods, ["PUT"]);
+		let requests = 0;
+		const unknown = harness(dir, async () => { requests++; throw new Error("synthetic-private-failure"); }); unknown.register();
+		const uncertain = await unknown.execute("contact_create", input);
+		assert.equal(uncertain.isError, true);
+		assert.equal(uncertain.structuredContent.error?.code, "REMOTE_RESULT_UNKNOWN");
+		const details = uncertain.structuredContent.error?.details;
+		assert.equal(details?.account, "work");
+		assert.ok(typeof details?.uid === "string");
+		assert.match(details.uid, /^[0-9a-f-]{36}$/i);
+		assert.equal(details.method, "PUT");
+		assert.ok(typeof details?.resourceUrl === "string");
+		assert.match(details.resourceUrl, /^https:\/\/dav\.example\.invalid\/ab\/[^/]+\.vcf$/);
+		assert.doesNotMatch(JSON.stringify(uncertain), /synthetic-private|synthetic-secret|synthetic-login/);
+		assert.equal(requests, 1);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });

@@ -1,23 +1,32 @@
 ---
 name: tsgw-synology-dav
-description: 查询日历、日程、待办、日记和联系人时使用；优先发现原生 tsgw_dav 只读工具，旧 MCP 写入仍须明确授权。
+description: 查询或经明确授权管理日历、日程、待办、日记和联系人时使用，优先按需发现原生 tsgw_dav 工具。
 license: MIT
-compatibility: 原生只读业务需要 Node.js 24+、davkit 可选依赖与 tsgw.json 的 dav 配置；旧工作流需要已有 tsn__* MCP 权限。
+compatibility: 原生 DAV 业务需要 Node.js 24+、davkit 可选依赖与 tsgw.json 的 dav 配置；旧工作流需要已有 tsn__* MCP 权限。
 ---
 
 # 群晖日历与联系人
 
 涉及用户日程、联系人或空闲时间时，优先查询真实数据，不凭记忆猜测。不因工具可发现就认为已经配置或验收，也不自动修改配置、登录或迁移旧凭据。
 
-## 原生只读入口
+## 原生工具入口
 
 - 先按需 `describeNamespace("tsgw_dav")`，再用 `describeTool()` 查看本次所需参数。`accounts` 只列账户 ID／已配置时区；`collections` 必须显式传 `account` 与 `kind`（calendar 或 addressbook），不默认取首个集合或合并账户。
-- 原生工具为 `accounts`、`collections` 及 `event_list/get`、`todo_list/get`、`journal_list/get`、`contact_list/get`，均带 `tsgw_dav_` 前缀；当前没有联系人多字段搜索和创建／修改／删除。不要构造不存在的工具名，也不把读取失败作为自动切换旧 MCP 的理由。
+- 原生工具为 `accounts`、`collections`，以及 `event`、`todo`、`journal`、`contact` 各自的 `list/get/create/update/delete` 和 `contact_search`，均带 `tsgw_dav_` 前缀。只调用实际发现且已加载的工具；源码或 npm 发布不等于当前会话已经更新，也不把失败作为自动切换旧 MCP 的理由。
 - 遇到 `CONFIG_REQUIRED`／`CONFIG_INVALID`，指导在宿主用户目录 `tsgw.json` 的 `dav` 组按 ID 配置 `url`、`user`、`password` 与可选 `timeZone`，权限 0600；密码只在本地填写。`DAV_UNAVAILABLE` 指运行环境或可选依赖缺失，不表示账户不存在；不要自行安装或降级。
 - `event_list` 传明确集合、秒精度起止时间（基本 UTC 或带 Z／偏移的 ISO 8601）及显式 `timeZone`，若账户已配置时区可省略调用时区。未有时区依据时澄清，不采用主机时区或把旧工作流默认值自动带入。实际会读取所选日历全部事件资源，再按调用时区和窗口在本地展开过滤，不发送服务端时间窗以避免 floating 时区差异漏项；大日历可能因读取量或库预算而明确失败，缩小窗口不一定减少网络量。返回按发生时间展开的日程；`recurrenceId` 是发生身份，`storedRecurrenceId` 才是已存储例外的完整逻辑行。读取主件时省略例外参数；不要把合成实例冒充独立存储组件。
-- 待办／日记列表只列存储组件，不展开重复规则。联系人列表返回姓名、邮件、电话等摘要，不冒充旧多字段搜索。首版没有分页，结果过大返回明确错误，不把部分结果当作完整列表或全局不存在的证明。
+- 待办／日记列表只列存储组件，不展开重复规则。联系人有线索时优先 `contact_search`：它完整读取明确地址簿，在本地匹配已解码的姓名、别名、职务、组织、备注、邮箱及电话，并规范化电话；不是廉价服务端索引。复用已有结果，避免反复拉取整本地址簿。首版没有分页，读取／搜索超限明确失败，不把部分结果当作完整列表或全局不存在的证明。
 - 详情使用列表的实际 `resourceUrl`，日历还需 UID 与可选完整例外逻辑行；不要拼 UID 路径。详情默认结构化属性，只有任务需要原文才传 `raw: true`。同时核对 `ok` 和错误标记，按任务最小范围输出，不展示整本数据。
-- 本节仅适用于实际已加载的原生工具。旧 MCP 尚未停用；业务写入或旧搜索须另行确认任务范围与工具入口，不做自动写入回退。
+- 本节仅适用于实际已加载的原生工具。旧 MCP 尚未停用；只有用户明确选择旧入口时才使用下方旧工作流，不做自动写入回退。
+
+## 原生写入语义
+
+- 先确认用户明确授权的账户、集合、对象和动作。创建传实际 `collectionUrl`；修改／删除先 GET，携带确认的 `resourceUrl`、`uid`、强 `etag`。不能把最新版本自动替换调用方已确认的旧版本；冲突先重新读取并确认，不自动覆盖。
+- 创建日程需要 `start`，日记需要明确 `date`；时间按工具 schema 使用基本格式及 `{ value, valueType?, tzid? }` 表示，例如 `{ value: "20261112T090000", tzid: "Asia/Shanghai" }`，全天为 `{ value: "20261112", valueType: "DATE" }`。不猜主机时区；保留本地重复规则的 TZID，不先转固定 UTC。列表的 ISO 时间窗口不代表写入接受同一格式。
+- 日历更新省略字段保留，时间标量沿用原有 DATE／floating／UTC／TZID 和参数。已有例外必须用完整 `RECURRENCE-ID` 逻辑行精确选择；不创建例外，也不把展开的 `recurrenceId` 当成可写资源。日历 delete 删除整份资源及其全部例外，没有单次发生项删除参数。
+- 联系人 `email/phone/org/note` 只改源顺序首项，`null` 只删除首项；`org` 为明确公司／部门组件数组，不传自行拼接的 vCard 字符串。姓名不可删空，其他多值和分组参数保留。若首项显式声明 `VALUE=uri`，不能用 `phone` 标量改写，须以完整 `properties` 明确替换；`null` 仍可只删除首项，普通电话无需因此改成 URI。高级 `properties` 按同名属性整组替换，便捷字段不能与同名整组操作混用。
+- 通用 `properties: []` 不修改；`removeProperties` 才显式删除命名属性，`alarms: []` 清空提醒。不要用空数组、空字符串和 null 相互替代；修订元数据由插件维护，不能直接改 UID、VERSION、REV 或日历受管修订字段。无实际变化返回 `unchanged`，不发送 PUT。
+- 写工具返回身份、版本及 `outcome`，不在内部回读。`REMOTE_RESULT_UNKNOWN` 表示已发请求而未确认结果，使用错误详情中的实际目标在原授权范围内读取核对；创建错误还保留已生成的 `account/uid` 及日历 `kind`，可直接调用对应 `get`，不必先列表展开。不假定未生效，不自动重发或补偿。已确认成功与后续回读失败分开汇报；取消不保证撤销远端动作。
 
 ## 旧 MCP 工具发现与连接
 
