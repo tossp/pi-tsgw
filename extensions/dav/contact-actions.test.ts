@@ -14,7 +14,10 @@ const etag = '"v1"';
 const target = { account, resourceUrl, uid, etag };
 const card = (lines: string[], version = "4.0") =>
 	["BEGIN:VCARD", `VERSION:${version}`, ...lines, "END:VCARD", ""].join("\r\n");
-const original = (lines: string[] = [], version = "4.0") => card([`UID:${uid}`, "FN:原名", ...lines], version);
+const original = (lines: string[] = [], version = "4.0") => card([
+	`UID${version === "4.0" ? ";VALUE=text" : ""}:${uid}`, "FN:原名",
+	...(version === "3.0" && !lines.some(line => line.startsWith("N:")) ? ["N:;原名;;;"] : []), ...lines,
+], version);
 const xml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 interface Seen { method: string; url: string; headers: Headers; body: string }
 function fixture(raw = original(), options: {
@@ -81,10 +84,20 @@ test("结构化 ORG/N 与 NICKNAME 按解码叶搜索，不把 opaque rawValue �
 		"ORG;ENCODING=b:c2VjcmV0", "EMAIL;VALUE=x-opaque:secret-email",
 	]), etag }];
 	const { context } = fixture(undefined, { report });
-	for (const query of ["测试,甲", "研发;小组", "三,四", "小,名"])
-		assert.equal((await searchContacts(context, { account, collectionUrl, query })).items.length, 1);
-	for (const query of ["测试\\,甲", "secret", "c2VjcmV0"])
-		assert.equal((await searchContacts(context, { account, collectionUrl, query })).items.length, 0);
+	for (const query of ["测试,甲", "研发;小组", "三,四", "小,名"]) {
+		const result = await searchContacts(context, { account, collectionUrl, query });
+		assert.equal(result.items.length, 0);
+		assert.equal(result.complete, false);
+		assert.equal(result.unresolvedResources[0]?.matchStatus, "matched");
+		assert.equal(result.unresolvedResources[0]?.stage, "projection");
+	}
+	for (const query of ["测试\\,甲", "secret", "c2VjcmV0"]) {
+		const result = await searchContacts(context, { account, collectionUrl, query });
+		assert.equal(result.items.length, 0);
+		assert.equal(result.complete, false);
+		assert.equal(result.unresolvedResources[0]?.matchStatus, "unknown");
+		assert.equal(result.unresolvedResources[0]?.stage, "search");
+	}
 });
 
 test("电话搜索沿用旧标点和空白规范化，但不猜测分机或扩展 URI 语法", async () => {
@@ -98,14 +111,18 @@ test("电话搜索沿用旧标点和空白规范化，但不猜测分机或扩�
 	assert.equal((await searchContacts(context, { account, collectionUrl, query: "() -" })).items.length, 0);
 });
 
-test("空搜索在联网前拒绝；不匹配的坏卡也使整批失败，不截断或跳过", async () => {
+test("空搜索在联网前拒绝；坏卡保留为未知，不截断或跳过", async () => {
 	const { context, seen } = fixture(undefined, { report: [
 		{ file: "ok.vcf", data: original(), etag }, { file: "bad.vcf", data: "secret-invalid-card", etag },
 	] });
 	for (const query of ["", " \t\n"])
 		await assert.rejects(searchContacts(context, { account, collectionUrl, query }), safeError("INVALID_INPUT"));
 	assert.equal(seen.length, 0);
-	await assert.rejects(searchContacts(context, { account, collectionUrl, query: "原名" }), safeError("DATA_INVALID"));
+	const result = await searchContacts(context, { account, collectionUrl, query: "原名" });
+	assert.equal(result.complete, false);
+	assert.equal(result.items.length, 1);
+	assert.equal(result.unresolvedResources[0]?.raw, "secret-invalid-card");
+	assert.equal(result.unresolvedResources[0]?.matchStatus, "unknown");
 	assert.deepEqual(seen.map(item => item.method), ["REPORT"]);
 });
 
@@ -150,7 +167,7 @@ test("更新 3/4 联系人只改首项并保留参数、分组、后续值及非
 	for (const version of ["3.0", "4.0"]) {
 		const raw = original([
 			"itemA.EMAIL;TYPE=WORK;X-LABEL=标签:old@example.invalid", "EMAIL;TYPE=HOME:later@example.invalid",
-			"itemB.TEL;VALUE=text;TYPE=CELL:+86-1", "TEL:+86-2",
+			`itemB.TEL;VALUE=${version === "3.0" ? "phone-number" : "text"};TYPE=CELL:+86-1`, "TEL:+86-2",
 			"itemC.ORG;TYPE=work:旧公司;旧部门", "ORG:后续公司;后续部门",
 			"itemD.NOTE;X-KEEP=yes:旧备注", "NOTE:后续备注", "N:姓;名;;;", "REV:20200101T000000Z",
 		], version);
@@ -165,7 +182,7 @@ test("更新 3/4 联系人只改首项并保留参数、分组、后续值及非
 		for (const line of ["EMAIL;TYPE=HOME:later@example.invalid", "TEL:+86-2", "ORG:后续公司;后续部门", "NOTE:后续备注", "N:姓;名;;;"])
 			assert.ok(output.includes(`${line}\r\n`));
 		assert.ok(output.includes("itemA.EMAIL;TYPE=WORK;X-LABEL=标签:new@example.invalid\r\n"));
-		assert.ok(output.includes("itemB.TEL;VALUE=text;TYPE=CELL:+86\\;100\r\n"));
+		assert.ok(output.includes(`itemB.TEL;VALUE=${version === "3.0" ? "phone-number" : "text"};TYPE=CELL:${version === "3.0" ? "+86;100" : "+86\\;100"}\r\n`));
 		assert.ok(output.includes("itemC.ORG;TYPE=work:公司\\;甲;部门\\,乙\r\n"));
 		assert.ok(output.includes("itemD.NOTE;X-KEEP=yes:新\\n备注\r\n"));
 		assert.doesNotMatch(output, /REV:20200101/);
@@ -173,8 +190,8 @@ test("更新 3/4 联系人只改首项并保留参数、分组、后续值及非
 	}
 });
 
-test("显式 URI 电话不能用便捷标量改写；普通电话、删除首项和完整替换仍可用", async () => {
-	for (const version of ["3.0", "4.0"]) {
+test("v4 显式 URI 电话不能用便捷标量改写；普通电话、删除首项和完整替换仍可用", async () => {
+	for (const version of ["4.0"]) {
 		const uriLine = "item1.TEL;VALUE=uri;TYPE=work:tel:+86-111";
 		const raw = original([uriLine, "TEL;VALUE=text:+86-222", "X-KEEP:保留"], version);
 		const blocked = fixture(raw);
@@ -259,11 +276,15 @@ test("更新拒绝受管属性、首项冲突及 opaque 首项，不输出源内
 		assert.deepEqual(seen.map(item => item.method), ["GET"]);
 	}
 	const { context, seen } = fixture(original(["EMAIL;ENCODING=QUOTED-PRINTABLE:private-input"]));
-	await assert.rejects(updateContact(context, { ...target, email: null }), safeError("INVALID_INPUT"));
+	await assert.rejects(updateContact(context, { ...target, email: null }), error => {
+		assert.ok(safeError("REPAIR_UNSUPPORTED")(error));
+		assert.equal((error as DavToolError).details?.stage, "edit");
+		return true;
+	});
 	assert.deepEqual(seen.map(item => item.method), ["GET"]);
 	for (const action of [updateContact, deleteContact]) {
 		const bad = fixture("secret-bad-source");
-		await assert.rejects(action(bad.context, target), safeError("DATA_INVALID"));
+		await assert.rejects(action(bad.context, target), safeError(action === updateContact ? "REPAIR_UNSUPPORTED" : "DATA_INVALID"));
 		assert.deepEqual(bad.seen.map(item => item.method), ["GET"]);
 	}
 });

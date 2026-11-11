@@ -161,20 +161,23 @@ test("GET 精确匹配 kind/UID/完整 recurrenceId，默认主件且保留属�
 	const r = resource(raw, "identity.ics", null), f = fixture([r]);
 	const input = { account, resourceUrl: r.url, uid: "series" };
 	const master = await getCalendar(f.context, input, "VEVENT");
+	assert.ok(master.selectorVerified);
 	assert.equal(master.summary, "主件"); assert.equal(master.recurrenceId, null);
 	assert.equal(master.description, "详情"); assert.equal(master.etag, null);
 	assert.equal(master.alarms[0]?.properties.find(property => property.name === "TRIGGER")?.value, "-PT15M");
 	assert.equal(master.properties.find(property => property.name === "DTSTART")?.parameters.TZID[0], "Asia/Shanghai");
 	assertNoRaw(master);
 	const selected = await getCalendar(f.context, { ...input, recurrenceId: "RECURRENCE-ID;TZID=Asia/Shanghai:20260102T090000", raw: true }, "VEVENT");
+	assert.ok(selected.selectorVerified);
 	assert.equal(selected.summary, "例外"); assert.equal(selected.raw, raw);
 	const { raw: _raw, ...details } = selected; assertNoRaw(details);
 	await assert.rejects(getCalendar(f.context, { ...input, recurrenceId: "20260102T090000" }, "VEVENT"), assertCode("NOT_FOUND"));
 	assert.deepEqual(f.gets, [r.url, r.url, r.url]); assert.equal(f.queries.length, 0);
-	assert.equal((await getCalendar(f.context, input, "VTODO")).summary, "不是事件");
+	const todo = await getCalendar(f.context, input, "VTODO");
+	assert.ok(todo.selectorVerified); assert.equal(todo.summary, "不是事件");
 });
 
-test("GET 拒绝主件/例外歧义和 RANGE，例外独存时不假选主件", async () => {
+test("GET 拒绝主件/例外歧义，RANGE 内容降级，例外独存时不假选主件", async () => {
 	const base = event("UID:u", "DTSTART:20260101T000000Z");
 	const recurrenceId = "RECURRENCE-ID;VALUE=DATE:20260102";
 	const detached = event("UID:u", recurrenceId, "DTSTART;VALUE=DATE:20260102");
@@ -185,25 +188,42 @@ test("GET 拒绝主件/例外歧义和 RANGE，例外独存时不假选主件", 
 	}
 	const f = fixture([resource(calendar(detached))]);
 	await assert.rejects(getCalendar(f.context, input, "VEVENT"), assertCode("NOT_FOUND"));
-	assert.equal((await getCalendar(f.context, { ...input, recurrenceId }, "VEVENT")).recurrenceId, recurrenceId);
+	const selected = await getCalendar(f.context, { ...input, recurrenceId }, "VEVENT");
+	assert.ok(selected.selectorVerified); assert.equal(selected.recurrenceId, recurrenceId);
 	const range = "RECURRENCE-ID;RANGE=THISANDFUTURE:20260102T000000Z";
 	const unsupported = fixture([resource(calendar(event("UID:u", range, "DTSTART:20260102T000000Z")))], "UTC");
-	await assert.rejects(getCalendar(unsupported.context, { ...input, recurrenceId: range }, "VEVENT"), assertCode("RECURRENCE_UNSUPPORTED"));
-	await assert.rejects(listCalendar(unsupported.context, window, "VEVENT"), assertCode("RECURRENCE_UNSUPPORTED"));
+	const detail = await getCalendar(unsupported.context, { ...input, recurrenceId: range }, "VEVENT");
+	assert.equal(detail.complete, false); assert.equal(detail.selectorVerified, false);
+	assert.equal(detail.raw, calendar(event("UID:u", range, "DTSTART:20260102T000000Z")));
+	const list = await listCalendar(unsupported.context, window, "VEVENT");
+	assert.equal(list.complete, false); assert.equal(list.resourcesComplete, true);
+	assert.deepEqual(list.items, []); assert.equal(list.unresolvedResources[0]?.stage, "expand");
 });
 
-test("坏资源、无效时间和无法展开的重复规则均失败，不能跳过资源或返回空列表", async () => {
+test("坏资源独立保留原文与诊断，正常发生项和存储组件继续返回", async () => {
 	const good = resource(calendar(event("UID:good", "DTSTART:20260101T000000Z")));
 	for (const bad of ["PRIVATE invalid source", calendar(event("UID:bad", "DTSTART:20260230T000000Z")),
 		calendar(event("UID:bad", "DTSTART:20260101T000000Z", "RRULE:FREQ=PRIVATE")),
 		calendar(event("UID:bad", "DTSTART:20260101T000000Z"), event("UID:bad", "DTSTART:20260101T000000Z"))]) {
-		const f = fixture([good, resource(bad, "bad.ics")], "UTC");
-		await assert.rejects(listCalendar(f.context, { ...window, uid: "good" }, "VEVENT"), assertCode("DATA_INVALID"));
+		const broken = resource(bad, "bad.ics"), f = fixture([good, broken], "UTC");
+		const result = await listCalendar(f.context, window, "VEVENT");
+		assert.equal(result.complete, false); assert.equal(result.resourcesComplete, true);
+		assert.deepEqual(result.items.map(item => item.uid), ["good"]);
+		const unresolved = result.unresolvedResources[0];
+		assert.equal(unresolved?.raw, bad); assert.equal(unresolved.resourceUrl, broken.url);
+		assert.equal(unresolved.rawSource, "report"); assert.ok(unresolved.issues.length);
+		assert.doesNotMatch(JSON.stringify(unresolved.issues), /PRIVATE|invalid source/);
 	}
 	for (const data of ["SECRET malformed", calendar(component("VTODO", "UID:u", "DUE:PRIVATE"))]) {
-		const f = fixture([resource(data)]);
-		await assert.rejects(listCalendar(f.context, { account, collectionUrl }, "VTODO"), assertCode("DATA_INVALID"));
-		await assert.rejects(getCalendar(f.context, { account, resourceUrl: collectionUrl + "a.ics", uid: "u" }, "VTODO"), assertCode("DATA_INVALID"));
+		const goodTodo = resource(calendar(component("VTODO", "UID:good", "DUE:20260102T090000Z")), "good.ics");
+		const f = fixture([resource(data), goodTodo]);
+		const list = await listCalendar(f.context, { account, collectionUrl }, "VTODO");
+		assert.equal(list.complete, false); assert.equal(list.resourcesComplete, true);
+		assert.deepEqual(list.items.map(item => item.uid), ["good"]);
+		assert.equal(list.unresolvedResources[0]?.raw, data);
+		const detail = await getCalendar(f.context, { account, resourceUrl: collectionUrl + "a.ics", uid: "u" }, "VTODO");
+		assert.equal(detail.complete, false); assert.equal(detail.selectorVerified, false);
+		assert.equal(detail.raw, data); assert.equal(detail.rawSource, "get");
 	}
 });
 

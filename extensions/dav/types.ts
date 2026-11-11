@@ -28,7 +28,7 @@ export interface CalendarListInput {
 export interface CalendarGetInput {
 	account: string;
 	resourceUrl: string;
-	uid: string;
+	uid?: string;
 	recurrenceId?: string;
 	raw?: boolean;
 }

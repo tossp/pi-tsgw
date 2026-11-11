@@ -10,7 +10,8 @@ const collection = { ...account, collectionUrl: url };
 const uid = Type.Optional(id);
 const timeZone = Type.Optional(Type.String({ minLength: 1, description: "显式 IANA 时区；未传时只采用账户配置，不用主机时区。" }));
 const windowTime = Type.String({ minLength: 1, description: "UTC 基本时间 YYYYMMDDTHHmmssZ，或带 Z/偏移的 ISO 8601；起点含、终点不含。" });
-const getCalendar = Type.Object({ ...account, resourceUrl: url, uid: id,
+const getCalendar = Type.Object({ ...account, resourceUrl: url,
+	uid: Type.Optional(Type.String({ ...id, description: "正常组件详情必须指定 UID；仅 raw=true 且不带 recurrenceId 时可省略，按 URL 取整资源原文。" })),
 	recurrenceId: Type.Optional(Type.String({ ...id, description: "已有例外的完整 RECURRENCE-ID 逻辑行；省略选择主件，不能直接用展开实例身份代替。" })),
 	raw: Type.Optional(Type.Boolean()),
 }, objectOptions);

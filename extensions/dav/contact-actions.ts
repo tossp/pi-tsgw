@@ -1,6 +1,7 @@
-import type { Contact, ContactProperty, FirstContactProperties } from "davkit/vcard";
+import type { Contact, FirstContactProperties } from "davkit/vcard";
 import type { ContactCreateInput, ContactDeleteInput, ContactSearchInput, ContactUpdateInput } from "./contact-action-schema.ts";
-import { contactSummary } from "./contacts.ts";
+import { contactSummary, decodedValues, tryReadContact, unresolvedContact } from "./contacts.ts";
+import { assertManagedMetadata, assertValidContent } from "./content.ts";
 import { contentOperation, createResourceUrl, getVersionedResource, utcStamp } from "./mutations.ts";
 import { DavToolError, type DavReadContext } from "./types.ts";
 
@@ -11,8 +12,16 @@ function readContact(context: DavReadContext, raw: string): Contact {
 	return contentOperation(() => context.vcard.parseContact(raw), "DATA_INVALID");
 }
 
-function decodedValues(property: ContactProperty): readonly string[] {
-	return property.components?.flat() ?? property.items ?? (property.value === undefined ? [] : [property.value]);
+/** 旧编辑器尚未生成候选时拒绝，不冒充最终校验已执行。 */
+function editContact<T>(operation: () => T, details: Record<string, unknown>, sourceInvalid = false): T {
+	try { return operation(); }
+	catch (error) {
+		if (error instanceof DavToolError) throw error;
+		throw new DavToolError(sourceInvalid ? "REPAIR_UNSUPPORTED" : "INVALID_INPUT",
+			sourceInvalid ? "现有编辑能力不能表达此源内容的修正，尚未生成最终候选，未执行写入。"
+				: "内容或字段组合无效，尚未生成最终候选，未执行写入。",
+			{ ...details, stage: "edit" });
+	}
 }
 
 /** 与旧搜索一致：只接受数字、空白和常用电话标点，不扩展 URI 或分机解析。 */
@@ -25,14 +34,26 @@ export async function searchContacts(context: DavReadContext, input: ContactSear
 	const query = input.query.toLowerCase();
 	const digits = phoneDigits(query);
 	const resources = await context.client.query(input.collectionUrl, "addressbook");
-	// 全量解析后再匹配，不能让未匹配的坏资源被跳过。
-	const parsed = resources.map(resource => ({ resource, contact: readContact(context, resource.data) }));
-	const items = parsed.filter(({ contact }) => contact.properties.some(property => {
-		if (!searchFields.has(property.name)) return false;
-		return decodedValues(property).some(value => value.toLowerCase().includes(query) ||
-			(property.name === "TEL" && digits !== "" && phoneDigits(value.toLowerCase().replace(/^tel:/, "")).includes(digits)));
-	})).map(({ resource, contact }) => contactSummary(contact, resource));
-	return { account: input.account, collectionUrl: input.collectionUrl, complete: true, items };
+	const items: ReturnType<typeof contactSummary>[] = [];
+	const unresolvedResources: ReturnType<typeof unresolvedContact>[] = [];
+	for (const resource of resources) {
+		const contact = tryReadContact(context, resource.data);
+		if (!contact) { unresolvedResources.push(unresolvedContact(context, resource, "report", "parse", undefined, "unknown")); continue; }
+		const fields = contact.properties.filter(property => searchFields.has(property.name));
+		const matched = fields.some(property => decodedValues(property)?.some(value => value.toLowerCase().includes(query) ||
+			(property.name === "TEL" && digits !== "" && phoneDigits(value.toLowerCase().replace(/^tel:/, "")).includes(digits))));
+		if (!matched) {
+			if (fields.some(property => decodedValues(property) === undefined))
+				unresolvedResources.push(unresolvedContact(context, resource, "report", "search", contact, "unknown"));
+			continue;
+		}
+		const summary = contactSummary(contact, resource);
+		if (summary.emails === undefined || summary.phones === undefined)
+			unresolvedResources.push(unresolvedContact(context, resource, "report", "projection", contact, "matched"));
+		else items.push(summary);
+	}
+	return { account: input.account, collectionUrl: input.collectionUrl,
+		resourcesComplete: true, complete: unresolvedResources.length === 0, items, unresolvedResources };
 }
 
 function firstProperties(input: ContactCreateInput | ContactUpdateInput): FirstContactProperties {
@@ -55,10 +76,16 @@ function checkUpdateProperties(context: DavReadContext, input: ContactUpdateInpu
 		throw new DavToolError("INVALID_INPUT", "首项电话显式声明为 URI，不能用 phone 标量改写；请通过 properties 明确替换完整 TEL 属性，或用 null 删除首项。");
 	if (input.removeProperties?.some(name => name.toUpperCase() === "REV"))
 		throw new DavToolError("INVALID_INPUT", "REV 由工具维护，不能通过高级属性指定或删除。");
-	if (!input.properties?.length) return;
-	// 只借公开模型辨认属性；不在插件中解析用户逻辑行、分组或参数。
+	// 仅用公开模型预检输入冲突与受管属性；此结果不用于源修正或发送。
+	// 首项仅传操作存在性，实际值必须按源参数编辑，不能借无源探针改变 TEXT/URI 语义。
 	const probe = context.vcard.buildContact({ name: "属性校验", version: contact.version });
-	rejectRevision(context.vcard.parseContact(context.vcard.updateContact(probe, { name: input.name, properties: input.properties })));
+	rejectRevision(context.vcard.parseContact(context.vcard.updateContact(probe, {
+		name: input.name, properties: input.properties, removeProperties: input.removeProperties,
+		firstProperties: {
+			email: input.email === undefined ? undefined : null, tel: input.phone === undefined ? undefined : null,
+			org: input.org === undefined ? undefined : null, note: input.note === undefined ? undefined : null,
+		},
+	})));
 }
 
 function checkIdentity(contact: Contact, uid: string): void {
@@ -67,15 +94,16 @@ function checkIdentity(contact: Contact, uid: string): void {
 
 export async function createContact(context: DavReadContext, input: ContactCreateInput) {
 	checkName(input.name);
-	const raw = contentOperation(() => {
+	const raw = editContact(() => {
 		const base = context.vcard.buildContact({ name: input.name, properties: input.properties });
 		rejectRevision(context.vcard.parseContact(base));
 		// 保留高级整组输入以便库检查其与首项字段的同名冲突。
 		const changed = context.vcard.updateContact(base, { firstProperties: firstProperties(input), properties: input.properties });
 		return context.vcard.updateContact(changed, { properties: [`REV:${utcStamp()}`] });
-	});
+	}, { account: input.account, collectionUrl: input.collectionUrl });
 	const uid = readContact(context, raw).uid!;
 	const resourceUrl = createResourceUrl(input.collectionUrl, "vcf");
+	assertValidContent(context.vcard.validateContact(raw), { account: input.account, resourceUrl, uid });
 	context.writeIdentity = { account: input.account, uid };
 	const etag = await context.client.create(resourceUrl, raw, contentType);
 	return { account: input.account, resourceUrl, uid, etag, outcome: "created" as const };
@@ -84,18 +112,24 @@ export async function createContact(context: DavReadContext, input: ContactCreat
 export async function updateContact(context: DavReadContext, input: ContactUpdateInput) {
 	checkName(input.name);
 	const resource = await getVersionedResource(context, input);
-	const contact = readContact(context, resource.data);
-	checkIdentity(contact, input.uid);
-	const changed = contentOperation(() => {
-		checkUpdateProperties(context, input, contact);
-		return context.vcard.updateContact(resource.data, {
-			name: input.name === contact.name ? undefined : input.name,
-			firstProperties: firstProperties(input), properties: input.properties, removeProperties: input.removeProperties,
-		});
-	});
 	const result = { account: input.account, resourceUrl: resource.url, uid: input.uid };
+	const contact = tryReadContact(context, resource.data);
+	if (!contact) throw new DavToolError("REPAIR_UNSUPPORTED", "源内容无法可靠解析及确认身份，现有工具不能安全修正，未执行写入。",
+		{ ...result, stage: "source", issues: context.vcard.validateContact(resource.data).issues });
+	checkIdentity(contact, input.uid);
+	const sourceValidation = context.vcard.validateContact(resource.data);
+	assertManagedMetadata(sourceValidation, ["REV"], result);
+	// 输入冲突仍属于输入错误，不能借异常源内容掩盖。
+	editContact(() => checkUpdateProperties(context, input, contact), result);
+	const editDetails = sourceValidation.valid ? result : { ...result, sourceIssues: sourceValidation.issues };
+	const changed = editContact(() => context.vcard.updateContact(resource.data, {
+		name: input.name === contact.name ? undefined : input.name,
+		firstProperties: firstProperties(input), properties: input.properties, removeProperties: input.removeProperties,
+	}), editDetails, !sourceValidation.valid);
+	const raw = changed === resource.data ? changed : editContact(() =>
+		context.vcard.updateContact(changed, { properties: [`REV:${utcStamp()}`] }), editDetails, !sourceValidation.valid);
+	assertValidContent(context.vcard.validateContact(raw), result);
 	if (changed === resource.data) return { ...result, etag: input.etag, outcome: "unchanged" as const };
-	const raw = contentOperation(() => context.vcard.updateContact(changed, { properties: [`REV:${utcStamp()}`] }));
 	const etag = await context.client.update(resource.url, raw, input.etag, contentType);
 	return { ...result, etag, outcome: "updated" as const };
 }

@@ -4,7 +4,7 @@ import { DavClient, DavError, type DavResource } from "davkit/dav";
 import * as ical from "davkit/ical";
 import * as vcard from "davkit/vcard";
 import { getContact, listContacts } from "./contacts.ts";
-import { DavToolError, type DavReadContext } from "./types.ts";
+import type { DavReadContext } from "./types.ts";
 
 const collectionUrl = "https://example.invalid/contacts/";
 const account = "test";
@@ -40,13 +40,6 @@ function fixture(resources: DavResource[]) {
 	const context: DavReadContext = { client, ical, vcard };
 	return { client, context };
 }
-function isSafeInvalid(error: unknown): boolean {
-	assert.ok(error instanceof DavToolError);
-	assert.equal(error.code, "DATA_INVALID");
-	assert.equal(error.message, "联系人资源无法解析");
-	assert.equal(error.cause, undefined);
-	return true;
-}
 
 test("列表使用 addressbook REPORT，真实解析 vCard 3/4，仅返回联系人摘要", async () => {
 	const first = resource("one.vcf", card("3.0", [
@@ -61,7 +54,7 @@ test("列表使用 addressbook REPORT，真实解析 vCard 3/4，仅返回联系
 	const result = await listContacts(context, { account, collectionUrl });
 	assert.deepEqual(client.queries, [[collectionUrl, "addressbook"]]);
 	assert.deepEqual(client.gets, []);
-	assert.deepEqual(result, { account, collectionUrl, complete: true, items: [
+	assert.deepEqual(result, { account, collectionUrl, resourcesComplete: true, complete: true, unresolvedResources: [], items: [
 		{ resourceUrl: first.url, etag: first.etag, uid: "uid-3", version: "3.0", name: "张三,朋友",
 			emails: ["one@example.invalid", "two@example.invalid"], phones: ["+86-100"] },
 		{ resourceUrl: second.url, etag: null, uid: "urn:uuid:uid-4", version: "4.0", name: "李四",
@@ -97,10 +90,18 @@ test("EMAIL/TEL 无已投影 value 时不回退解码 rawValue，不读取其他
 	]));
 	const { context } = fixture([item]);
 	const result = await listContacts(context, { account, collectionUrl });
-	assert.deepEqual(result.items[0]?.emails, ["decoded,email@example.invalid"]);
-	assert.deepEqual(result.items[0]?.phones, ["+123"]);
+	assert.equal(result.complete, false);
+	assert.deepEqual(result.items, []);
+	const unresolved = result.unresolvedResources[0]!;
+	assert.equal(unresolved.emails, undefined);
+	assert.equal(unresolved.phones, undefined);
+	assert.equal(unresolved.stage, "projection");
+	assert.deepEqual(unresolved.properties?.filter(p => p.name === "EMAIL").flatMap(p => p.value ?? []), ["decoded,email@example.invalid"]);
+	assert.deepEqual(unresolved.properties?.filter(p => p.name === "TEL").flatMap(p => p.value ?? []), ["+123"]);
 	const detail = await getContact(context, { account, resourceUrl: item.url });
-	const opaque = detail.properties.find(property => property.rawValue === "legacy=40example.invalid");
+	assert.equal(detail.raw, item.data);
+	assert.equal(detail.complete, false);
+	const opaque = detail.properties!.find(property => property.rawValue === "legacy=40example.invalid");
 	assert.equal(opaque?.value, undefined);
 	assert.equal(Object.hasOwn(opaque!, "value"), false);
 	assert.deepEqual(opaque?.parameters, { ENCODING: ["QUOTED-PRINTABLE"] });
@@ -122,21 +123,21 @@ test("详情 GET 后解析，参数 Map 转普通 JSON，保留分组、属性 r
 	assert.equal(result.uid, "urn:uuid:detail");
 	assert.equal(result.version, "4.0");
 	assert.equal(result.name, "甲,乙");
-	const email = result.properties.find(property => property.name === "EMAIL");
+	const email = result.properties!.find(property => property.name === "EMAIL");
 	assert.deepEqual(email, { name: "EMAIL", group: "item1", parameters: {
 		TYPE: ["work", "internet"], "X-LABEL": ["研发\n小组"],
 	}, rawValue: "dev@example.invalid", value: "dev@example.invalid" });
 	assert.equal(Object.getPrototypeOf(email!.parameters), Object.prototype);
-	assert.deepEqual(result.properties.find(property => property.name === "NOTE"), {
+	assert.deepEqual(result.properties!.find(property => property.name === "NOTE"), {
 		name: "NOTE", parameters: {}, rawValue: "第一行\\n第二行\\,结尾", value: "第一行\n第二行,结尾",
 	});
-	assert.deepEqual(result.properties.find(property => property.name === "N"), {
+	assert.deepEqual(result.properties!.find(property => property.name === "N"), {
 		name: "N", parameters: {}, rawValue: "张;三;;;", components: [["张"], ["三"], [""], [""], [""]],
 	});
-	assert.deepEqual(result.properties.find(property => property.name === "NICKNAME"), {
+	assert.deepEqual(result.properties!.find(property => property.name === "NICKNAME"), {
 		name: "NICKNAME", parameters: {}, rawValue: "三\\,哥,小三", items: ["三,哥", "小三"],
 	});
-	assert.deepEqual(result.properties.find(property => property.name === "ORG"), {
+	assert.deepEqual(result.properties!.find(property => property.name === "ORG"), {
 		name: "ORG", parameters: {}, rawValue: "甲\\;公司;研发\\,部", components: [["甲;公司"], ["研发,部"]],
 	});
 	assert.deepEqual(JSON.parse(JSON.stringify(result)), result);
@@ -148,7 +149,7 @@ test("vCard 3 参数不执行 vCard 4 的 RFC 6868 解码", async () => {
 	const { context } = fixture([item]);
 	const result = await getContact(context, { account, resourceUrl: item.url });
 	assert.equal(result.version, "3.0");
-	assert.deepEqual(result.properties.find(property => property.name === "EMAIL")?.parameters,
+	assert.deepEqual(result.properties!.find(property => property.name === "EMAIL")?.parameters,
 		{ TYPE: ["work,internet"], "X-LABEL": ["研发^n小组"] });
 });
 
@@ -184,10 +185,10 @@ test("可选 UID 精确核对，不做包含、大小写或空白归一化，无
 test("空 REPORT 才返回完整空列表", async () => {
 	const { context } = fixture([]);
 	assert.deepEqual(await listContacts(context, { account, collectionUrl }),
-		{ account, collectionUrl, complete: true, items: [] });
+		{ account, collectionUrl, resourcesComplete: true, complete: true, unresolvedResources: [], items: [] });
 });
 
-test("任一无效资源使整个列表失败，详情也安全报 DATA_INVALID，不泄露库异常或原文", async () => {
+test("坏资源不抹去正常摘要，详情保留原文且诊断不包含库异常或原文值", async () => {
 	const valid = resource("valid.vcf", card("4.0", ["FN:有效"]));
 	const invalidCards = [
 		"secret-invalid-document", card("4.0", ["UID:secret-missing-fn"]),
@@ -199,8 +200,17 @@ test("任一无效资源使整个列表失败，详情也安全报 DATA_INVALID�
 		const bad = resource("invalid.vcf", data);
 		for (const resources of [[valid, bad], [bad, valid]]) {
 			const { context } = fixture(resources);
-			await assert.rejects(listContacts(context, { account, collectionUrl }), isSafeInvalid);
-			await assert.rejects(getContact(context, { account, resourceUrl: bad.url, raw: true }), isSafeInvalid);
+			const list = await listContacts(context, { account, collectionUrl });
+			assert.equal(list.resourcesComplete, true);
+			assert.equal(list.complete, false);
+			assert.deepEqual(list.items.map(item => item.resourceUrl), [valid.url]);
+			assert.equal(list.unresolvedResources[0]?.raw, data);
+			assert.equal(list.unresolvedResources[0]?.stage, "parse");
+			const detail = await getContact(context, { account, resourceUrl: bad.url });
+			assert.equal(detail.raw, data);
+			assert.equal(detail.complete, false);
+			assert.equal(detail.identityConfirmed, false);
+			assert.doesNotMatch(JSON.stringify(detail.issues), /secret|BEGIN:VCARD/);
 		}
 	}
 });

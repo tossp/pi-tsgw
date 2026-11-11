@@ -11,7 +11,7 @@ import { DavToolError, type DavReadContext } from "./types.ts";
 const account = "fixture", collectionUrl = "https://dav.example.invalid/calendar/", resourceUrl = collectionUrl + "old.ics";
 const identity = { account, resourceUrl, uid: "series", etag: '"v1"' };
 const stamp = "DTSTAMP:20260101T000000Z";
-const calendar = (...components: string[]) => ["BEGIN:VCALENDAR", "VERSION:2.0", "X-ROOT:保留", ...components, "END:VCALENDAR", ""].join("\r\n");
+const calendar = (...components: string[]) => ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//合成测试//ZH", "X-ROOT:保留", ...components, "END:VCALENDAR", ""].join("\r\n");
 const component = (kind: string, ...lines: string[]) => [`BEGIN:${kind}`, ...lines, `END:${kind}`].join("\r\n");
 const event = (...lines: string[]) => component("VEVENT", "UID:series", stamp, ...lines);
 const simple = () => calendar(event("DTSTART:20260101T090000Z", "SUMMARY:原文", "SEQUENCE:3"));
@@ -90,6 +90,7 @@ test("事件创建保留 TZID 重复系列、库 UID 和 TEXT 转义，随机路
 	assert.match(prop(call.body, "LAST-MODIFIED")!.value, /^\d{8}T\d{6}Z$/);
 	assert.match(prop(call.body, "DTSTAMP")!.value, /^\d{8}T\d{6}Z$/);
 	assert.deepEqual(Object.keys(result).sort(), ["account", "etag", "kind", "outcome", "resourceUrl", "uid"]);
+	assert.deepEqual(ical.validateCalendarResource(call.body), { valid: true, issues: [] });
 });
 
 test("创建待办可无时间，日记必须明确日期；基本 DATE/floating 不绑定主机时区", async () => {
@@ -175,6 +176,7 @@ test("实际更新保留其他属性参数，刷新修订元数据且成功后�
 	assert.equal(prop(data, "SEQUENCE")?.value, "4");
 	assert.notEqual(prop(data, "DTSTAMP")?.value, "20260101T000000Z");
 	assert.equal(prop(data, "LAST-MODIFIED")?.value, prop(data, "DTSTAMP")?.value);
+	assert.deepEqual(ical.validateCalendarResource(data), { valid: true, issues: [] });
 });
 
 test("RRULE 可用便捷值或完整属性明确编辑，显式 removeProperties 删除而空列表保留", async () => {
@@ -231,14 +233,14 @@ test("例外只按完整逻辑行精确更新，未选主件和其他组件原�
 test("坏源、目标歧义、RANGE、缺目标和无效修订序列拒绝写入", async () => {
 	const recurrenceId = "RECURRENCE-ID:20261113T090000Z";
 	for (const [raw, fields, code] of [
-		["PRIVATE SECRET invalid", {}, "DATA_INVALID"],
+		["PRIVATE SECRET invalid", {}, "REPAIR_UNSUPPORTED"],
 		[calendar(event("DTSTART:20261112T090000Z"), event("DTSTART:20261112T090000Z")), {}, "AMBIGUOUS_TARGET"],
 		[calendar(event(recurrenceId, "DTSTART:20261113T100000Z"), event(recurrenceId, "DTSTART:20261113T110000Z")), { recurrenceId }, "AMBIGUOUS_TARGET"],
 		[calendar(event("RECURRENCE-ID;RANGE=THISANDFUTURE:20261113T090000Z", "DTSTART:20261113T100000Z")),
 			{ recurrenceId: "RECURRENCE-ID;RANGE=THISANDFUTURE:20261113T090000Z" }, "RECURRENCE_UNSUPPORTED"],
 		[calendar(event(recurrenceId, "DTSTART:20261113T100000Z")), {}, "NOT_FOUND"],
 		[simple(), { uid: "missing" }, "NOT_FOUND"],
-		[calendar(event("DTSTART:20261112T090000Z", `SEQUENCE:${Number.MAX_SAFE_INTEGER}`)), {}, "DATA_INVALID"],
+		[calendar(event("DTSTART:20261112T090000Z", `SEQUENCE:${Number.MAX_SAFE_INTEGER}`)), {}, "REPAIR_UNSUPPORTED"],
 	] as const) {
 		const f = fixture(raw);
 		await assert.rejects(updateCalendar(f.context, { ...identity, ...fields, summary: "新" }, "VEVENT"), assertCode(code));

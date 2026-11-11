@@ -215,3 +215,77 @@ test("工具层保持已确认写入成功；远端结果未知保留目标用�
 		assert.equal(requests, 1);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("工具读取保留失败资源与双重完整性，raw GET 可不带 UID，非法关系不联网", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "dav-read-policy-"));
+	try {
+		save(dir, config);
+		const calendar = (uid: string, extra: string[] = []) => ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//fixture//CN",
+			"BEGIN:VEVENT", `UID:${uid}`, "DTSTAMP:20261111T000000Z", "DTSTART:20261112T090000Z", ...extra,
+			"END:VEVENT", "END:VCALENDAR", ""].join("\r\n");
+		const good = calendar("good"), bad = calendar("bad", ["RRULE:FREQ=DAILY;COUNT=2;UNTIL=20261113T090000Z"]);
+		const unreadable = "synthetic-unparseable-resource";
+		const seen: string[] = [];
+		const h = harness(dir, async (url, init) => {
+			seen.push(`${init!.method} ${url}`);
+			if (init!.method === "REPORT") return new Response(`<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">${[["good", good], ["bad", bad]].map(([id, raw]) =>
+				`<d:response><d:href>/cal/${id}.ics</d:href><d:propstat><d:prop><d:getetag>"v1"</d:getetag><c:calendar-data>${xmlText(raw!)}</c:calendar-data></d:prop><d:status>HTTP/1.1 200 OK</d:status></d:propstat></d:response>`).join("")}</d:multistatus>`, { status: 207 });
+			assert.equal(init!.method, "GET");
+			return new Response(String(url).endsWith("unreadable.ics") ? unreadable : bad, { status: 200, headers: { etag: '"v1"' } });
+		}); h.register();
+		const list = (await h.execute("event_list", { account: "work", collectionUrl: "https://dav.example.invalid/cal/",
+			start: "2026-11-12T00:00:00Z", end: "2026-11-13T00:00:00Z", timeZone: "UTC" })).structuredContent;
+		assert.equal(list.ok, true); assert.equal(list.data.resourcesComplete, true); assert.equal(list.data.complete, false);
+		assert.deepEqual(list.data.items.map((item: any) => item.uid), ["good"]);
+		assert.equal(list.data.unresolvedResources.length, 1);
+		assert.equal(list.data.unresolvedResources[0].rawSource, "report");
+		assert.equal(list.data.unresolvedResources[0].raw, bad.replace(/\r\n/g, "\n"));
+		const resourceUrl = "https://dav.example.invalid/cal/bad.ics";
+		const raw = (await h.execute("event_get", { account: "work", resourceUrl, raw: true })).structuredContent;
+		assert.equal(raw.ok, true); assert.equal(raw.data.raw, bad); assert.equal(raw.data.rawSource, "get");
+		assert.equal(raw.data.etag, '"v1"');
+		const beforeInvalid = seen.length;
+		for (const fields of [{ raw: false }, { raw: true, recurrenceId: "RECURRENCE-ID:20261112T090000Z" }]) {
+			const invalid = await h.execute("event_get", { account: "work", resourceUrl, ...fields });
+			assert.equal(invalid.structuredContent.error?.code, "INVALID_INPUT");
+		}
+		assert.equal(seen.length, beforeInvalid);
+		const failed = (await h.execute("event_get", { account: "work", resourceUrl: "https://dav.example.invalid/cal/unreadable.ics", uid: "unverified" })).structuredContent;
+		assert.equal(failed.ok, true); assert.equal(failed.data.complete, false);
+		assert.equal(failed.data.resourcesComplete, true); assert.equal(failed.data.raw, unreadable);
+		assert.equal(failed.data.uid, undefined);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("工具层拒绝不合规最终候选与异常源 REV 的 no-op/修改，降级原文仍受预算约束", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "dav-validation-policy-"));
+	try {
+		save(dir, config);
+		const badRevision = card.replace("NOTE:不进列表", "REV:synthetic-private-revision");
+		let writes = 0;
+		const h = harness(dir, async (_url, init) => {
+			if (init!.method === "PUT") { writes++; return new Response(null, { status: 201 }); }
+			assert.equal(init!.method, "GET");
+			return new Response(badRevision, { status: 200, headers: { etag: '"v1"' } });
+		}); h.register();
+		const invalid = await h.execute("contact_create", { account: "work", collectionUrl: "https://dav.example.invalid/ab/",
+			name: "合成联系人", properties: ["BDAY:20261340"] });
+		assert.equal(invalid.structuredContent.error?.code, "CONTENT_VALIDATION_FAILED");
+		assert.equal(invalid.structuredContent.error?.details?.stage, "final");
+		for (const name of ["合成联系人", "新名称"]) {
+			const rejected = await h.execute("contact_update", { account: "work", resourceUrl: "https://dav.example.invalid/ab/a.vcf",
+				uid: "card-id", etag: '"v1"', name });
+			assert.equal(rejected.structuredContent.error?.code, "REPAIR_UNSUPPORTED");
+			assert.doesNotMatch(JSON.stringify(rejected), /synthetic-private-revision|BEGIN:VCARD/);
+		}
+		const event = await h.execute("event_create", { account: "work", collectionUrl: "https://dav.example.invalid/cal/",
+			summary: "合成日程", start: "20261112T090000Z", rrule: "FREQ=DAILY;COUNT=2;UNTIL=20261113T090000Z" });
+		assert.equal(event.structuredContent.error?.code, "CONTENT_VALIDATION_FAILED");
+		assert.equal(writes, 0);
+		const large = harness(dir, async () => new Response("synthetic-private-unparseable".repeat(12000), { status: 200 })); large.register();
+		const limited = await large.execute("contact_get", { account: "work", resourceUrl: "https://dav.example.invalid/ab/large.vcf" });
+		assert.equal(limited.structuredContent.error?.code, "RESULT_TOO_LARGE");
+		assert.equal(limited.structuredContent.data, undefined);
+		assert.doesNotMatch(JSON.stringify(limited), /synthetic-private-unparseable/);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});

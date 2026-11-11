@@ -1,4 +1,5 @@
-import type { CalendarComponent, CalendarComponentEdit, CalendarComponentKind, CalendarTimeInput } from "davkit/ical";
+import type { CalendarComponentEdit, CalendarComponentKind, CalendarTimeInput, ContentValidationResult } from "davkit/ical";
+import { assertManagedMetadata, assertValidContent } from "./content.ts";
 import { contentOperation, createResourceUrl, getVersionedResource, utcStamp } from "./mutations.ts";
 import { DavToolError, type DavReadContext } from "./types.ts";
 
@@ -82,8 +83,25 @@ function selector(input: CalendarUpdateInput, kind: CalendarComponentKind) {
 	return { kind, uid: input.uid, ...(input.recurrenceId === undefined ? {} : { recurrenceId: input.recurrenceId }) };
 }
 
-function selectComponent(context: DavReadContext, raw: string, input: CalendarUpdateInput, kind: CalendarComponentKind) {
-	const components = contentOperation(() => context.ical.parseCalendar(raw), "DATA_INVALID").components
+/** 旧编辑器失败时尚无最终候选；只附已取得的库源诊断，不猜测或回显底层异常。 */
+function candidateOperation<T>(operation: () => T, validation: ContentValidationResult,
+	details: Record<string, unknown>, stage: "source" | "edit" | "revision"): T {
+	try { return operation(); }
+	catch (error) {
+		if (error instanceof DavToolError) throw error;
+		if (stage === "edit" && validation.valid)
+			throw new DavToolError("INVALID_INPUT", "库未能应用本次字段组合，尚未生成最终候选；请核对时间表示、属性覆盖和提醒依赖。",
+				{ ...details, stage });
+		throw new DavToolError("REPAIR_UNSUPPORTED", stage === "source"
+			? "源内容无法可靠解析或确认身份，不能确认受管修订信息，未执行写入。"
+			: "库未能生成最终候选，尚未执行最终校验；现有单组件编辑无法确认完成所需修正，不能绕过源或兄弟组件限制。",
+			{ ...details, stage, issues: validation.issues });
+	}
+}
+
+function selectComponent(context: DavReadContext, raw: string, input: CalendarUpdateInput, kind: CalendarComponentKind,
+	validation: ContentValidationResult, details: Record<string, unknown>) {
+	const components = candidateOperation(() => context.ical.parseCalendar(raw), validation, details, "source").components
 		.filter(component => component.kind === kind && component.uid === input.uid &&
 			component.recurrenceId === (input.recurrenceId ?? null));
 	if (components.length > 1) throw new DavToolError("AMBIGUOUS_TARGET", "资源内目标组件不唯一，未执行写入。");
@@ -92,18 +110,6 @@ function selectComponent(context: DavReadContext, raw: string, input: CalendarUp
 	if (component.properties.some(property => property.name === "RECURRENCE-ID" && property.parameters.RANGE !== undefined))
 		throw new DavToolError("RECURRENCE_UNSUPPORTED", "不支持 RECURRENCE-ID 带 RANGE 的目标。");
 	return component;
-}
-
-function nextSequence(component: CalendarComponent): number {
-	const values = component.properties.filter(property => property.name === "SEQUENCE");
-	if (values.length === 0) return 1;
-	const property = values[0]!;
-	const type = property.parameters.VALUE;
-	const sequence = Number(property.rawValue);
-	if (values.length !== 1 || (type && (type.length !== 1 || type[0]?.toUpperCase() !== "INTEGER")) ||
-		!/^\+?\d+$/.test(property.rawValue) || !Number.isSafeInteger(sequence) || sequence >= Number.MAX_SAFE_INTEGER)
-		throw new DavToolError("DATA_INVALID", "源 SEQUENCE 无效、重复或无法安全递增，未执行写入。");
-	return sequence + 1;
 }
 
 export async function createCalendar(context: DavReadContext, input: CalendarCreateInput, kind: CalendarComponentKind) {
@@ -131,6 +137,7 @@ export async function createCalendar(context: DavReadContext, input: CalendarCre
 		return { data, uid: component.uid };
 	});
 	const resourceUrl = createResourceUrl(input.collectionUrl, "ics");
+	assertValidContent(context.ical.validateCalendarResource(raw.data), { account: input.account, resourceUrl, uid: raw.uid, kind });
 	context.writeIdentity = { account: input.account, kind, uid: raw.uid };
 	const etag = await context.client.create(resourceUrl, raw.data, contentType);
 	return { account: input.account, kind, resourceUrl, uid: raw.uid, etag, outcome: "created" as const };
@@ -140,8 +147,12 @@ export async function updateCalendar(context: DavReadContext, input: CalendarUpd
 	validateFields(input, kind);
 	const target = selector(input, kind);
 	const resource = await getVersionedResource(context, input);
-	const component = selectComponent(context, resource.data, input, kind);
-	const edited = contentOperation(() => {
+	const details = { account: input.account, resourceUrl: input.resourceUrl, uid: input.uid, kind };
+	const validation = context.ical.validateCalendarResource(resource.data);
+	const component = selectComponent(context, resource.data, input, kind, validation, details);
+	// 不要求整个源 valid；只防止正常刷新覆盖尚不能表达修正的源元数据。
+	assertManagedMetadata(validation, ["DTSTAMP", "LAST-MODIFIED", "SEQUENCE"], details);
+	const edited = candidateOperation(() => {
 		const edit: CalendarComponentEdit = { properties: [...(input.properties ?? [])],
 			removeProperties: [...(input.removeProperties ?? [])], alarms: input.alarms };
 		for (const field of ["summary", "description", "location", "status", "start", "end", "due"] as const) {
@@ -151,12 +162,17 @@ export async function updateCalendar(context: DavReadContext, input: CalendarUpd
 		if (input.rrule === null) edit.removeProperties!.push("RRULE");
 		else if (input.rrule !== undefined) edit.properties!.push(recurrenceLine(input.rrule));
 		return context.ical.updateCalendarComponent(resource.data, target, edit);
-	});
-	if (edited === resource.data)
+	}, validation, details, "edit");
+	if (edited === resource.data) {
+		assertValidContent(context.ical.validateCalendarResource(edited), details);
 		return { account: input.account, kind, resourceUrl: input.resourceUrl, uid: input.uid, etag: input.etag, outcome: "unchanged" as const };
-	const sequence = nextSequence(component), stamp = utcStamp();
-	const data = contentOperation(() => context.ical.updateCalendarComponent(edited, target,
-		{ properties: [`DTSTAMP:${stamp}`, `LAST-MODIFIED:${stamp}`, `SEQUENCE:${sequence}`] }));
+	}
+	// 值与单值约束由源诊断负责；缺省 SEQUENCE 按既有策略从 0 递增。
+	const sequence = Number(component.properties.find(property => property.name === "SEQUENCE")?.rawValue ?? 0) + 1;
+	const stamp = utcStamp();
+	const data = candidateOperation(() => context.ical.updateCalendarComponent(edited, target,
+		{ properties: [`DTSTAMP:${stamp}`, `LAST-MODIFIED:${stamp}`, `SEQUENCE:${sequence}`] }), validation, details, "revision");
+	assertValidContent(context.ical.validateCalendarResource(data), details);
 	const etag = await context.client.update(input.resourceUrl, data, input.etag, contentType);
 	return { account: input.account, kind, resourceUrl: input.resourceUrl, uid: input.uid, etag, outcome: "updated" as const };
 }
