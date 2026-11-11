@@ -16,5 +16,5 @@
     }
   },
   "include": ["index.ts", "extensions", "prompts"],
-  "exclude": ["**/*.test.ts"]
+  "exclude": ["**/*.test.ts", "**/*.test-support.ts"]
 }

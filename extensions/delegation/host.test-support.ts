@@ -154,9 +154,9 @@ export function textSse(text: string): Response {
 
 export function lastAgentResult(session: AgentSession): ToolCallResult | undefined {
 	for (let index = session.messages.length - 1; index >= 0; index--) {
-		const message = session.messages[index] as unknown as AnyRecord;
+		const message = session.messages[index];
 		if (message.role === "toolResult" && message.toolName === "Agent")
-			return message as unknown as ToolCallResult;
+			return message;
 	}
 	return undefined;
 }

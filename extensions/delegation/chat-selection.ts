@@ -5,6 +5,7 @@ import { openaiThinking } from "#tsgw/models/vendors/openai";
 import { minimaxThinking } from "#tsgw/models/vendors/minimax";
 import { DELEGATION_KINDS, resolveDelegationKeys, type DelegationCandidate } from "./policy.ts";
 import { chatFailure, type SelectionFailure } from "./failure.ts";
+import { DESIGN_REVIEW_TARGET } from "./knowledge.ts";
 
 export const CHAT_SELECTION_IDS = ["gpt-6-luna", "deepseek-flash", "MiniMax-M3.1-Flash"] as const;
 type ChatSelectionId = (typeof CHAT_SELECTION_IDS)[number];
@@ -91,7 +92,7 @@ export async function selectWithChat(
 	try {
 		const answer: unknown = JSON.parse(text);
 		if (!isPlainObject(answer) || Object.keys(answer).length !== 2 || typeof answer.kind !== "string") return invalid;
-		const selected = resolveDelegationKeys(answer.kind, answer.selection, candidates);
+		const selected = resolveDelegationKeys(answer.kind, answer.selection, candidates, DESIGN_REVIEW_TARGET);
 		return selected ? { selected, kind: answer.kind, model: modelName } : invalid;
 	} catch {
 		return invalid;

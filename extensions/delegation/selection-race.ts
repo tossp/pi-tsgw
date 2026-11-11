@@ -1,6 +1,7 @@
 import type { Api, ClassifierContext, Model, Usage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { CHAT_SELECTION_IDS, selectWithChat } from "./chat-selection.ts";
+import { DESIGN_REVIEW_TARGET } from "./knowledge.ts";
 import { chatFailure, classifierFailure, type SelectionFailure } from "./failure.ts";
 import { chooseClassifier, resolveDelegationChoice, type DelegationCandidate } from "./policy.ts";
 
@@ -68,7 +69,7 @@ export async function raceSelection(
 				nativeFailure = classifierFailure(result.errorMessage);
 				throw new Error("分类通道未完成选型。");
 			}
-			const selected = resolveDelegationChoice(result.answers, candidates);
+			const selected = resolveDelegationChoice(result.answers, candidates, DESIGN_REVIEW_TARGET);
 			if (!selected) {
 				nativeFailure = invalid;
 				throw new Error("分类结果无效。");

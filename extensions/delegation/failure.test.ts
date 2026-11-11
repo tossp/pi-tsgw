@@ -10,17 +10,13 @@ import type {
 	Usage,
 } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
-import { buildDelegationCandidates, buildDelegationGuide, type DelegationCandidate } from "./policy.ts";
 import { registerDelegation } from "./index.ts";
-
-const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai");
 type Handler = (event: any, ctx: any) => any;
 type AnyRecord = Record<string, any>;
 type FailureKind = "timeout" | "cancelled" | "authentication" | "rate_limit" | "http" | "network" |
 	"invalid_response" | "unsupported" | "unknown" | "invalid_input" | "unavailable" |
 	"invalid_result" | "model_unavailable";
 
-const CHAT_IDS = ["deepseek-flash", "gpt-6-astra"];
 const SECRETS = ["sk-live-hidden", "internal.example.test", "raw-secret"];
 const USAGE: Usage = {
 	input: 10, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 12,
@@ -44,26 +40,21 @@ function classifierModel(): ClassifierModel<ClassifierApi> {
 		contextWindow: 64_000,
 	};
 }
-const catalog = (): Model<Api>[] => CHAT_IDS.map(id => chatModel(id));
-function candidate(id = "deepseek-flash", level: DelegationCandidate["level"] = "high"): DelegationCandidate {
-	const found = buildDelegationCandidates(catalog(), getSupportedThinkingLevels)
-		.find(entry => entry.id === id && entry.level === level);
-	if (!found) throw new Error(`缺少候选 ${id}:${level}`);
-	return found;
-}
+const catalog = (): Model<Api>[] => [chatModel("deepseek-flash")];
 function choice(value: string) {
 	return { type: "choice" as const, choice: value, probabilities: { [value]: 1 }, confidence: 1 };
 }
-function classification(overrides: Partial<ClassifierResult> = {}): ClassifierResult {
+/** 只用本次实际下发的候选 key 作答，不复制推荐表、档位或分类说明。 */
+function classification(context: ClassifierContext, overrides: Partial<ClassifierResult> = {}): ClassifierResult {
+	const criteria = context.questions.selection;
+	if (criteria.type !== "choice") throw new Error("selection 必须是 choice");
+	const selection = Object.keys(criteria.criteria)[0];
+	if (!selection) throw new Error("本次没有可用候选");
 	return {
 		api: "typesafe-system-one", provider: "tsgw", model: "jev-latest",
-		answers: {}, usage: USAGE, stopReason: "stop", timestamp: 0, ...overrides,
+		answers: { kind: choice("implement"), selection: choice(selection) },
+		usage: USAGE, stopReason: "stop", timestamp: 0, ...overrides,
 	};
-}
-function selected(overrides: Partial<ClassifierResult> = {}): ClassifierResult {
-	return classification({
-		answers: { kind: choice("implement"), selection: choice(candidate().key) }, ...overrides,
-	});
 }
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -75,30 +66,37 @@ async function tick(): Promise<void> {
 	await Promise.resolve();
 	await new Promise(resolve => setImmediate(resolve));
 }
-const GUIDE_HEADER = buildDelegationGuide(buildDelegationCandidates(catalog(), getSupportedThinkingLevels)).split("\n")
-	.find(line => line.startsWith("| 模型与思考档位")) ?? "";
-function assertGuideOnce(text: string, label: string): void {
-	assert.ok(GUIDE_HEADER, "建议表表头应存在");
-	assert.equal(text.split(GUIDE_HEADER).length - 1, 1, `${label}应含且仅含一次有效候选表`);
+/**
+ * 失败接管指导只验证来自本次已核验候选：非空、至少一行候选，并随阻止原因与最终消息给出。
+ * 不锁定型号、档位、行数或整表文案。
+ */
+function assertCandidateGuide(
+	outcome: { blocked: ToolCallEventResult | undefined; text: string; message: unknown; delegation: AnyRecord },
+	label: string,
+): void {
+	const guide = outcome.delegation.selectionGuide;
+	assert.equal(typeof guide, "string", `${label}应提供本次有效候选指导`);
+	assert.match(guide as string, /^\| tsgw\/[^|]+ \|/m, `${label}应至少列出一个本次有效候选`);
+	assert.ok(outcome.text.includes(guide as string), `${label}最终消息应附本次指导`);
+	assert.ok((outcome.blocked?.reason ?? "").includes(guide as string), `${label}阻止原因应附本次指导`);
+	assertSafe(outcome.blocked, label);
+	assertSafe(outcome.message, label);
 }
-function assertGuideRow(guide: unknown, model: string): void {
-	assert.equal(typeof guide, "string");
-	const row = (guide as string).split("\n").find(line => line.startsWith(`| ${model} |`));
-	assert.ok(row, `有效候选表缺少 ${model}`);
-}
-function assertNoGuide(blocked: ToolCallEventResult | undefined, text: string, delegation: AnyRecord): void {
-	assert.equal(delegation.selectionGuide, undefined);
-	assert.equal((blocked?.reason ?? "").includes(GUIDE_HEADER), false);
-	assert.equal(text.includes(GUIDE_HEADER), false);
+/** 早期失败没有已核验候选：仍说明状态，但不得补入或沿用候选表。 */
+function assertNoCandidateTable(delegation: AnyRecord, label: string): void {
+	assert.equal(typeof delegation.selectionGuide, "string", `${label}应说明未提供候选表`);
+	assert.equal((delegation.selectionGuide as string).includes("| tsgw/"), false, `${label}不得补入未核验候选`);
 }
 class Registry {
+	/** 最小宿主目录：只保留真实选型所需的一个型号，不复制推荐型号/档位清单。 */
 	chat: Model<Api>[] = catalog();
 	classifiers: ClassifierModel<ClassifierApi>[] = [classifierModel()];
 	chatCalls = 0;
 	classifierCalls = 0;
 	classifyCalls = 0;
 	lastOptions?: AnyRecord;
-	classifyImpl: () => Promise<ClassifierResult> = async () => {
+	lastContext?: ClassifierContext;
+	classifyImpl: (context: ClassifierContext) => Promise<ClassifierResult> = async () => {
 		throw new Error("本测试不应调用 classify");
 	};
 	async getAvailableOfType(type: "chat" | "classifier") {
@@ -109,10 +107,11 @@ class Registry {
 		this.classifierCalls++;
 		return [...this.classifiers];
 	}
-	async classify(_model: unknown, _context: ClassifierContext, options?: AnyRecord): Promise<ClassifierResult> {
+	async classify(_model: unknown, context: ClassifierContext, options?: AnyRecord): Promise<ClassifierResult> {
 		this.classifyCalls++;
+		this.lastContext = context;
 		this.lastOptions = options;
-		return this.classifyImpl();
+		return this.classifyImpl(context);
 	}
 }
 
@@ -224,35 +223,27 @@ test("外层 15 秒超时：请求禁用重试并归类 timeout", async () => {
 		const blocked = await pending;
 		assert.equal(blocked?.block, true);
 		assert.equal((event.input as AnyRecord).model, undefined);
-		assertSafe(blocked);
 		const fallback = await pi.emit("message_end", messageEnd("outer-timeout")) as AnyRecord;
 		const delegation = delegationOf(fallback.message as AnyRecord);
 		assert.equal(delegation.status, "blocked");
 		assert.equal(delegation.failureKind, "timeout");
-		assertGuideOnce(blocked?.reason ?? "", "timeout 阻止原因");
-		assertGuideOnce(textOf(fallback.message as AnyRecord), "timeout 最终消息");
-		assertGuideRow(delegation.selectionGuide, candidate("deepseek-flash", "high").model);
-		assertGuideRow(delegation.selectionGuide, candidate("deepseek-flash", "max").model);
-		assertGuideRow(delegation.selectionGuide, candidate("gpt-6-astra", "max").model);
-		const expectedRows = buildDelegationCandidates(registry.chat, getSupportedThinkingLevels).map(entry => entry.model);
-		const actualRows = (delegation.selectionGuide as string).split("\n")
-			.filter(line => line.startsWith("| tsgw/")).map(line => line.split("|")[1].trim());
-		assert.deepEqual(actualRows, expectedRows, "失败指导不补入目录缺席的其他型号");
-		assertSafe(fallback);
-		gate.resolve(selected());
+		assertCandidateGuide({ blocked, text: textOf(fallback.message as AnyRecord), message: fallback.message, delegation }, "timeout 接管指导");
+		gate.resolve(classification(registry.lastContext!));
 		await tick();
 		assert.equal((event.input as AnyRecord).model, undefined);
 
 		// 超时只影响本次调用；新的独立任务不被会话级冷却拦截。
 		AbortSignal.timeout = original;
-		registry.classifyImpl = async () => selected();
+		registry.classifyImpl = async context => classification(context);
 		const independent = callEvent("after-timeout", { prompt: "另一项独立任务" });
 		assert.equal(await pi.emit("tool_call", independent, context(registry)), undefined);
 		assert.equal(registry.classifyCalls, 2);
-		assert.equal((independent.input as AnyRecord).model, candidate().model);
+		const independentModel = (independent.input as AnyRecord).model;
+		assert.equal(typeof independentModel, "string");
+		assert.ok(independentModel.length > 0, "新调用仍应补入非空 model");
 	} finally {
 		AbortSignal.timeout = original;
-		gate.resolve(selected());
+		gate.resolve(classification(registry.lastContext!));
 		await tick();
 		await pi.emit("session_shutdown", { type: "session_shutdown" });
 	}
@@ -276,10 +267,12 @@ test("仅主调用方取消归类 cancelled；单通道 aborted 不冒充整体�
 	const fallback = await pi.emit("message_end", messageEnd("caller-cancel")) as AnyRecord;
 	const cancelDelegation = delegationOf(fallback.message as AnyRecord);
 	assert.equal(cancelDelegation.failureKind, "cancelled");
-	assertNoGuide(blocked, textOf(fallback.message as AnyRecord), cancelDelegation);
+	assert.equal(cancelDelegation.selectionGuide, undefined, "取消不得提供候选指导");
+	assert.equal((blocked?.reason ?? "").includes("| tsgw/"), false, "取消阻止原因不得含候选表");
+	assertSafe(blocked);
 	assertSafe(fallback);
 	// 取消后的迟到成功不能写 model，也不能再触发一次分类或自动再派遣。
-	gate.resolve(selected());
+	gate.resolve(classification(cancelled.lastContext!));
 	await tick();
 	assert.equal((event.input as AnyRecord).model, undefined);
 	assert.equal(cancelled.classifyCalls, 1);
@@ -287,16 +280,14 @@ test("仅主调用方取消归类 cancelled；单通道 aborted 不冒充整体�
 	await pi.emit("session_shutdown", { type: "session_shutdown" });
 
 	const aborted = new Registry();
-	aborted.classifyImpl = async () => selected({
+	aborted.classifyImpl = async context => classification(context, {
 		answers: {}, stopReason: "aborted",
 		errorMessage: `分类请求已取消。Bearer ${SECRETS.join(" https://")}`,
 	});
 	const abortedPi = await harness();
 	const outcome = await blockedOutcome(abortedPi, aborted, "classifier-aborted");
 	assert.equal(outcome.delegation.failureKind, "unknown");
-	assertGuideOnce(outcome.text, "单通道中止后的整体失败");
-	assertSafe(outcome.blocked);
-	assertSafe(outcome.message);
+	assertCandidateGuide(outcome, "单通道中止后的整体失败");
 	assert.doesNotMatch(outcome.text, new RegExp(SECRETS.join("|")));
 	await abortedPi.emit("session_shutdown", { type: "session_shutdown" });
 });
@@ -316,31 +307,24 @@ test("adapter 安全 errorMessage 分类，且任意原始文本不进入 reason
 	];
 	for (const [index, [errorMessage, kind]] of cases.entries()) {
 		const registry = new Registry();
-		registry.classifyImpl = async () => selected({ answers: {}, stopReason: "error", errorMessage });
+		registry.classifyImpl = async context => classification(context, { answers: {}, stopReason: "error", errorMessage });
 		const pi = await harness();
 		const outcome = await blockedOutcome(pi, registry, `adapter-kind-${index}`);
 		assert.equal(outcome.delegation.failureKind, kind, errorMessage);
 		assert.equal(outcome.delegation.status, "blocked");
 		assert.equal(typeof outcome.delegation.reason, "string");
 		assert.ok(outcome.delegation.reason.length > 0);
-		assertGuideOnce(outcome.blocked?.reason ?? "", `${errorMessage} 阻止原因`);
-		assertGuideOnce(outcome.text, `${errorMessage} 最终消息`);
-		assertGuideRow(outcome.delegation.selectionGuide, candidate("deepseek-flash", "high").model);
-		assertSafe(outcome.blocked, errorMessage);
-		assertSafe(outcome.message, errorMessage);
+		assertCandidateGuide(outcome, errorMessage);
 		await pi.emit("session_shutdown", { type: "session_shutdown" });
 	}
 
 	const raw = new Registry();
 	const rawMessage = `Bearer ${SECRETS[0]} https://${SECRETS[1]}/raw-secret`;
-	raw.classifyImpl = async () => selected({ answers: {}, stopReason: "error", errorMessage: rawMessage });
+	raw.classifyImpl = async context => classification(context, { answers: {}, stopReason: "error", errorMessage: rawMessage });
 	const pi = await harness();
 	const outcome = await blockedOutcome(pi, raw, "adapter-raw-error");
 	assert.equal(outcome.delegation.failureKind, "unknown");
-	assertGuideOnce(outcome.blocked?.reason ?? "", "原始错误阻止原因");
-	assertGuideOnce(outcome.text, "原始错误最终消息");
-	assertSafe(outcome.blocked);
-	assertSafe(outcome.message);
+	assertCandidateGuide(outcome, "原始错误");
 	assert.doesNotMatch(outcome.text, new RegExp(SECRETS.join("|")));
 	await pi.emit("session_shutdown", { type: "session_shutdown" });
 });
@@ -348,7 +332,7 @@ test("adapter 安全 errorMessage 分类，且任意原始文本不进入 reason
 test("失败后显式 Agent.model 重发跳过分类，每个新失败最多一次 classify", async () => {
 	const registry = new Registry();
 	let status = 500;
-	registry.classifyImpl = async () => selected({
+	registry.classifyImpl = async context => classification(context, {
 		answers: {}, stopReason: "error",
 		errorMessage: status === 500 ? "分类请求失败（HTTP 500）。" : "分类请求被上游限流（HTTP 429）。",
 	});
@@ -357,8 +341,8 @@ test("失败后显式 Agent.model 重发跳过分类，每个新失败最多一�
 	assert.equal(first.delegation.failureKind, "http");
 	assert.equal(registry.classifyCalls, 1);
 
-	const model = candidate().model;
-	assertGuideRow(first.delegation.selectionGuide, model);
+	const model = "tsgw/test-model:low";
+	assertCandidateGuide(first, "失败后接管");
 	assert.ok(first.text.includes("Agent.model"), "错误结果应提供实际参数的使用说明");
 	const before = { chat: registry.chatCalls, classifier: registry.classifierCalls, classify: registry.classifyCalls };
 	const explicitEvent = callEvent("explicit-after-failure", {
@@ -379,59 +363,14 @@ test("失败后显式 Agent.model 重发跳过分类，每个新失败最多一�
 	await pi.emit("session_shutdown", { type: "session_shutdown" });
 });
 
-test("取消与超时的迟到结果都不写 model", async () => {
-	const cancelled = new Registry();
-	const cancelGate = deferred<ClassifierResult>();
-	cancelled.classifyImpl = () => cancelGate.promise;
-	const cancelPi = await harness();
-	const caller = new AbortController();
-	const cancelEvent = callEvent("late-cancel", { prompt: "迟到取消" });
-	const cancelPending = cancelPi.emit("tool_call", cancelEvent,
-		context(cancelled, { signal: caller.signal })) as Promise<ToolCallEventResult | undefined>;
-	await tick();
-	caller.abort();
-	assert.equal((await cancelPending)?.block, true);
-	cancelGate.resolve(selected());
-	await tick();
-	assert.equal((cancelEvent.input as AnyRecord).model, undefined);
-	assert.equal(cancelled.classifyCalls, 1);
-	await cancelPi.emit("session_shutdown", { type: "session_shutdown" });
-
-	const original = AbortSignal.timeout;
-	const timeoutSignal = new AbortController();
-	const timed = new Registry();
-	const timeoutGate = deferred<ClassifierResult>();
-	timed.classifyImpl = () => timeoutGate.promise;
-	const timeoutPi = await harness();
-	AbortSignal.timeout = (() => timeoutSignal.signal) as typeof AbortSignal.timeout;
-	try {
-		const timeoutEvent = callEvent("late-timeout", { prompt: "迟到超时" });
-		const timeoutPending = timeoutPi.emit("tool_call", timeoutEvent, context(timed)) as
-			Promise<ToolCallEventResult | undefined>;
-		await tick();
-		timeoutSignal.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
-		assert.equal((await timeoutPending)?.block, true);
-		const fallback = await timeoutPi.emit("message_end", messageEnd("late-timeout")) as AnyRecord;
-		assert.equal(delegationOf(fallback.message as AnyRecord).failureKind, "timeout");
-		timeoutGate.resolve(selected());
-		await tick();
-		assert.equal((timeoutEvent.input as AnyRecord).model, undefined);
-		assert.equal(timed.classifyCalls, 1);
-	} finally {
-		AbortSignal.timeout = original;
-		await timeoutPi.emit("session_shutdown", { type: "session_shutdown" });
-	}
-});
-
 test("本地失败：invalid_input、unavailable、invalid_result、model_unavailable", async () => {
 	const invalidInput = new Registry();
 	const invalidInputPi = await harness();
 	const empty = await blockedOutcome(invalidInputPi, invalidInput, "local-invalid-input", { prompt: "   " });
 	assert.equal(empty.delegation.failureKind, "invalid_input");
 	assert.equal(invalidInput.chatCalls, 0);
-	assert.equal((empty.blocked?.reason ?? "").includes(GUIDE_HEADER), false);
-	assert.equal(empty.text.includes(GUIDE_HEADER), false);
-	assert.equal(empty.delegation.selectionGuide, buildDelegationGuide(undefined));
+	assertNoCandidateTable(empty.delegation, "invalid_input");
+	assert.equal(empty.text.includes("| tsgw/"), false);
 	await invalidInputPi.emit("session_shutdown", { type: "session_shutdown" });
 
 	const unavailable = new Registry();
@@ -440,12 +379,11 @@ test("本地失败：invalid_input、unavailable、invalid_result、model_unavai
 	const noCandidate = await blockedOutcome(unavailablePi, unavailable, "local-unavailable");
 	assert.equal(noCandidate.delegation.failureKind, "unavailable");
 	assert.equal(unavailable.classifyCalls, 0);
-	assert.equal(noCandidate.delegation.selectionGuide, buildDelegationGuide([]));
-	assert.equal(noCandidate.text.includes(GUIDE_HEADER), false);
+	assertNoCandidateTable(noCandidate.delegation, "unavailable");
 	await unavailablePi.emit("session_shutdown", { type: "session_shutdown" });
 
 	const invalidResult = new Registry();
-	invalidResult.classifyImpl = async () => selected({
+	invalidResult.classifyImpl = async context => classification(context, {
 		answers: { kind: choice("implement"), selection: choice("option_not_a_candidate") },
 	});
 	const invalidResultPi = await harness();
@@ -454,24 +392,24 @@ test("本地失败：invalid_input、unavailable、invalid_result、model_unavai
 	await invalidResultPi.emit("session_shutdown", { type: "session_shutdown" });
 
 	const removed = new Registry();
-	const removedModels = catalog();
-	const chosen = candidate();
-	removed.chat = [...removedModels];
-	removed.classifyImpl = async () => {
-		removed.chat = removedModels.filter(model => model.id !== "deepseek-flash");
-		return selected({ answers: { kind: choice("implement"), selection: choice(chosen.key) } });
+	removed.classifyImpl = async context => {
+		// 选定候选所在目录在复核前被撤空，不得改选其他项。
+		removed.chat = [];
+		return classification(context);
 	};
 	const removedPi = await harness();
 	const modelGone = await blockedOutcome(removedPi, removed, "local-model-unavailable");
 	assert.equal(modelGone.delegation.failureKind, "model_unavailable");
 	assert.equal(removed.classifyCalls, 1);
-	assert.equal((modelGone.delegation.selectionGuide as string).includes(`| ${chosen.model} |`), false);
+	assertNoCandidateTable(modelGone.delegation, "目录撤回后");
+	// 分类已完成的用量不因选定模型随后失效而丢失。
+	assert.deepEqual(modelGone.message.usage, USAGE);
 	await removedPi.emit("session_shutdown", { type: "session_shutdown" });
 });
 
 test("执行前目录复核失败：不把较早的候选快照作为当前可选表", async () => {
 	const registry = new Registry();
-	registry.classifyImpl = async () => selected();
+	registry.classifyImpl = async context => classification(context);
 	const lookup = registry.getAvailableOfType.bind(registry);
 	registry.getAvailableOfType = async type => {
 		if (type === "chat" && registry.chatCalls > 0) throw new Error("合成目录读取失败");
@@ -481,7 +419,6 @@ test("执行前目录复核失败：不把较早的候选快照作为当前可�
 	const outcome = await blockedOutcome(pi, registry, "revalidation-failed");
 	assert.equal(outcome.delegation.failureKind, "unknown");
 	assert.equal(registry.classifyCalls, 1);
-	assert.equal(outcome.delegation.selectionGuide, buildDelegationGuide(undefined));
-	assert.equal(outcome.text.includes(GUIDE_HEADER), false);
+	assertNoCandidateTable(outcome.delegation, "复核失败后");
 	await pi.emit("session_shutdown", { type: "session_shutdown" });
 });

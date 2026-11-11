@@ -10,6 +10,7 @@ import {
 } from "./policy.ts";
 import { failureGuidance, type DelegationFailureKind } from "./failure.ts";
 import { raceSelection, type SelectionError } from "./selection-race.ts";
+import { DELEGATION_KNOWLEDGE } from "./knowledge.ts";
 
 const TIMEOUT_MS = 15_000;
 const MAX_CONTEXT_BYTES = 28 * 1024;
@@ -160,7 +161,7 @@ export function registerDelegation(pi: ExtensionAPI): void {
 			const candidates = async (): Promise<DelegationCandidate[]> => {
 				attempt.candidates = undefined;
 				models = await abortable(registry.getAvailableOfType("chat", "tsgw", { signal }), signal);
-				const available = buildDelegationCandidates(models, getSupportedThinkingLevels, ctx.scopedModels);
+				const available = buildDelegationCandidates(DELEGATION_KNOWLEDGE, models, getSupportedThinkingLevels, ctx.scopedModels);
 				attempt.candidates = available;
 				return available;
 			};

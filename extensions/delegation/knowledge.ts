@@ -1,6 +1,6 @@
 import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 
-interface CandidateKnowledge {
+export interface CandidateKnowledge {
 	readonly id: string;
 	readonly level: ModelThinkingLevel;
 	readonly suitability: string;
@@ -10,6 +10,8 @@ interface CandidateKnowledge {
 	readonly outputPrice: string;
 	readonly note: string;
 }
+
+export const DESIGN_REVIEW_TARGET = { id: "gpt-6-astra", level: "max" } as const;
 
 // GPT-6 定位与选型依据（2026-10-27）：https://developers.openai.com/api/docs/guides/model-selection
 // https://developers.openai.com/api/docs/guides/latest-model
@@ -85,16 +87,9 @@ export const DELEGATION_KNOWLEDGE: readonly CandidateKnowledge[] = [
 		note: "按实际推理需求选择，不因任务包含复杂工作就自动提高档位。",
 	},
 	{
-		id: "deepseek-flash", level: "high",
-		suitability: "常规实现、代码修改与补充测试",
-		effort: "常规工程 high 档，参考成本较低",
-		inputPrice: "0.1475–0.295", outputPrice: "0.59–1.18",
-		note: "需要常规工程判断；价格区间为低谷／高峰参考价。",
-	},
-	{
 		id: "deepseek-flash", level: "max",
-		suitability: "需要较深推理的复杂实现与问题调查",
-		effort: "复杂实现 max 档，比 high 思考更深",
+		suitability: "实现、代码修改、补充测试与问题调查",
+		effort: "工程任务统一使用 max 档",
 		inputPrice: "0.1475–0.295", outputPrice: "0.59–1.18",
 		note: "按实际推理需求选择，不把提升档位当作必然提升。",
 	},
@@ -111,14 +106,6 @@ export const DELEGATION_KNOWLEDGE: readonly CandidateKnowledge[] = [
 		effort: "更深思考档",
 		inputPrice: "2.00", outputPrice: "10.00",
 		note: "仅在高难任务确需更深推理时使用。",
-	},
-	{
-		id: "kimi-k3.1-pro", level: "high",
-		suitability: "资料核对、局部检查与独立定向复核",
-		effort: "high 对应原生 high，按任务需要使用",
-		// 国内标准版参考价与折算依据见 vendors/kimi.ts；不是高速版或网关实扣。
-		inputPrice: "1.9175", outputPrice: "10.03",
-		note: "不承担长程执行；真实工具往返尚未验收。",
 	},
 	{
 		id: "gpt-6-astra", level: "high",

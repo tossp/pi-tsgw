@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { TEST_KEY, TEST_ROOT } from "#tsgw/host-test-support.test";
-import { makeGate, textSse, toolCallSse, type AnyRecord } from "./host-test-fixtures.test.ts";
+import { makeGate, textSse, toolCallSse, type AnyRecord } from "./host.test-support.ts";
 
 export const MAIN_MODEL_ID = "gpt-6-sol";
 export const LUNA_ID = "gpt-6-luna";
@@ -40,11 +40,8 @@ export const ABORT_TIMEOUT_MS = 5_000;
 export type ChatQuestions = Record<string, { criteria: Record<string, string> }>;
 export interface RacePlan { next?: { name: string; args: AnyRecord; callId: string; itemId: string } }
 export interface LaneHarnessOptions {
-	sandbox: { catalogIds: string[] };
-	catalog: readonly string[];
 	guardedFetch: typeof fetch;
 	plan: RacePlan;
-	refreshCatalog: () => Promise<void>;
 }
 export interface LaneHarness {
 	classifierRequests: AnyRecord[];
@@ -54,8 +51,6 @@ export interface LaneHarness {
 	fetch: typeof fetch;
 	/** 原生分类也支持 after-errors，用于让非法结果先于原生胜出落地。 */
 	arrange(options: { classifier: ClassifierMode; lanes?: Partial<Record<ChatLane, LaneMode>>; holdReturned?: number }): void;
-	/** 指定通道在返回答案前触发目录变化，用于胜出后复核场景。 */
-	dropAfterWin(modelId: string): void;
 	/** 三款聊天通道已返回并被宿主消费的次数，用于确认没有额外重试。 */
 	laneCounts(): number[];
 	expectSelection(key: string): void;
@@ -286,22 +281,20 @@ export function laneCost(runtime: ModelRuntime, lane: ChatLane): { input: number
  * holdReturned 时只有前若干条错误响应被宿主读完后，after-errors 通道才提交结果。
  */
 export function createLaneHarness(options: LaneHarnessOptions): LaneHarness {
-	const { sandbox, catalog, guardedFetch, plan } = options;
+	const { guardedFetch, plan } = options;
 	const classifierRequests: AnyRecord[] = [];
 	const classifierHeaders: Headers[] = [];
 	const mainRequests: AnyRecord[] = [];
-	const laneRequests = Object.fromEntries(CHAT_LANE_IDS.map(lane => [lane, []])) as
-		unknown as Record<ChatLane, Array<{ body: AnyRecord; headers: Headers }>>;
+	const laneRequests: LaneHarness["laneRequests"] = {
+		[LUNA_ID]: [], [DEEPSEEK_ID]: [], [MINIMAX_ID]: [],
+	};
 	let classifierMode: ClassifierMode = "error";
-	const laneMode = Object.fromEntries(CHAT_LANE_IDS.map(lane => [lane, "error"])) as
-		unknown as Record<ChatLane, LaneMode>;
+	const laneMode = Object.fromEntries(CHAT_LANE_IDS.map(lane => [lane, "error"])) as Record<ChatLane, LaneMode>;
 	const state = { classifierAborted: false, laneAborted: Object.fromEntries(
-		CHAT_LANE_IDS.map(lane => [lane, false])) as unknown as Record<ChatLane, boolean> };
+		CHAT_LANE_IDS.map(lane => [lane, false])) as Record<ChatLane, boolean> };
 	let selection = "";
-	let dropCatalog: string | undefined;
 	let errorDrainsExpected = 0, errorDrains = 0, markErrorsDrained: (() => void) | undefined;
 	let errorsDrained: Promise<void> | undefined;
-	const presentLanes = (): ChatLane[] => CHAT_LANE_IDS.filter(id => sandbox.catalogIds.includes(id));
 	let cross = makeCrossGate(1);
 	const track = (response: Response): Response => errorDrainsExpected === 0 ? response
 		: trackedResponse(response, () => {
@@ -327,11 +320,6 @@ export function createLaneHarness(options: LaneHarnessOptions): LaneHarness {
 			return track(Response.json({ error: { message: `synthetic ${lane} failure: ${CHAT_SECRET}` } },
 				{ status: LANES_HTTP.lane }));
 		if (mode === "invalid") return track(answer(mode, lane));
-		if (dropCatalog) {
-			sandbox.catalogIds = catalog.filter(id => id !== dropCatalog);
-			dropCatalog = undefined;
-			await options.refreshCatalog();
-		}
 		return answer(mode, lane);
 	};
 	const fetchImpl: typeof fetch = async (input, init) => {
@@ -395,18 +383,16 @@ export function createLaneHarness(options: LaneHarnessOptions): LaneHarness {
 		arrange: options => {
 			classifierMode = options.classifier;
 			state.classifierAborted = false;
-			dropCatalog = undefined;
 			for (const lane of CHAT_LANE_IDS) {
 				laneMode[lane] = options.lanes?.[lane] ?? "error";
 				state.laneAborted[lane] = false;
 			}
-			cross = makeCrossGate(1 + presentLanes().length);
+			cross = makeCrossGate(1 + CHAT_LANE_IDS.length);
 			errorDrainsExpected = options.holdReturned ?? 0;
 			errorDrains = 0;
 			errorsDrained = undefined;
 			if (errorDrainsExpected > 0)
 				errorsDrained = new Promise<void>(resolve => { markErrorsDrained = resolve; });
 		},
-		dropAfterWin: (id: string) => { dropCatalog = id; },
 	};
 }

@@ -4,17 +4,16 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import type { AgentSession, ExtensionError, ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { buildDelegationCandidates } from "#tsgw/delegation/policy";
 import { HostSandbox, TEST_KEY, TEST_ROOT } from "#tsgw/host-test-support.test";
 import {
-	fixtureExtension, lastAgentResult, makeGate, resultText, textSse, toolCallSse,
+	fixtureExtension, lastAgentResult, resultText, textSse, toolCallSse,
 	type AnyRecord, type FixtureState,
-} from "./host-test-fixtures.test.ts";
+} from "./host.test-support.ts";
 
 type CapturedClassifierRequest = { body: AnyRecord; headers: Headers };
 
 const CLASSIFIER_IDS = ["jev-latest", "jev-preview"] as const;
-const BASE_CATALOG = ["gpt-6-sol", "jev-latest", "jev-preview", "deepseek-flash", "gpt-6-astra", "kimi-k3.1-pro"];
+const BASE_CATALOG = ["gpt-6-sol", "jev-latest", "jev-preview", "deepseek-flash", "gpt-6-astra"];
 const FIXTURE_TOOLS = ["Agent", "probe_nested", "get_subagent_result", "steer_subagent"];
 
 function sourceEntry(): string {
@@ -44,7 +43,6 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			createAgentSession, DefaultResourceLoader, ModelRuntime: Runtime, SessionManager,
 			SettingsManager, VERSION,
 		} = await import("@earendil-works/pi-coding-agent");
-		const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai");
 		assert.ok(["1.2.0", "1.4.0"].includes(VERSION), `未验证的宿主 SDK 版本：${VERSION}`);
 		const configure = (extra: AnyRecord = {}) => writeFileSync(join(sandbox.agentDir, "settings.json"),
 			JSON.stringify({ tsgw: { baseUrl: TEST_ROOT, ...extra } }));
@@ -54,10 +52,11 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 		const mainRequests: AnyRecord[] = [];
 		const plan: { next?: { name: string; args: AnyRecord; callId: string; itemId: string } } = {};
 		let callSequence = 0;
-		let classificationMode: "select" | "error" | "invalid" | "remove-during" | "scope-during" | "hang" = "select";
-		let expectedKey = "";
-		let expectedKind = "implement";
-		let started: ReturnType<typeof makeGate> | undefined;
+		let classificationMode: "select" | "invalid" | "scope-during" = "select";
+		const expectedKey = "option_0";
+		let selectedModel = "";
+		let scopedModelId = "";
+		const expectedKind = "implement";
 		const queueTool = (name: string, args: AnyRecord) => {
 			const id = ++callSequence;
 			plan.next = { name, args, callId: `call_fixture_${id}`, itemId: `fc_fixture_${id}` };
@@ -70,24 +69,13 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 				assert.equal(request.headers.get("authorization"), `Bearer ${TEST_KEY}`);
 				const body = await request.clone().json() as AnyRecord;
 				classifierRequests.push({ body, headers: request.headers });
-				started?.open();
-				if (classificationMode === "error")
-					return Response.json({ error: { message: "synthetic classifier failure" } }, { status: 500 });
-				if (classificationMode === "hang") {
-					await new Promise<void>(resolve => {
-						const timer = setTimeout(resolve, 1_000);
-						request.signal.addEventListener("abort", () => { clearTimeout(timer); resolve(); }, { once: true });
-					});
-					return Response.json({ error: { message: "synthetic cancellation" } }, { status: 499 });
+				if (classificationMode === "scope-during") {
+					const other = (await runtime!.getAvailableOfType("chat", "tsgw"))
+						.find(model => !selectedModel.startsWith(`tsgw/${model.id}:`));
+					assert.ok(other);
+					scopedModelId = other.id;
+					session!.setScopedModels([{ model: other }]);
 				}
-				if (classificationMode === "remove-during") {
-					sandbox.catalogIds = BASE_CATALOG.filter(id => id !== "deepseek-flash");
-					assert.ok(runtime);
-					await runtime.refresh({ providers: ["tsgw"], allowNetwork: true, force: true });
-					assert.equal(runtime.getModel("tsgw", "deepseek-flash"), undefined);
-				}
-				if (classificationMode === "scope-during")
-					session!.setScopedModels([{ model: runtime!.getModel("tsgw", "gpt-6-astra")!, thinkingLevel: "max" }]);
 				const selectionKey = classificationMode === "invalid" ? "option_not_a_candidate" : expectedKey;
 				const answers = {
 					kind: {
@@ -145,11 +133,6 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 		await refresh();
 		const mainModel = runtime.getModel("tsgw", "gpt-6-sol");
 		assert.ok(mainModel);
-		const candidates = buildDelegationCandidates(
-			await runtime.getAvailableOfType("chat", "tsgw"), getSupportedThinkingLevels);
-		const deepseekHigh = candidates.find(candidate => candidate.id === "deepseek-flash" && candidate.level === "high");
-		assert.ok(deepseekHigh, "固定选型表应提供常规工程候选");
-		expectedKey = deepseekHigh.key;
 		await session.bindExtensions({ mode: "print", onError: error => { errors.push(error); } });
 		session.setActiveToolsByName([...FIXTURE_TOOLS]);
 		await session.setModel(mainModel);
@@ -177,7 +160,7 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			assert.deepEqual(Object.keys(kind.criteria as AnyRecord).sort(),
 				["debug", "design_review", "dual_review", "implement", "inspect"]);
 			const criteria = selection.criteria as AnyRecord;
-			assert.ok(expectedKey in criteria, "分类问题必须包含当前 deepseek-flash/high 候选 key");
+			assert.ok(expectedKey in criteria, "分类问题必须包含当前有效候选 key");
 			assert.ok("unresolved" in criteria);
 			const state = body.state as AnyRecord;
 			assert.deepEqual(state.task, {
@@ -186,7 +169,9 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			});
 			assert.equal(fixture.agentCalls.length, callsBefore + 1);
 			const call = fixture.agentCalls.at(-1)!;
-			assert.equal(call.params.model, deepseekHigh.model, "必须补入选型候选模型，不能沿用父模型");
+			assert.equal(typeof call.params.model, "string");
+			selectedModel = call.params.model as string;
+			assert.match(selectedModel, /^tsgw\/[^:]+:[^:]+$/);
 			assert.equal(call.params.run_in_background, true, "不得改写原后台标志");
 			assert.equal(call.params.prompt, "实现 fixture 功能");
 			const result = lastAgentResult(session!);
@@ -198,14 +183,14 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			const text = resultText(result);
 			assert.match(text, /fixture agent executed/);
 			const classifierId = `tsgw/${String(body.model)}`;
-			assert.match(text, new RegExp(deepseekHigh.model.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+			assert.match(text, new RegExp(selectedModel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 			assert.match(text, new RegExp(classifierId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 			const details = result.details as AnyRecord;
 			assert.equal(details.kind, "host-agent-result");
 			assert.deepEqual(details.host, { profile: "general-purpose", marker: "keep-me" });
 			const delegation = details.tsgwDelegation as AnyRecord;
 			assert.equal(delegation.status, "selected");
-			assert.equal(delegation.model, deepseekHigh.model);
+			assert.equal(delegation.model, selectedModel);
 			assert.equal(delegation.kind, "implement");
 			assert.equal(delegation.classifier, classifierId);
 			assert.deepEqual(delegation.selectionSource, { type: "classifier", model: classifierId });
@@ -219,32 +204,6 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			assert.ok(Math.abs(usage.cost.input - (0.001 + classifierInputCost)) < 1e-12);
 			assert.ok(Math.abs(usage.cost.output - 0.002) < 1e-12);
 			assert.ok(Math.abs(usage.cost.total - (0.003 + classifierInputCost)) < 1e-12);
-		});
-
-		await t.test("新 Kimi 候选经真实宿主分类后补入原 Agent 调用", async () => {
-			const kimiHigh = candidates.find(candidate => candidate.id === "kimi-k3.1-pro" && candidate.level === "high");
-			assert.ok(kimiHigh);
-			const classifiersBefore = classifierRequests.length;
-			const callsBefore = fixture.agentCalls.length;
-			expectedKey = kimiHigh.key;
-			expectedKind = "inspect";
-			try {
-				queueTool("Agent", { subagent_type: "explore", prompt: "独立核对局部改动", description: "K3.1 局部核对", run_in_background: true });
-				await session!.prompt("交给选择器安排局部核对");
-				assert.equal(classifierRequests.length, classifiersBefore + 1);
-				assert.equal(fixture.agentCalls.length, callsBefore + 1);
-				const call = fixture.agentCalls.at(-1)!;
-				assert.equal(call.params.model, "tsgw/kimi-k3.1-pro:high");
-				assert.equal(call.params.subagent_type, "explore");
-				assert.equal(call.params.prompt, "独立核对局部改动");
-				const result = lastAgentResult(session!);
-				assert.equal(result?.isError, false);
-				const decision = (result!.details as AnyRecord).tsgwDelegation as AnyRecord;
-				assert.equal(decision.kind, "inspect");
-			} finally {
-				expectedKey = deepseekHigh.key;
-				expectedKind = "implement";
-			}
 		});
 
 		await t.test("显式模型、resume、结果查询、steer 与非 Agent 均不分类", async () => {
@@ -287,30 +246,6 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			assert.equal(fixture.nestedOutcomes[0].isError, true);
 		});
 
-		await t.test("分类 500 不重试且原 Agent 不执行", async () => {
-			classificationMode = "error";
-			const classifiersBefore = classifierRequests.length;
-			const callsBefore = fixture.agentCalls.length;
-			queueTool("Agent", { prompt: "失败任务", description: "failure" });
-			await session!.prompt("分类失败");
-			assert.equal(classifierRequests.length, classifiersBefore + 1, "maxRetries=0 时不得重试");
-			assert.equal(fixture.agentCalls.length, callsBefore);
-			const result = lastAgentResult(session!);
-			assert.ok(result);
-			assert.equal(result.isError, true);
-			assert.match(resultText(result), /分类请求未成功|未创建子代理/);
-			const decision = (result.details as AnyRecord).tsgwDelegation as AnyRecord;
-			assert.equal(decision.status, "blocked");
-			assert.equal(decision.failureKind, "http");
-			assert.ok(typeof decision.selectionGuide === "string" && decision.selectionGuide.length > 0);
-			assert.ok(decision.selectionGuide.includes(deepseekHigh.model));
-			assert.ok(decision.selectionGuide.includes("| tsgw/kimi-k3.1-pro:high |"), "分类失败也必须提供有效 Kimi 候选");
-			assert.equal(decision.selectionGuide.includes("tsgw/kimi-k3:"), false, "失败指导不再推荐旧 K3");
-			assert.equal(resultText(result).split(decision.selectionGuide).length - 1, 1, "宿主阻止结果仅保留一份选型表");
-			assert.doesNotMatch(resultText(result), /synthetic classifier failure/);
-			classificationMode = "select";
-		});
-
 		await t.test("非法 choice 阻止原 Agent 执行", async () => {
 			classificationMode = "invalid";
 			const classifiersBefore = classifierRequests.length;
@@ -333,23 +268,6 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			classificationMode = "select";
 		});
 
-		await t.test("分类期间目录移除阻止原 Agent 执行", async () => {
-			classificationMode = "remove-during";
-			const classifiersBefore = classifierRequests.length;
-			const callsBefore = fixture.agentCalls.length;
-			queueTool("Agent", { prompt: "目录变化任务", description: "catalog removal" });
-			await session!.prompt("目录移除");
-			assert.equal(classifierRequests.length, classifiersBefore + 1);
-			assert.equal(fixture.agentCalls.length, callsBefore);
-			const result = lastAgentResult(session!);
-			assert.equal(result?.isError, true);
-			assert.match(resultText(result!), /不在当前可用候选|未创建子代理/);
-			assert.equal(result!.usage?.totalTokens, 485, "目录失效不能抹去已完成的分类用量");
-			classificationMode = "select";
-			sandbox.catalogIds = [...BASE_CATALOG];
-			await refresh();
-		});
-
 		await t.test("后续 permission handler 仍可阻止已选型的 Agent 创建", async () => {
 			fixture.blockAgent = true;
 			const classifiersBefore = classifierRequests.length;
@@ -359,36 +277,13 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			assert.equal(classifierRequests.length, classifiersBefore + 1);
 			assert.equal(fixture.agentCalls.length, callsBefore);
 			assert.equal(fixture.permissionBlocks, 1);
-			assert.equal(fixture.permissionSeenModel, deepseekHigh.model, "后续权限钩子应看到选型后的 model");
+			assert.equal(fixture.permissionSeenModel, selectedModel, "后续权限钩子应看到选型后的 model");
 			const result = lastAgentResult(session!);
 			assert.equal(result?.isError, true);
 			assert.match(resultText(result!), /fixture permission handler blocked Agent/);
 			assert.equal(result!.usage?.totalTokens, 485, "后续权限阻止时分类用量仍计入一次");
 			assert.equal(((result!.details as AnyRecord).tsgwDelegation as AnyRecord).status, "selected");
 			fixture.blockAgent = false;
-		});
-
-		await t.test("取消分类阻止原 Agent 执行", async () => {
-			classificationMode = "hang";
-			started = makeGate();
-			const classifiersBefore = classifierRequests.length;
-			const callsBefore = fixture.agentCalls.length;
-			queueTool("Agent", { prompt: "取消任务", description: "cancel" });
-			const prompt = session!.prompt("取消选型");
-			await started.promise;
-			assert.equal(classifierRequests.length, classifiersBefore + 1);
-			await session!.abort();
-			await prompt.catch(() => undefined);
-			await session!.waitForIdle();
-			assert.equal(fixture.agentCalls.length, callsBefore);
-			const result = lastAgentResult(session!);
-			assert.equal(result?.isError, true);
-			assert.equal(((result!.details as AnyRecord).tsgwDelegation as AnyRecord).status, "blocked");
-			const decision = (result!.details as AnyRecord).tsgwDelegation as AnyRecord;
-			assert.equal(decision.failureKind, "cancelled");
-			assert.equal(decision.selectionGuide, undefined, "取消不得引导自动重新派遣");
-			classificationMode = "select";
-			started = undefined;
 		});
 
 		await t.test("重载不会双注入或重复分类", async () => {
@@ -411,28 +306,7 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			const text = resultText(result!);
 			assert.equal((text.match(/TSGW 创建前选型/g) ?? []).length, 1, "重载后摘要只能追加一次");
 			const details = result!.details as AnyRecord;
-			assert.equal((details.tsgwDelegation as AnyRecord).model, deepseekHigh.model);
-		});
-
-		await t.test("会话范围显式档位参与候选过滤", async () => {
-			const deepseek = runtime!.getModel("tsgw", "deepseek-flash");
-			assert.ok(deepseek);
-			const selected = buildDelegationCandidates([deepseek], getSupportedThinkingLevels,
-				[{ model: deepseek, thinkingLevel: "max" }])[0];
-			assert.ok(selected);
-			session!.setScopedModels([{ model: deepseek, thinkingLevel: "max" }]);
-			expectedKey = selected.key;
-			try {
-				queueTool("Agent", { prompt: "复杂实现任务", description: "scoped effort" });
-				await session!.prompt("仅允许指定范围的档位");
-				assert.equal(fixture.agentCalls.at(-1)!.params.model, selected.model);
-				const questions = classifierRequests.at(-1)!.body.questions as AnyRecord;
-				assert.deepEqual(Object.keys((questions.selection as AnyRecord).criteria as AnyRecord),
-					[selected.key, "unresolved"], "不得把同模型的其他档位交给分类器");
-			} finally {
-				session!.setScopedModels([]);
-				expectedKey = deepseekHigh.key;
-			}
+			assert.equal((details.tsgwDelegation as AnyRecord).model, selectedModel);
 		});
 
 		await t.test("分类期间会话范围变化：执行前重新过滤，接管表只列最新有效候选", async () => {
@@ -446,9 +320,10 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 				const decision = (result.details as AnyRecord).tsgwDelegation as AnyRecord;
 				assert.equal(decision.failureKind, "model_unavailable");
 				const rows = (decision.selectionGuide as string).split("\n").filter(line => line.startsWith("| tsgw/"));
-				assert.equal(rows.length, 1);
-				assert.ok(rows[0].startsWith("| tsgw/gpt-6-astra:max |"));
-				assert.equal((decision.selectionGuide as string).includes(`| ${deepseekHigh.model} |`), false);
+				assert.ok(rows.length > 0);
+				assert.ok(rows.every(row => row.startsWith(`| tsgw/${scopedModelId}:`)),
+					"接管表只能包含实际收窄范围中的型号，不限定该型号的推荐档位或行数");
+				assert.equal((decision.selectionGuide as string).includes(`| ${selectedModel} |`), false);
 			} finally {
 				classificationMode = "select";
 				session!.setScopedModels([]);

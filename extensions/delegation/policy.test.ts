@@ -17,29 +17,9 @@ import {
 	resolveDelegationChoice,
 	type DelegationCandidate,
 } from "./policy.ts";
+import type { CandidateKnowledge } from "./knowledge.ts";
 
 const ALL_LEVELS: readonly ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-
-const TABLE: readonly (readonly [string, ModelThinkingLevel])[] = [
-	["MiniMax-M3.1-Flash", "high"],
-	["gpt-6-luna", "high"],
-	["glm-5.3", "low"],
-	["glm-5.3", "high"],
-	["glm-5.3", "max"],
-	["gpt-6-luna", "max"],
-	["glm-5.3-flash", "max"],
-	["gpt-6.1-terra", "medium"],
-	["gpt-6.1-sol", "medium"],
-	["deepseek-flash", "high"],
-	["deepseek-flash", "max"],
-	["gpt-6.1-sol", "high"],
-	["gpt-6.1-sol", "xhigh"],
-	["kimi-k3.1-pro", "high"],
-	["gpt-6-astra", "high"],
-	["gpt-6-astra", "xhigh"],
-	["gpt-6.1-sol", "max"],
-	["gpt-6-astra", "max"],
-];
 
 function frozen<T>(value: T): T {
 	if (value && typeof value === "object") {
@@ -59,6 +39,7 @@ function chatModel(id: string, overrides: Partial<Model<Api>> = {}): Model<Api> 
 		input: ["text"],
 		cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
 		reasoning: true,
+		thinkingLevelMap: { xhigh: "xhigh", max: "max" },
 		contextWindow: 128_000,
 		maxTokens: 32_000,
 		...overrides,
@@ -114,126 +95,61 @@ function answers(
 	return { kind, selection };
 }
 
-test("候选：严格按选型表逐型号与档位生成，键不使用型号名", () => {
-	const tableIds = [...new Set(TABLE.map(([id]) => id))];
-	const models = frozen([
-		...["kimi-k3", "unknown-model", ...tableIds].reverse().map((id) => chatModel(id)),
+const KNOWLEDGE: readonly CandidateKnowledge[] = [
+	{ id: "alpha", level: "low", suitability: "样本 A", effort: "低档", inputPrice: "1", outputPrice: "2", note: "样本说明 A" },
+	{ id: "alpha", level: "high", suitability: "样本 A", effort: "高档", inputPrice: "1", outputPrice: "2", note: "样本说明 A" },
+	{ id: "beta", level: "max", suitability: "样本 B", effort: "深档", inputPrice: "3", outputPrice: "4", note: "样本说明 B" },
+];
+const REVIEW_TARGET = { id: "review-model", level: "medium" } as const;
+
+test("有效候选：目录、会话型号与显式档位取交集，过滤后生成连续 key", () => {
+	const model = chatModel("alpha");
+	const models = frozen([chatModel("beta"), model, chatModel("unlisted")]);
+	const scope = Object.freeze([{ model, thinkingLevel: "high" as const }]);
+	const candidates = buildDelegationCandidates(KNOWLEDGE, models, () => ALL_LEVELS, scope);
+	assert.deepEqual(candidates.map(entry => [entry.key, entry.model]), [["option_0", "tsgw/alpha:high"]]);
+	assert.deepEqual(buildDelegationCandidates(KNOWLEDGE, [], () => ALL_LEVELS, scope), [], "scope 不能补回目录缺席项");
+	assert.deepEqual(buildDelegationCandidates(KNOWLEDGE, models, () => ["low"], scope), [], "不支持的档位不能改档加入");
+	assert.deepEqual(buildDelegationCandidates(KNOWLEDGE, models, () => ALL_LEVELS,
+		[{ model: chatModel("alpha", { provider: "other" }) }]), [], "会话型号匹配必须包含 provider");
+	const allLevels = buildDelegationCandidates(KNOWLEDGE, models, () => ALL_LEVELS, [{ model }]);
+	assert.deepEqual(allLevels.map(entry => entry.model), ["tsgw/alpha:low", "tsgw/alpha:high"]);
+	assert.deepEqual(buildDelegationCandidates(KNOWLEDGE, models, () => ALL_LEVELS)
+		.map(entry => [entry.key, entry.model]), [
+		["option_0", "tsgw/alpha:low"], ["option_1", "tsgw/alpha:high"], ["option_2", "tsgw/beta:max"],
 	]);
-	const supportedLevels = frozen((model: Model<Api>): readonly ModelThinkingLevel[] => {
-		assert.equal(Object.isFrozen(model), true, "不得改写目录模型");
-		return ALL_LEVELS;
-	});
-
-	const candidates = buildDelegationCandidates(models, supportedLevels);
-	assert.deepEqual(candidates.map((entry) => [entry.id, entry.level]), TABLE);
-	assert.deepEqual(candidates.map((entry) => entry.key), TABLE.map((_, index) => `option_${index}`));
-	for (const entry of candidates) {
-		assert.equal(entry.provider, "tsgw");
-		assert.equal(entry.model, `tsgw/${entry.id}:${entry.level}`);
-		assert.ok(entry.instructions.length > 0);
-		assert.equal(entry.key.includes(entry.id), false, "协议 choice key 不绑定型号名");
-	}
-	assert.equal(candidates.some((entry) => entry.id === "kimi-k3"), false);
-	assert.equal(candidates.some((entry) => entry.id === "unknown-model"), false);
-	assert.equal(new Set(candidates.map((entry) => entry.key)).size, candidates.length);
 });
 
-test("策略材料：全候选说明与失败指导同源，典型委派保留事实且不超分类上限", () => {
-	const candidates = buildDelegationCandidates(
-		[...new Set(TABLE.map(([id]) => id))].map(id => chatModel(id)), () => ALL_LEVELS,
-	);
-	const input = frozen({
-		prompt: "修复已定位的空值处理；仅改指定模块。已有回归用例，运行后核验未影响原有行为。",
-		description: "范围明确的代码修复；无图片或界面工具需求",
-		input_files: ["src/parser.ts", "src/parser.test.ts"],
-		run_in_background: true,
-	});
-	const context = buildDelegationContext(input, candidates);
-	assert.deepEqual(context.state, { task: input });
-	assert.ok(Buffer.byteLength(JSON.stringify(context), "utf8") <= 28 * 1024);
-	const selection = context.questions.selection;
-	assert.equal(selection.type, "choice");
-	if (selection.type !== "choice") return assert.fail("selection 必须是 choice");
-	const guide = buildDelegationGuide(candidates);
-	const guidelines = guide.split("\n")[1];
-	assert.ok(guidelines && selection.instructions.includes(guidelines), "分类与失败接管共用完整选型原则");
-	for (const entry of candidates) {
-		assert.equal(selection.criteria[entry.key], entry.instructions);
-		const row = guide.split("\n").find(line => line.startsWith(`| ${entry.model} |`));
-		assert.ok(row, `${entry.model} 应保留失败接管行`);
-		assert.equal(row, `| ${entry.model} | ${entry.instructions} |`, "接管行直接复用有效候选说明");
-	}
-	// 不伪造真实分类结果，也不把说明透传测试当作模型选择质量验收。
-});
-
-test("候选：MiniMax 正式版替换旧轻量项，分类与失败指导同源", async () => {
-	const { minimaxModels } = await import("../models/vendors/minimax.ts");
-	const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai");
-	const models = minimaxModels("https://models.example.test").map(model => ({ ...chatModel(model.id), ...model }));
-	const candidates = buildDelegationCandidates(models, getSupportedThinkingLevels);
-	const selected = candidates.find(entry => entry.id === "MiniMax-M3.1-Flash");
-	assert.ok(selected);
-	assert.equal(selected.level, "high");
-	assert.equal(selected.model, "tsgw/MiniMax-M3.1-Flash:high");
-	assert.equal(candidates.some(entry => entry.id === "MiniMax-M3" || entry.id.endsWith("-Preview")), false);
-	const context = buildDelegationContext({ prompt: "步骤明确的轻量任务" }, candidates);
-	const selection = context.questions.selection;
-	assert.equal(selection.type, "choice");
-	if (selection.type !== "choice") return assert.fail("selection 必须是 choice");
-	assert.equal(selection.criteria[selected.key], selected.instructions);
-	assert.ok(buildDelegationGuide(candidates).includes(`| ${selected.model} |`));
-	assert.equal(buildDelegationGuide(candidates).includes("| tsgw/MiniMax-M3:high |"), false);
-});
-
-test("候选：K3.1 普通版进入分类与失败指导，仍保留固定审阅边界", async () => {
-	const { kimiModels } = await import("../models/vendors/kimi.ts");
-	const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai");
-	const models = frozen([
-		...kimiModels("https://models.example.test").map(model => ({ ...chatModel(model.id), ...model })),
-		chatModel("k3.1-pro"), chatModel("kimi-k3.1-pro-highspeed"),
+test("候选过滤：排除其他供应商、非文本聊天和未登记组合", () => {
+	const rejected = frozen([
+		chatModel("alpha", { provider: "other" }),
+		chatModel("alpha", { input: ["image"] }),
+		{ ...chatModel("alpha"), type: "classifier" } as unknown as Model<Api>,
+		chatModel("unlisted"),
 	]);
-	const candidates = buildDelegationCandidates(models, getSupportedThinkingLevels);
-	assert.deepEqual(candidates.map(entry => [entry.id, entry.level]), [["kimi-k3.1-pro", "high"]]);
-	const selected = candidates[0];
-	assert.equal(selected.model, "tsgw/kimi-k3.1-pro:high");
-	const context = buildDelegationContext({ prompt: "独立核对局部改动", subagent_type: "explore" }, candidates);
-	const selection = context.questions.selection;
-	assert.equal(selection.type, "choice");
-	if (selection.type !== "choice") return assert.fail("selection 必须是 choice");
-	assert.equal(selection.criteria[selected.key], selected.instructions);
-	assert.equal(resolveDelegationChoice(answers(choice("inspect"), choice(selected.key)), candidates), selected);
-	for (const kind of ["design_review", "dual_review"]) {
-		assert.equal(resolveDelegationChoice(answers(choice(kind), choice(selected.key)), candidates), undefined);
-	}
-	assert.ok(buildDelegationGuide(candidates).includes(`| ${selected.model} |`));
-	assert.equal(buildDelegationGuide([]).includes(`| ${selected.model} |`), false);
-	assert.equal(buildDelegationGuide(candidates).includes("tsgw/kimi-k3:"), false, "新版本接替旧版指导");
-	assert.deepEqual(buildDelegationCandidates(models, () => ["low"]), [], "缺少 high 时不补入其他档位");
-	assert.deepEqual(buildDelegationCandidates([], getSupportedThinkingLevels), [], "不绕过宿主可用目录");
+	assert.deepEqual(buildDelegationCandidates(KNOWLEDGE, rejected, () => ALL_LEVELS), []);
+	assert.deepEqual(buildDelegationCandidates(KNOWLEDGE, [chatModel("alpha")], () => []), []);
 });
 
-test("候选：其他供应商、非文本、非聊天与不支持档位不会补入", () => {
-	const otherProvider = chatModel("gpt-6-luna", { provider: "other" });
-	const imageOnly = chatModel("MiniMax-M3.1-Flash", { input: ["image"] });
-	const classifierAsChat = {
-		...chatModel("gpt-6-astra"),
-		type: "classifier",
-	} as unknown as Model<Api>;
-	const glm = chatModel("glm-5.3");
-	const models = frozen([otherProvider, imageOnly, classifierAsChat, chatModel("kimi-k3"), glm]);
-	const supportedLevels = frozen((model: Model<Api>): readonly ModelThinkingLevel[] =>
-		model.id === "glm-5.3" ? ["low", "medium"] : ALL_LEVELS);
-
-	const candidates = buildDelegationCandidates(models, supportedLevels);
-	assert.deepEqual(candidates.map((entry) => [entry.key, entry.id, entry.level]), [
-		["option_0", "glm-5.3", "low"],
-	]);
+test("接管指导：只呈现传入候选及其说明，不回查推荐表", () => {
+	const sample = candidate("option_0", "sample-model", "low", "仅此处提供的独立说明标记");
+	const guide = buildDelegationGuide([sample]);
+	assert.ok(guide.includes(sample.model));
+	assert.ok(guide.includes(sample.instructions));
+	const empty = buildDelegationGuide([]);
+	const unverified = buildDelegationGuide(undefined);
+	assert.notEqual(empty, unverified, "无可选项和核验未完成应分别说明");
+	for (const output of [empty, unverified]) {
+		assert.ok(output.length > 0);
+		assert.equal(output.includes(sample.model), false);
+		assert.equal(output.includes("|"), false);
+	}
 });
 
 test("上下文：state 只含任务与元数据，kind/selection 结构固定且候选作为 options", () => {
 	const candidates = frozen([
-		candidate("option_0", "gpt-6-astra", "max", "Astra 审阅说明"),
-		candidate("option_1", "deepseek-flash", "high", "DeepSeek 工程说明"),
+		candidate("option_0", "review-model", "max", "候选 A 的说明"),
+		candidate("option_1", "worker-model", "max", "候选 B 的说明"),
 	]);
 	const input = frozen({
 		prompt: "任务正文",
@@ -285,64 +201,54 @@ test("上下文：state 只含任务与元数据，kind/selection 结构固定�
 	assert.deepEqual(Object.keys(minimalSelection.criteria), ["unresolved"]);
 });
 
-test("解析：按 choice key 选择当前候选，低置信度不设阈值，也不按概率最高项改选", () => {
-	const astraMax = candidate("option_0", "gpt-6-astra", "max");
-	const astraHigh = candidate("option_1", "gpt-6-astra", "high");
-	const deepseekHigh = candidate("option_2", "deepseek-flash", "high");
-	const candidates = frozen([astraMax, astraHigh, deepseekHigh]);
-
-	const selected = resolveDelegationChoice(
-		answers(
-			choice("implement", { implement: 0.2, inspect: 0.1 }, 0),
-			choice("option_2", { option_0: 0.99, option_2: 0.01 }, 0),
-		),
-		candidates,
-	);
-	assert.equal(selected, deepseekHigh);
+test("解析：按 choice key 选择当前候选，不按置信度或最高概率改选", () => {
+	const first = candidate("option_0", "sample-a", "low");
+	const second = candidate("option_1", "sample-b", "high");
+	const candidates = frozen([first, second]);
+	const selected = resolveDelegationChoice(answers(
+		choice("implement", { implement: 0.2, inspect: 0.1 }, 0),
+		choice("option_1", { option_0: 0.99, option_1: 0.01 }, 0),
+	), candidates, REVIEW_TARGET);
+	assert.equal(selected, second);
 	assert.equal(resolveDelegationChoice(
-		answers(choice("debug"), choice("unresolved")),
-		candidates,
+		answers(choice("debug"), choice("unresolved")), candidates, REVIEW_TARGET,
 	), undefined);
 	assert.equal(resolveDelegationChoice(
-		answers(choice("debug"), choice("gpt-6-astra")),
-		candidates,
+		answers(choice("debug"), choice("sample-a")), candidates, REVIEW_TARGET,
 	), undefined, "型号名不是当前候选 key");
 });
 
-test("解析：Astra/max 是正式设计审阅的必要边界，双审一律拒绝", () => {
-	const astraMax = candidate("option_0", "gpt-6-astra", "max");
-	const astraHigh = candidate("option_1", "gpt-6-astra", "high");
-	const deepseekHigh = candidate("option_2", "deepseek-flash", "high");
-	const candidates = frozen([astraMax, astraHigh, deepseekHigh]);
-
+test("解析：正式审阅匹配传入的型号和档位，双审交回主代理", () => {
+	const review = candidate("option_0", "review-model", "medium");
+	const wrongLevel = candidate("option_1", "review-model", "high");
+	const other = candidate("option_2", "worker-model", "low");
+	const candidates = frozen([review, wrongLevel, other]);
 	assert.equal(resolveDelegationChoice(
-		answers(choice("design_review"), choice("option_0")),
-		candidates,
-	), astraMax);
+		answers(choice("design_review"), choice("option_0")), candidates, REVIEW_TARGET,
+	), review);
+	for (const key of ["option_1", "option_2"]) {
+		assert.equal(resolveDelegationChoice(
+			answers(choice("design_review"), choice(key)), candidates, REVIEW_TARGET,
+		), undefined);
+	}
 	assert.equal(resolveDelegationChoice(
-		answers(choice("design_review"), choice("option_1")),
-		candidates,
-	), undefined, "Astra 非 max 也不得替代");
+		answers(choice("design_review"), choice("option_2")), candidates, { id: "worker-model", level: "low" },
+	), other, "审阅目标来自传入数据，不绑定实际配置或最高档位");
 	assert.equal(resolveDelegationChoice(
-		answers(choice("design_review"), choice("option_2")),
-		candidates,
-	), undefined, "正式设计审阅不得擅自改成其他候选");
-	assert.equal(resolveDelegationChoice(
-		answers(choice("dual_review"), choice("option_0")),
-		candidates,
-	), undefined, "双审必须由主代理显式安排");
-	assert.equal(resolveDelegationChoice(
-		answers(choice("implement"), choice("option_0")),
-		candidates,
-	), astraMax, "普通任务仍可选择 Astra/max");
+		answers(choice("dual_review"), choice("option_0")), candidates, REVIEW_TARGET,
+	), undefined);
+	for (const candidate of candidates) {
+		for (const kind of ["inspect", "implement", "debug"])
+			assert.equal(resolveDelegationChoice(answers(choice(kind), choice(candidate.key)), candidates, REVIEW_TARGET), candidate);
+	}
 });
 
 test("解析：非法结构、越界概率、缺少所选概率、未知 kind 与不在候选中的选择均拒绝", () => {
 	const validKind = choice("implement");
 	const validSelection = choice("option_2");
 	const candidates = frozen([
-		candidate("option_0", "gpt-6-astra", "max"),
-		candidate("option_2", "deepseek-flash", "high"),
+		candidate("option_0", "review-model", "max"),
+		candidate("option_2", "worker-model", "max"),
 	]);
 
 	const malformed: unknown[] = [
@@ -377,7 +283,7 @@ test("解析：非法结构、越界概率、缺少所选概率、未知 kind �
 
 	for (const value of malformed) {
 		assert.equal(
-			resolveDelegationChoice(value as ClassifierResult["answers"], candidates),
+			resolveDelegationChoice(value as ClassifierResult["answers"], candidates, REVIEW_TARGET),
 			undefined,
 		);
 	}

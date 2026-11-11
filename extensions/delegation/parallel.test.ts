@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Api, AssistantMessage, ClassifierContext, ClassifierResult, Context, Model, SimpleStreamOptions, Usage } from "@earendil-works/pi-ai";
+import { type Api, type AssistantMessage, type ClassifierContext, type ClassifierResult, type Context, type Model, type SimpleStreamOptions, type Usage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { deepseekModels } from "#tsgw/models/vendors/deepseek";
 import { minimaxModels } from "#tsgw/models/vendors/minimax";
@@ -8,6 +8,7 @@ import { openaiModels } from "#tsgw/models/vendors/openai";
 import { CHAT_SELECTION_IDS } from "./chat-selection.ts";
 import { chatFailure } from "./failure.ts";
 import { registerDelegation } from "./index.ts";
+import { DESIGN_REVIEW_TARGET } from "./knowledge.ts";
 
 type Handler = (event: any, ctx?: any) => any;
 const usage: Usage = {
@@ -34,8 +35,15 @@ function deferred<T>() {
 	return { promise, resolve };
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
+/** 只断言宿主补参契约，不锁定当前推荐表选中的型号或档位。 */
+function injectedModel(event: { input: Record<string, unknown> }): string {
+	const model = event.input.model;
+	assert.equal(typeof model, "string");
+	assert.match(model as string, /^tsgw\/.+:.+$/);
+	return model as string;
+}
 class Registry {
-	models = [...CHAT_SELECTION_IDS.map(chat), chat("gpt-6-astra")];
+	models = [...CHAT_SELECTION_IDS.map(chat), chat(DESIGN_REVIEW_TARGET.id)];
 	classifiers: unknown[] = [{ type: "classifier", id: "jev-latest", provider: "tsgw", input: ["text"], cost: { input: 1, output: 0 } }];
 	classifyCalls = 0;
 	requests: { model: Model<Api>; context: Context; options: SimpleStreamOptions }[] = [];
@@ -54,15 +62,24 @@ class Registry {
 		this.requests.push({ model, context, options });
 		return { result: () => this.replyImpl(model) };
 	}
+	/** 原生分类未启动时，聊天请求携带的是同一份材料。 */
+	private criteria(): Record<string, string> {
+		const context = this.classifierContext ??
+			JSON.parse(String(this.requests[0]?.context.messages[0]?.content)) as ClassifierContext;
+		const selection = context.questions?.selection;
+		if (selection?.type !== "choice") throw new Error("缺少候选");
+		return selection.criteria;
+	}
+	/** 只用本次实际下发的候选 key 作答，不复制推荐表、档位或分类说明。 */
 	selection(kind = "implement", key?: string) {
-		const context: ClassifierContext = this.classifierContext ?? JSON.parse(this.requests[0].context.messages[0].content as string);
-		const criteria = context.questions.selection;
-		if (criteria.type !== "choice") throw new Error("缺少候选");
-		const selected = Object.entries(criteria.criteria).find(([, value]) => value.includes("模型：deepseek-flash，思考档位：high"));
-		return reply(JSON.stringify({ kind, selection: key ?? selected?.[0] ?? Object.keys(criteria.criteria)[0] }));
+		const criteria = this.criteria();
+		const chosen = key ?? Object.keys(criteria)[0];
+		if (chosen === undefined) throw new Error("缺少候选");
+		return reply(JSON.stringify({ kind, selection: chosen }));
 	}
 	validNative(kind = "implement"): ClassifierResult {
-		const { selection } = JSON.parse(this.selection(kind).content.flatMap(part => part.type === "text" ? [part.text] : []).join(""));
+		const selection = Object.keys(this.criteria())[0];
+		if (selection === undefined) throw new Error("缺少候选");
 		const answer = (choice: string) => ({ type: "choice" as const, choice, probabilities: { [choice]: 1 }, confidence: 1 });
 		return native({ stopReason: "stop", answers: { kind: answer(kind), selection: answer(selection) } });
 	}
@@ -108,7 +125,7 @@ test("四路材料同源、按厂商协议处理参数且不扩张工具；已�
 	const h = await harness();
 	const original = structuredClone(h.event.input);
 	assert.equal(await h.emit("tool_call", h.event), undefined);
-	assert.equal(h.event.input.model, "tsgw/deepseek-flash:high");
+	const model = injectedModel(h.event);
 	assert.deepEqual({ ...h.event.input, model: undefined }, { ...original, model: undefined });
 	assert.equal(h.registry.classifyCalls, 1);
 	assert.deepEqual(h.registry.requests.map(request => request.model.id), CHAT_SELECTION_IDS);
@@ -149,8 +166,11 @@ test("四路材料同源、按厂商协议处理参数且不扩张工具；已�
 	assert.equal(output.details.tsgwDelegation.chatModel, "tsgw/gpt-6-luna");
 	assert.deepEqual(output.details.tsgwDelegation.chatModels, CHAT_SELECTION_IDS.map(id => `tsgw/${id}`));
 	assert.equal(output.details.tsgwDelegation.classifier, "tsgw/jev-latest");
-	assert.deepEqual(output.details.tsgwDelegation.selectionSource, { type: "chat", model: "tsgw/gpt-6-luna" });
+	assert.equal(output.details.tsgwDelegation.model, model, "结果记录必须与本次补参一致");
+	assert.equal(output.details.tsgwDelegation.selectionSource.type, "chat");
+	assert.ok(CHAT_SELECTION_IDS.map(id => `tsgw/${id}`).includes(output.details.tsgwDelegation.selectionSource.model));
 	assert.ok(JSON.stringify(output.content).includes(output.details.tsgwDelegation.selectionSource.model));
+	assert.ok(JSON.stringify(output.content).includes(model), "摘要必须给出本次实际补入的模型");
 	assert.equal(output.usage.totalTokens, usage.totalTokens * 5);
 	assert.equal(output.usage.cost.total, usage.cost.total * 5);
 	assert.equal(await h.final(), undefined);
@@ -172,8 +192,9 @@ test("四路都已启动：每一路均可独立胜出，不等待三个败路�
 		assert.equal(await pending, undefined);
 		assert.ok(h.registry.requests.every(request => request.options.signal?.aborted));
 		assert.ok(h.registry.nativeOptions?.signal?.aborted);
-		assert.equal(h.event.input.model, "tsgw/deepseek-flash:high");
+		const model = injectedModel(h.event);
 		const output = await h.emit("tool_result", { toolName: "Agent", toolCallId: "parallel", content: [], isError: false });
+		assert.equal(output.details.tsgwDelegation.model, model);
 		assert.deepEqual(output.details.tsgwDelegation.selectionSource, winner === "classifier" ?
 			{ type: "classifier", model: "tsgw/jev-latest" } : { type: "chat", model: `tsgw/${winner}` });
 		assert.equal(output.usage.totalTokens, usage.totalTokens, "不伪造尚未报告的败路用量");
@@ -185,13 +206,13 @@ test("四路都已启动：每一路均可独立胜出，不等待三个败路�
 	}
 });
 
-test("三路先失败、未决或违反硬约束，仍等待第四路有效结果", async () => {
+test("三路先失败或结果无效，仍等待第四路有效结果", async () => {
 	for (const winner of ["classifier", ...CHAT_SELECTION_IDS]) {
 		const h = await harness();
 		const nativeGate = deferred<ClassifierResult>();
 		const chatGate = deferred<AssistantMessage>();
 		h.registry.classifyImpl = () => winner === "classifier" ? nativeGate.promise : Promise.resolve(native({ stopReason: "aborted" }));
-		h.registry.replyImpl = async model => model.id === winner ? chatGate.promise : h.registry.selection("design_review");
+		h.registry.replyImpl = async model => model.id === winner ? chatGate.promise : reply("invalid");
 		let completed = false;
 		const pending = h.emit("tool_call", h.event).then((result: unknown) => { completed = true; return result; });
 		await tick();
@@ -243,7 +264,6 @@ test("四路都失败才阻止；所有聊天通道拒绝非法输出，不重�
 		["未知候选", async r => r.selection("implement", "unknown")],
 		["未决", async r => r.selection("implement", "unresolved")],
 		["双审", async r => r.selection("dual_review")],
-		["正式审阅降档", async r => r.selection("design_review")],
 	];
 	for (const [name, response] of cases) await t.test(name, async () => {
 		const h = await harness();
@@ -307,7 +327,7 @@ test("分类目录查询仍在等待时聊天通道可胜出；宿主缺单路�
 	const available = h.registry.getAvailableOfType.bind(h.registry);
 	h.registry.getAvailableOfType = type => type === "classifier" ? gate.promise : available(type);
 	assert.equal(await h.emit("tool_call", h.event), undefined);
-	assert.equal(h.event.input.model, "tsgw/deepseek-flash:high");
+	injectedModel(h.event);
 	assert.equal(h.registry.classifyCalls, 0);
 	assert.equal(h.registry.requests.length, 3);
 	gate.resolve(h.registry.classifiers);
@@ -318,23 +338,19 @@ test("分类目录查询仍在等待时聊天通道可胜出；宿主缺单路�
 		single.registry.classifyImpl = async () => single.registry.validNative();
 		Object.defineProperty(single.registry, missing, { value: undefined });
 		assert.equal(await single.emit("tool_call", single.event), undefined);
-		assert.equal(single.event.input.model, "tsgw/deepseek-flash:high");
+		injectedModel(single.event);
 	}
 });
 
-test("合法正式审阅只选 Astra/max；聊天执行器不受子代理 scope 限制", async () => {
+test("正式审阅使用配置目标；聊天执行器不受子代理 scope 限制", async () => {
 	const registry = new Registry();
-	const astra = registry.models.find(model => model.id === "gpt-6-astra")!;
-	const h = await harness(registry, undefined, [{ model: astra, thinkingLevel: "max" }]);
+	const target = registry.models.find(model => model.id === DESIGN_REVIEW_TARGET.id)!;
+	const scope = [{ model: target, thinkingLevel: DESIGN_REVIEW_TARGET.level }];
+	const h = await harness(registry, undefined, scope);
 	registry.replyImpl = async () => registry.selection("design_review", "option_0");
 	assert.equal(await h.emit("tool_call", h.event), undefined);
-	assert.equal(h.event.input.model, "tsgw/gpt-6-astra:max");
+	assert.equal(h.event.input.model, `tsgw/${target.id}:${scope[0].thinkingLevel}`);
 	assert.equal(registry.requests.length, 3);
-	for (const request of registry.requests) {
-		const context = JSON.parse(request.context.messages[0].content as string) as ClassifierContext;
-		const criteria = context.questions.selection;
-		assert.equal(criteria.type === "choice" && Object.keys(criteria.criteria).length, 2);
-	}
 });
 
 test("输入与显式指定前置检查不发请求；同一工具调用不会重复四发", async () => {
@@ -342,7 +358,7 @@ test("输入与显式指定前置检查不发请求；同一工具调用不会�
 		const h = await harness();
 		if (mode === "empty") h.event.input.prompt = "";
 		if (mode === "oversized") h.event.input.prompt = "x".repeat(40_000);
-		if (mode === "explicit") h.event.input.model = "tsgw/gpt-6-astra:max";
+		if (mode === "explicit") h.event.input.model = "tsgw/test-model:low";
 		if (mode === "resume") h.event.input.resume = "old-session";
 		await h.emit("tool_call", h.event);
 		assert.equal(h.registry.classifyCalls, 0);
@@ -377,7 +393,8 @@ test("目录查询耗尽预算时四路均不请求；获胜后目录撤下仍�
 	const withdrawn = await harness();
 	withdrawn.registry.replyImpl = async () => {
 		const response = withdrawn.registry.selection();
-		withdrawn.registry.models = withdrawn.registry.models.filter(model => model.id !== "deepseek-flash");
+		// 获胜后目录撤空：复核不得沿用旧候选或改选其他项。
+		withdrawn.registry.models = [];
 		return response;
 	};
 	assert.match((await withdrawn.emit("tool_call", withdrawn.event)).reason, /不在当前可用候选/);

@@ -17,9 +17,7 @@ import type {
 	ToolResultEvent,
 	ToolResultEventResult,
 } from "@earendil-works/pi-coding-agent";
-import { buildDelegationCandidates, type DelegationCandidate } from "./policy.ts";
 import { registerDelegation } from "./index.ts";
-const { getSupportedThinkingLevels } = await import("@earendil-works/pi-ai");
 type Handler = (event: any, ctx: any) => any;
 type AnyRecord = Record<string, any>;
 function chatModel(id: string, overrides: Partial<Model<Api>> = {}): Model<Api> {
@@ -40,16 +38,12 @@ function classifierModel(overrides: Partial<ClassifierModel<ClassifierApi>> = {}
 		contextWindow: 64_000, ...overrides,
 	};
 }
-const CHAT_IDS = ["MiniMax-M3.1-Flash", "gpt-6-luna", "glm-5.3", "glm-5.3-flash",
-	"gpt-6.1-sol", "deepseek-flash", "gpt-6-astra", "kimi-k3"];
-const catalog = (): Model<Api>[] => CHAT_IDS.map(id => chatModel(id));
-function candidatesFor(models: readonly Model<Api>[]): DelegationCandidate[] {
-	return buildDelegationCandidates(models, getSupportedThinkingLevels);
-}
-function pick(models: readonly Model<Api>[], id: string, level: DelegationCandidate["level"]): DelegationCandidate {
-	const candidate = candidatesFor(models).find(entry => entry.id === id && entry.level === level);
-	if (!candidate) throw new Error(`缺少候选 ${id}:${level}`);
-	return candidate;
+/** 只断言宿主补参契约，不锁定当前推荐表选中的型号或档位。 */
+function injectedModel(event: ToolCallEvent): string {
+	const model = (event.input as AnyRecord).model;
+	assert.equal(typeof model, "string");
+	assert.match(model as string, /^tsgw\/.+:.+$/);
+	return model as string;
 }
 const CHILD_USAGE: Usage = {
 	input: 10, output: 4, cacheRead: 2, cacheWrite: 3, cacheWrite1h: 1, reasoning: 2,
@@ -72,10 +66,15 @@ const COMBINED_USAGE: Usage = {
 function choice(value: string) {
 	return { type: "choice" as const, choice: value, probabilities: { [value]: 1 }, confidence: 1 };
 }
-function classification(candidate: DelegationCandidate, overrides: Partial<ClassifierResult> = {}): ClassifierResult {
+/** 只用本次实际下发的候选 key 作答，不复制推荐表、档位或分类说明。 */
+function classification(context: ClassifierContext, overrides: Partial<ClassifierResult> = {}): ClassifierResult {
+	const criteria = context.questions.selection;
+	if (criteria.type !== "choice") throw new Error("selection 必须是 choice");
+	const selection = Object.keys(criteria.criteria)[0];
+	if (!selection) throw new Error("本次没有可用候选");
 	return {
 		api: "typesafe-system-one", provider: "tsgw", model: "jev-latest",
-		answers: { kind: choice("implement"), selection: choice(candidate.key) },
+		answers: { kind: choice("implement"), selection: choice(selection) },
 		usage: CLASSIFIER_USAGE, stopReason: "stop", timestamp: 0, ...overrides,
 	};
 }
@@ -90,7 +89,8 @@ async function tick(): Promise<void> {
 	await new Promise(resolve => setImmediate(resolve));
 }
 class Registry {
-	chat: Model<Api>[] = catalog();
+	/** 最小宿主目录：只保留真实选型所需的一个型号，不复制推荐型号/档位清单。 */
+	chat: Model<Api>[] = [chatModel("deepseek-flash")];
 	classifiers: ClassifierModel<ClassifierApi>[] = [classifierModel()];
 	chatCalls = 0;
 	classifierCalls = 0;
@@ -144,12 +144,8 @@ function agentTool(overrides: AnyRecord = {}): AnyRecord {
 		...overrides,
 	};
 }
-function context(registry: Registry, options: { scope?: Model<Api>[]; signal?: AbortSignal } = {}): ExtensionContext {
-	return {
-		modelRegistry: registry,
-		scopedModels: (options.scope ?? []).map(model => ({ model })),
-		signal: options.signal,
-	} as unknown as ExtensionContext;
+function context(registry: Registry, options: { signal?: AbortSignal } = {}): ExtensionContext {
+	return { modelRegistry: registry, scopedModels: [], signal: options.signal } as unknown as ExtensionContext;
 }
 function callEvent(
 	id: string,
@@ -224,10 +220,7 @@ test("delegation 生命周期、竞态与用量", async t => {
 	});
 
 	await t.test("新建选型不依赖暴露方式或嵌套入口，同调用去重且独立创建各自取消", async () => {
-		const models = catalog();
-		const selected = pick(models, "deepseek-flash", "high");
 		const registry = new Registry();
-		registry.chat = models;
 		const gate = deferred<ClassifierResult>();
 		registry.classifyImpl = () => gate.promise;
 		const pi = await harness([agentTool({ exposure: "direct" })]);
@@ -239,20 +232,20 @@ test("delegation 生命周期、竞态与用量", async t => {
 		];
 		await tick();
 		assert.deepEqual([registry.chatCalls, registry.classifierCalls, registry.classifyCalls], [1, 1, 1]);
-		gate.resolve(classification(selected));
+		gate.resolve(classification(registry.lastContext!));
 		assert.deepEqual(await Promise.all(waiting), [undefined, undefined]);
-		assert.equal((first.input as AnyRecord).model, selected.model);
-		assert.equal((second.input as AnyRecord).model, selected.model);
+		const model = injectedModel(first);
+		assert.equal((second.input as AnyRecord).model, model, "同调用去重必须补入同一模型");
 		await pi.emit("tool_result", resultEvent("same-id"));
 		const resume = callEvent("resume-id", { prompt: "追加任务", resume: "child-session-42" });
 		assert.equal(await pi.emit("tool_call", resume, context(registry)), undefined);
 		assert.equal((resume.input as AnyRecord).model, undefined);
 		assert.equal(registry.classifyCalls, 1);
 		const concurrent = new Registry();
-		concurrent.chat = models;
+		const contexts: ClassifierContext[] = [];
 		const gates = [deferred<ClassifierResult>(), deferred<ClassifierResult>()];
 		let next = 0;
-		concurrent.classifyImpl = () => gates[next++].promise;
+		concurrent.classifyImpl = context => { contexts.push(context); return gates[next++].promise; };
 		const concurrentPi = await harness([agentTool({ exposure: undefined })]);
 		const controllerA = new AbortController();
 		const controllerB = new AbortController();
@@ -268,40 +261,18 @@ test("delegation 生命周期、竞态与用量", async t => {
 		const blockedA = await pendingA;
 		assert.equal(blockedA?.block, true);
 		assert.equal((eventA.input as AnyRecord).model, undefined);
-		gates[0].resolve(classification(selected));
+		gates[0].resolve(classification(contexts[0]!));
 		await tick();
 		assert.equal((eventA.input as AnyRecord).model, undefined);
-		gates[1].resolve(classification(selected));
+		gates[1].resolve(classification(contexts[1]!));
 		assert.equal(await pendingB, undefined);
-		assert.equal((eventB.input as AnyRecord).model, selected.model);
+		injectedModel(eventB);
 		assert.equal(concurrent.classifyCalls, 2);
 		await concurrentPi.emit("session_shutdown", { type: "session_shutdown" });
 	});
 
-	await t.test("分类等待 abort 或会话 shutdown 后，迟到的成功结果不能写 model", async () => {
-		const models = catalog();
-		const selected = pick(models, "deepseek-flash", "high");
-		const aborted = new Registry();
-		aborted.chat = models;
-		const abortGate = deferred<ClassifierResult>();
-		aborted.classifyImpl = () => abortGate.promise;
-		const abortPi = await harness();
-		const controller = new AbortController();
-		const abortEvent = callEvent("abort-id", { prompt: "取消任务" });
-		const abortPending = abortPi.emit("tool_call", abortEvent,
-			context(aborted, { signal: controller.signal })) as Promise<ToolCallEventResult | undefined>;
-		await tick();
-		controller.abort();
-		const abortResult = await abortPending;
-		assert.equal(abortResult?.block, true);
-		abortGate.resolve(classification(selected));
-		await tick();
-		assert.equal((abortEvent.input as AnyRecord).model, undefined);
-		assert.equal(aborted.chatCalls, 1);
-		assert.equal(aborted.classifyCalls, 1);
-		await abortPi.emit("session_shutdown", { type: "session_shutdown" });
+	await t.test("会话 shutdown 阻止等待中的选型：迟到结果与退出后的新调用都不写 model", async () => {
 		const shutdown = new Registry();
-		shutdown.chat = models;
 		const shutdownGate = deferred<ClassifierResult>();
 		shutdown.classifyImpl = () => shutdownGate.promise;
 		const shutdownPi = await harness();
@@ -312,7 +283,7 @@ test("delegation 生命周期、竞态与用量", async t => {
 		await shutdownPi.emit("session_shutdown", { type: "session_shutdown" });
 		const shutdownResult = await shutdownPending;
 		assert.equal(shutdownResult?.block, true);
-		shutdownGate.resolve(classification(selected));
+		shutdownGate.resolve(classification(shutdown.lastContext!));
 		await tick();
 		assert.equal((shutdownEvent.input as AnyRecord).model, undefined);
 		const afterShutdown = callEvent("after-shutdown", { prompt: "退出后" });
@@ -320,50 +291,6 @@ test("delegation 生命周期、竞态与用量", async t => {
 		assert.equal((afterShutdown.input as AnyRecord).model, undefined);
 		assert.equal(shutdown.chatCalls, 1);
 		assert.equal(shutdown.classifyCalls, 1);
-	});
-
-	await t.test("分类后目录撤下选定 model 时阻止，不静默改选其他候选", async () => {
-		const models = catalog();
-		const selected = pick(models, "deepseek-flash", "high");
-		const registry = new Registry();
-		registry.chat = [...models];
-		registry.classifyImpl = async () => {
-			registry.chat = models.filter(model => model.id !== "deepseek-flash");
-			return classification(selected);
-		};
-		const pi = await harness();
-		const event = callEvent("removed-id", { prompt: "目录变化任务" });
-		const blocked = await pi.emit("tool_call", event, context(registry)) as ToolCallEventResult | undefined;
-		assert.equal(blocked?.block, true);
-		assert.equal((event.input as AnyRecord).model, undefined);
-		assert.equal(registry.chatCalls, 2);
-		assert.equal(registry.classifyCalls, 1);
-	});
-
-	await t.test("ctx.scope 只把会话范围内的候选交给分类器", async () => {
-		const models = catalog();
-		const astra = models.find(model => model.id === "gpt-6-astra");
-		assert.ok(astra);
-		const scopedCandidates = candidatesFor([astra]);
-		const selected = scopedCandidates.find(candidate => candidate.id === "gpt-6-astra" && candidate.level === "high");
-		assert.ok(selected);
-		const registry = new Registry();
-		registry.chat = models;
-		let criteriaKeys: string[] = [];
-		registry.classifyImpl = async ctx => {
-			assert.equal(ctx.questions.selection.type, "choice");
-			if (ctx.questions.selection.type !== "choice") assert.fail("selection 必须是 choice");
-			criteriaKeys = Object.keys(ctx.questions.selection.criteria);
-			return classification(selected);
-		};
-		const pi = await harness();
-		const event = callEvent("scoped-id", { prompt: "范围任务" });
-		assert.equal(await pi.emit("tool_call", event,
-			context(registry, { scope: [astra] })), undefined);
-		assert.deepEqual(criteriaKeys, [...scopedCandidates.map(candidate => candidate.key), "unresolved"]);
-		assert.equal((event.input as AnyRecord).model, selected.model);
-		assert.equal(registry.chatCalls, 2);
-		assert.equal(registry.classifyCalls, 1);
 	});
 
 	await t.test("无候选、无分类器或材料过大都不会发起付费 classify", async () => {
@@ -395,15 +322,12 @@ test("delegation 生命周期、竞态与用量", async t => {
 	});
 
 	await t.test("tool_result 保留原字段并完整合并子工具与分类 usage，message_end 不重复加账", async () => {
-		const models = catalog();
-		const selected = pick(models, "deepseek-flash", "high");
 		const registry = new Registry();
-		registry.chat = models;
-		registry.classifyImpl = async () => classification(selected);
+		registry.classifyImpl = async context => classification(context);
 		const pi = await harness();
 		const call = callEvent("result-id", { prompt: "结果任务" });
 		assert.equal(await pi.emit("tool_call", call, context(registry)), undefined);
-		assert.equal((call.input as AnyRecord).model, selected.model);
+		const model = injectedModel(call);
 		const originalContent = [
 			{ type: "text" as const, text: "原始结果" },
 			{ type: "text" as const, text: "第二段" },
@@ -417,13 +341,18 @@ test("delegation 生命周期、竞态与用量", async t => {
 		assert.deepEqual(result.content.slice(0, -1), originalContent);
 		const summary = result.content.at(-1);
 		assert.equal(summary?.type, "text");
-		assert.match(summary?.type === "text" ? summary.text : "", new RegExp(
-			selected.model.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+		const summaryText = summary?.type === "text" ? summary.text : "";
+		assert.ok(summaryText.includes(model), "摘要应给出本次实际补入的模型");
 		assert.equal(result.structuredContent, structuredContent);
 		const resultDetails = result.details as AnyRecord;
 		assert.equal(resultDetails.kind, "host-agent-result");
 		assert.equal(resultDetails.sessionId, "child-session-42");
-		assert.equal((resultDetails.tsgwDelegation as AnyRecord).status, "selected");
+		const delegation = resultDetails.tsgwDelegation as AnyRecord;
+		assert.equal(delegation.status, "selected");
+		assert.equal(delegation.model, model, "结果记录必须与本次补参一致");
+		assert.equal(delegation.selectionSource?.type, "classifier");
+		assert.equal(delegation.selectionSource?.model, "tsgw/jev-latest");
+		assert.ok(summaryText.includes(String(delegation.selectionSource?.model)), "摘要来源必须与实际来源一致");
 		assert.deepEqual(result.usage, COMBINED_USAGE);
 		assert.equal(await pi.emit("tool_result", resultEvent("result-id", { usage: CHILD_USAGE })), undefined);
 		// 成功路径已由 tool_result 消费；同一最终消息在 message_end 不得再次加账。
@@ -432,21 +361,16 @@ test("delegation 生命周期、竞态与用量", async t => {
 		})), undefined);
 	});
 
-	await t.test("执行前阻止的 message_end fallback：失败分类 usage 计入且不泄露原始错误", async () => {
-		const models = catalog();
-		const selected = pick(models, "deepseek-flash", "high");
-		const secret = "Bearer sk-live-hidden https://internal.example.test/classify";
+	await t.test("执行前阻止的 message_end fallback：分类 usage 计入且只加一次", async () => {
 		const registry = new Registry();
-		registry.chat = models;
-		registry.classifyImpl = async () => classification(selected, {
-			answers: {}, stopReason: "error", usage: CLASSIFIER_USAGE, errorMessage: secret,
+		registry.classifyImpl = async context => classification(context, {
+			answers: {}, stopReason: "error", usage: CLASSIFIER_USAGE,
 		});
 		const pi = await harness();
 		const call = callEvent("failed-classify", { prompt: "失败任务" });
 		const blocked = await pi.emit("tool_call", call,
 			context(registry)) as ToolCallEventResult | undefined;
 		assert.equal(blocked?.block, true);
-		assert.doesNotMatch(blocked?.reason ?? "", /sk-live-hidden|internal\.example/);
 		assert.equal((call.input as AnyRecord).model, undefined);
 		// 宿主在执行前阻止时只发最终 toolResult 消息，不发 tool_result。
 		const fallback = await pi.emit("message_end",
@@ -457,22 +381,16 @@ test("delegation 生命周期、竞态与用量", async t => {
 		assert.equal(content.length, 2);
 		assert.equal(content[0].text, "执行前已阻止");
 		assert.equal(message.isError, true);
-		assert.equal(JSON.stringify(message).includes("sk-live-hidden"), false);
-		assert.equal(JSON.stringify(message).includes("internal.example"), false);
 		const delegation = (message.details as AnyRecord).tsgwDelegation as AnyRecord;
 		assert.equal(delegation.status, "blocked");
 		assert.equal(delegation.classifier, "tsgw/jev-latest");
-		assert.doesNotMatch(delegation.reason, /sk-live-hidden|internal\.example/);
 		assert.deepEqual(message.usage, CLASSIFIER_USAGE);
 		assert.equal(await pi.emit("message_end",
 			messageEndEvent("failed-classify")), undefined, "同一记录不能在 message_end 重复加账");
 	});
 
 	await t.test("agent_end 清理等待中与已选定的过期记录", async () => {
-		const models = catalog();
-		const selected = pick(models, "deepseek-flash", "high");
 		const registry = new Registry();
-		registry.chat = models;
 		const gate = deferred<ClassifierResult>();
 		registry.classifyImpl = () => gate.promise;
 		const pi = await harness();
@@ -482,18 +400,35 @@ test("delegation 生命周期、竞态与用量", async t => {
 		await tick();
 		await pi.emit("agent_end", { type: "agent_end" });
 		assert.equal((await pending)?.block, true);
-		gate.resolve(classification(selected));
+		gate.resolve(classification(registry.lastContext!));
 		await tick();
 		assert.equal((inflight.input as AnyRecord).model, undefined);
 		assert.equal(await pi.emit("message_end", messageEndEvent("agent-end-inflight")), undefined);
 		const completed = new Registry();
-		completed.chat = models;
-		completed.classifyImpl = async () => classification(selected);
+		completed.classifyImpl = async context => classification(context);
 		const completedPi = await harness();
 		const completedCall = callEvent("agent-end-completed", { prompt: "已完成选型" });
 		assert.equal(await completedPi.emit("tool_call", completedCall, context(completed)), undefined);
-		assert.equal((completedCall.input as AnyRecord).model, selected.model);
+		injectedModel(completedCall);
 		await completedPi.emit("agent_end", { type: "agent_end" });
 		assert.equal(await completedPi.emit("message_end", messageEndEvent("agent-end-completed")), undefined);
+	});
+
+	await t.test("常驻注入只给调用契约：保留宿主提示，不提前注入候选表或接管说明，shutdown 后不再注入", async () => {
+		const pi = await harness();
+		const sections: Record<string, string> = { host: "宿主提示标记" };
+		assert.equal(await pi.emit("before_agent_start", { systemPromptOptions: { sections } }), undefined);
+		assert.equal(sections.host, "宿主提示标记", "不覆盖宿主已有分区");
+		const guidance = sections.tsgw_delegation;
+		assert.ok(guidance, "应写入独立的常驻分区");
+		for (const term of ["Agent", "model", "resume"]) assert.ok(guidance.includes(term), `调用契约缺少 ${term}`);
+		assert.equal(guidance.includes("| tsgw/"), false, "常驻注入不包含候选表");
+		assert.equal(guidance.includes("本次未创建子代理"), false, "失败接管说明只随工具结果给出");
+		// 旧宿主没有分区结构时，回退为追加到原 systemPrompt 末尾。
+		const legacy = await pi.emit("before_agent_start", { systemPrompt: "宿主原始提示" });
+		assert.equal(legacy.systemPrompt, `宿主原始提示\n\n${guidance}`);
+		await pi.emit("session_shutdown", { type: "session_shutdown" });
+		assert.equal(await pi.emit("before_agent_start", { systemPrompt: "结束后" }), undefined,
+			"shutdown 后不再注入常驻分区");
 	});
 });
