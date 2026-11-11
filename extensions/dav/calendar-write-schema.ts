@@ -24,7 +24,13 @@ const create = { account: id, collectionUrl: url, summary: Type.String(),
 	description: scalar, location: scalar, status: scalar, properties };
 const identity = { account: id, resourceUrl: url, uid: id,
 	etag: Type.String({ minLength: 1, description: "上次读取并确认的单个强 ETag；不接受弱标签、通配符或列表。" }) };
-const update = { ...identity,
+const utcRevisionTime = Type.String({ minLength: 16, maxLength: 16, pattern: "^\\d{8}T\\d{6}Z$", description: "已确认的源时间修正值，必须明确换算为基本 UTC；不自动猜时区。实际更新仍生成本次修订时间。" });
+const revisionRepair = Type.Optional(Type.Object({
+	dtstamp: Type.Optional(utcRevisionTime),
+	lastModified: Type.Optional(Type.Union([utcRevisionTime, Type.Null()])),
+	sequence: Type.Optional(Type.Union([Type.Integer({ minimum: 0, maximum: 2147483647 }), Type.Null()])),
+}, { ...options, minProperties: 1, description: "仅修正该目标直接属性源诊断指出的受管字段，须先说明并取得明确授权；省略仍拒绝异常源。null 只可丢弃可选旧值；SEQUENCE 从修正值或缺省零递增，修订时间正常刷新。仍检查最终整份资源，不是关闭校验开关。" }));
+const update = { ...identity, revisionRepair,
 	recurrenceId: Type.Optional(Type.String({ minLength: 1, description: "已有例外的完整 RECURRENCE-ID 逻辑行；省略只选主件，拒绝 RANGE，不隐式创建例外。" })),
 	summary: nullableScalar, description: nullableScalar, location: nullableScalar, status: nullableScalar,
 	properties,

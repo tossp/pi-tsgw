@@ -1,6 +1,7 @@
-import type { CalendarComponentEdit, CalendarComponentKind, CalendarTimeInput, ContentValidationResult } from "davkit/ical";
+import type { CalendarComponent, CalendarComponentEdit, CalendarComponentKind, CalendarTimeInput, ContentValidationResult } from "davkit/ical";
 import { assertManagedMetadata, assertValidContent } from "./content.ts";
 import { contentOperation, createResourceUrl, getVersionedResource, utcStamp } from "./mutations.ts";
+import { revisionRepairEdit, type CalendarRevisionRepair } from "./revision-repair.ts";
 import { DavToolError, type DavReadContext } from "./types.ts";
 
 type Time = string | CalendarTimeInput;
@@ -22,10 +23,12 @@ export interface CalendarUpdateInput extends Fields {
 	account: string; resourceUrl: string; uid: string; etag: string;
 	recurrenceId?: string;
 	removeProperties?: string[];
+	revisionRepair?: CalendarRevisionRepair;
 }
 export interface CalendarDeleteInput { account: string; resourceUrl: string; uid: string; etag: string }
 
 const contentType = "text/calendar; charset=utf-8";
+const managedRevisionNames = ["DTSTAMP", "LAST-MODIFIED", "SEQUENCE"] as const;
 const protectedNames = new Set(["UID", "VERSION", "PRODID", "RECURRENCE-ID", "DTSTAMP", "LAST-MODIFIED", "SEQUENCE", "BEGIN", "END"]);
 const scalarNames = { summary: "SUMMARY", description: "DESCRIPTION", location: "LOCATION", status: "STATUS",
 	start: "DTSTART", date: "DTSTART", end: "DTEND", due: "DUE", rrule: "RRULE" } as const;
@@ -99,6 +102,14 @@ function candidateOperation<T>(operation: () => T, validation: ContentValidation
 	}
 }
 
+/** 将所选目标原文放入最小日历容器复核，只保留其直接属性诊断；嵌套提醒、兄弟与时区诊断不能授权目标字段修复。 */
+function directComponentValidation(context: DavReadContext, component: CalendarComponent): ContentValidationResult {
+	const wrapper = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//pi-tsgw//source-scope//EN\r\n" +
+		component.raw + (component.raw.endsWith("\n") ? "" : "\r\n") + "END:VCALENDAR\r\n";
+	const validation = context.ical.validateCalendarResource(wrapper);
+	return { ...validation, issues: validation.issues.filter(issue => issue.componentPath.length === 1) };
+}
+
 function selectComponent(context: DavReadContext, raw: string, input: CalendarUpdateInput, kind: CalendarComponentKind,
 	validation: ContentValidationResult, details: Record<string, unknown>) {
 	const components = candidateOperation(() => context.ical.parseCalendar(raw), validation, details, "source").components
@@ -150,11 +161,14 @@ export async function updateCalendar(context: DavReadContext, input: CalendarUpd
 	const details = { account: input.account, resourceUrl: input.resourceUrl, uid: input.uid, kind };
 	const validation = context.ical.validateCalendarResource(resource.data);
 	const component = selectComponent(context, resource.data, input, kind, validation, details);
-	// 不要求整个源 valid；只防止正常刷新覆盖尚不能表达修正的源元数据。
-	assertManagedMetadata(validation, ["DTSTAMP", "LAST-MODIFIED", "SEQUENCE"], details);
+	const repair = input.revisionRepair;
+	if (!repair) assertManagedMetadata(validation, managedRevisionNames, details);
+	const repairEdit = revisionRepairEdit([["DTSTAMP", repair?.dtstamp],
+		["LAST-MODIFIED", repair?.lastModified], ["SEQUENCE", repair?.sequence]],
+		repair ? directComponentValidation(context, component) : validation, details);
 	const edited = candidateOperation(() => {
-		const edit: CalendarComponentEdit = { properties: [...(input.properties ?? [])],
-			removeProperties: [...(input.removeProperties ?? [])], alarms: input.alarms };
+		const edit: CalendarComponentEdit = { properties: [...(input.properties ?? []), ...repairEdit.properties],
+			removeProperties: [...(input.removeProperties ?? []), ...repairEdit.removeProperties], alarms: input.alarms };
 		for (const field of ["summary", "description", "location", "status", "start", "end", "due"] as const) {
 			if (input[field] !== undefined) Object.assign(edit, { [field]: input[field] });
 		}
@@ -163,12 +177,15 @@ export async function updateCalendar(context: DavReadContext, input: CalendarUpd
 		else if (input.rrule !== undefined) edit.properties!.push(recurrenceLine(input.rrule));
 		return context.ical.updateCalendarComponent(resource.data, target, edit);
 	}, validation, details, "edit");
+	if (repair) assertManagedMetadata(context.ical.validateCalendarResource(edited), managedRevisionNames, details, "repair");
 	if (edited === resource.data) {
 		assertValidContent(context.ical.validateCalendarResource(edited), details);
 		return { account: input.account, kind, resourceUrl: input.resourceUrl, uid: input.uid, etag: input.etag, outcome: "unchanged" as const };
 	}
-	// 值与单值约束由源诊断负责；缺省 SEQUENCE 按既有策略从 0 递增。
-	const sequence = Number(component.properties.find(property => property.name === "SEQUENCE")?.rawValue ?? 0) + 1;
+	// 明确丢弃异常序列号后从缺省零递增，不能再用修复前的旧值。
+	const baseSequence = repair?.sequence === undefined
+		? Number(component.properties.find(property => property.name === "SEQUENCE")?.rawValue ?? 0) : repair.sequence ?? 0;
+	const sequence = baseSequence + 1;
 	const stamp = utcStamp();
 	const data = candidateOperation(() => context.ical.updateCalendarComponent(edited, target,
 		{ properties: [`DTSTAMP:${stamp}`, `LAST-MODIFIED:${stamp}`, `SEQUENCE:${sequence}`] }), validation, details, "revision");

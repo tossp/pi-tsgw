@@ -3,6 +3,7 @@ import type { ContactCreateInput, ContactDeleteInput, ContactSearchInput, Contac
 import { contactSummary, decodedValues, tryReadContact, unresolvedContact } from "./contacts.ts";
 import { assertManagedMetadata, assertValidContent } from "./content.ts";
 import { contentOperation, createResourceUrl, getVersionedResource, utcStamp } from "./mutations.ts";
+import { revisionRepairEdit } from "./revision-repair.ts";
 import { DavToolError, type DavReadContext } from "./types.ts";
 
 const searchFields = new Set(["FN", "N", "NICKNAME", "TITLE", "ROLE", "ORG", "NOTE", "EMAIL", "TEL"]);
@@ -118,14 +119,19 @@ export async function updateContact(context: DavReadContext, input: ContactUpdat
 		{ ...result, stage: "source", issues: context.vcard.validateContact(resource.data).issues });
 	checkIdentity(contact, input.uid);
 	const sourceValidation = context.vcard.validateContact(resource.data);
-	assertManagedMetadata(sourceValidation, ["REV"], result);
+	if (input.revisionRepair === undefined) assertManagedMetadata(sourceValidation, ["REV"], result);
+	const repair = input.revisionRepair === undefined ? undefined
+		: revisionRepairEdit([["REV", input.revisionRepair.rev]], sourceValidation, result);
 	// 输入冲突仍属于输入错误，不能借异常源内容掩盖。
 	editContact(() => checkUpdateProperties(context, input, contact), result);
 	const editDetails = sourceValidation.valid ? result : { ...result, sourceIssues: sourceValidation.issues };
 	const changed = editContact(() => context.vcard.updateContact(resource.data, {
 		name: input.name === contact.name ? undefined : input.name,
-		firstProperties: firstProperties(input), properties: input.properties, removeProperties: input.removeProperties,
+		firstProperties: firstProperties(input),
+		properties: repair ? [...input.properties ?? [], ...repair.properties] : input.properties,
+		removeProperties: repair ? [...input.removeProperties ?? [], ...repair.removeProperties] : input.removeProperties,
 	}), editDetails, !sourceValidation.valid);
+	if (repair) assertManagedMetadata(context.vcard.validateContact(changed), ["REV"], result, "repair");
 	const raw = changed === resource.data ? changed : editContact(() =>
 		context.vcard.updateContact(changed, { properties: [`REV:${utcStamp()}`] }), editDetails, !sourceValidation.valid);
 	assertValidContent(context.vcard.validateContact(raw), result);

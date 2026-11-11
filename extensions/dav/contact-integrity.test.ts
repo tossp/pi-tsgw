@@ -3,6 +3,9 @@ import { test } from "node:test";
 import { DavClient } from "davkit/dav";
 import * as ical from "davkit/ical";
 import * as vcard from "davkit/vcard";
+import { Compile } from "typebox/compile";
+import { withDavAccount } from "./client.ts";
+import { contactActionSchemas } from "./contact-action-schema.ts";
 import { createContact, deleteContact, searchContacts, updateContact } from "./contact-actions.ts";
 import { getContact, listContacts } from "./contacts.ts";
 import { DavToolError, type DavReadContext } from "./types.ts";
@@ -133,6 +136,145 @@ test("源 REV 错误、重复及旧编码不可被自动刷新或 no-op 掩盖�
 			await assert.rejects(updateContact(context, { ...target, ...changes }), failure("REPAIR_UNSUPPORTED", "source"));
 			assert.deepEqual(seen.map(item => item.method), ["GET"]);
 		}
+	}
+});
+
+test("REV 修复 schema 必须有 rev、禁止未知键和换行，且只属于 update", () => {
+	const schema = Compile(contactActionSchemas.contact_update);
+	assert.equal(schema.Check(target), true);
+	for (const rev of [null, "20200101T000000Z", "2020-01-01T00:00:00Z", "非法日期交库判断"])
+		assert.equal(schema.Check({ ...target, revisionRepair: { rev } }), true);
+	for (const revisionRepair of [{}, { rev: null, extra: true }, { rev: 1 }, { rev: false }, null, [],
+		{ rev: "\r20200101T000000Z" }, { rev: "20200101T000000Z\n" }, { rev: "20200101T000000Z\r" },
+		{ rev: "20200101T000000Z\r\nNOTE:注入" }])
+		assert.equal(schema.Check({ ...target, revisionRepair }), false);
+	assert.equal(Compile(contactActionSchemas.contact_create).Check({ account, collectionUrl, name: "新建", revisionRepair: { rev: null } }), false);
+	assert.equal(Compile(contactActionSchemas.contact_delete).Check({ ...target, revisionRepair: { rev: null } }), false);
+});
+
+test("非法、重复和旧参数 REV 可显式替换或删除，刷新前检查候选且最终正文合规", async () => {
+	for (const lines of [["REV:private-value"], ["REV:20200101T000000Z", "REV:20210101T000000Z"],
+		["REV;ENCODING=QUOTED-PRINTABLE:20200101T000000Z"]]) {
+		for (const rev of ["20220101T000000Z", null]) {
+			const keep = ["item1.EMAIL;TYPE=WORK;X-LABEL=保留:old@example.invalid", "EMAIL;TYPE=HOME:later@example.invalid",
+				"X-KEEP:合成扩展", "NOTE:折叠\r\n 保留"];
+			const { context, seen } = fixture(card([...lines, ...keep]));
+			const validated: string[] = [];
+			context.vcard = { ...vcard, validateContact: raw => { validated.push(raw); return vcard.validateContact(raw); } };
+			const result = await updateContact(context, { ...target, revisionRepair: { rev } });
+			assert.equal(result.outcome, "updated");
+			assert.deepEqual(seen.map(item => item.method), ["GET", "PUT"]);
+			const repaired = vcard.parseContact(validated[1]!).properties.filter(property => property.name === "REV");
+			assert.deepEqual(repaired.map(property => property.rawValue), rev === null ? [] : [rev]);
+			const put = seen[1]!;
+			assert.equal(put.headers.get("if-match"), etag);
+			assert.equal(put.headers.get("if-none-match"), null);
+			assert.equal(validated.at(-1), put.body);
+			assert.equal(vcard.validateContact(put.body).valid, true);
+			const finalRevs = vcard.parseContact(put.body).properties.filter(property => property.name === "REV");
+			assert.equal(finalRevs.length, 1);
+			assert.equal(finalRevs[0]!.parameters.size, 0);
+			assert.match(finalRevs[0]!.rawValue, /^\d{8}T\d{6}Z$/);
+			assert.notEqual(finalRevs[0]!.rawValue, rev);
+			for (const line of keep) assert.ok(put.body.includes(`${line}\r\n`));
+		}
+	}
+});
+
+test("REV 与姓名、首项及普通属性业务修复合并为一次源卡编辑", async () => {
+	const raw = card(["REV:private-value", "BDAY:20260230", "NOTE;ENCODING=QUOTED-PRINTABLE:private-value",
+		"item1.EMAIL;TYPE=WORK:old@example.invalid", "EMAIL;TYPE=HOME:later@example.invalid", "X-KEEP:保留"]);
+	const { context, seen } = fixture(raw);
+	let sourceEdits = 0;
+	context.vcard = { ...vcard, updateContact: (source, edit) => {
+		if (source === raw) {
+			sourceEdits++;
+			assert.equal(edit.name, "修正姓名");
+			assert.equal(edit.firstProperties?.email, "new@example.invalid");
+			assert.deepEqual(edit.properties, ["BDAY:20260228", "TITLE:新职务", "REV:20220101T000000Z"]);
+			assert.deepEqual(edit.removeProperties, ["NOTE"]);
+		}
+		return vcard.updateContact(source, edit);
+	} };
+	await updateContact(context, { ...target, name: "修正姓名", email: "new@example.invalid",
+		properties: ["BDAY:20260228", "TITLE:新职务"], removeProperties: ["NOTE"], revisionRepair: { rev: "20220101T000000Z" } });
+	assert.equal(sourceEdits, 1);
+	assert.deepEqual(seen.map(item => item.method), ["GET", "PUT"]);
+	const output = seen[1]!.body;
+	assert.equal(vcard.validateContact(output).valid, true);
+	for (const line of ["FN:修正姓名", "item1.EMAIL;TYPE=WORK:new@example.invalid", "EMAIL;TYPE=HOME:later@example.invalid",
+		"BDAY:20260228", "TITLE:新职务", "X-KEEP:保留"]) assert.ok(output.includes(`${line}\r\n`));
+	assert.doesNotMatch(output, /NOTE|private-value/);
+});
+
+test("合法或缺省 REV 没有源诊断，不得借修复入口任意改写或删除", async () => {
+	for (const lines of [[], ["REV:20200101T000000Z"], ["BDAY:20260230"]]) {
+		for (const rev of [null, "20220101T000000Z"]) {
+			const { context, seen } = fixture(card(lines));
+			await assert.rejects(updateContact(context, { ...target, name: "新名", revisionRepair: { rev } }), failure("INVALID_INPUT", "repair"));
+			assert.deepEqual(seen.map(item => item.method), ["GET"]);
+		}
+	}
+});
+
+test("声明修复后仍非法的 REV 不能被自动刷新掩盖，版本日期语义交真实库判断", async () => {
+	for (const rev of ["private-value", "20260230T000000Z", "REV:20200101T000000Z", "2020-01-01T00:00:00Z"]) {
+		const { context, seen } = fixture(card(["REV:private-value"]));
+		await assert.rejects(updateContact(context, { ...target, name: "新名", revisionRepair: { rev } }), failure("REPAIR_UNSUPPORTED", "repair"));
+		assert.deepEqual(seen.map(item => item.method), ["GET"]);
+	}
+	const raw = card(["N:姓;名;;;", "REV:private-value"], "3.0").replace(`UID;VALUE=text:${uid}`, `UID:${uid}`);
+	const { context, seen } = fixture(raw);
+	assert.equal((await updateContact(context, { ...target, revisionRepair: { rev: "2020-01-01T00:00:00Z" } })).outcome, "updated");
+	assert.equal(vcard.validateContact(seen[1]!.body).valid, true);
+});
+
+test("REV 修复不是总确认开关，其它业务问题未修仍拒写", async () => {
+	for (const line of ["BDAY:20260230", "TEL;VALUE=uri:not a uri", "NOTE;ENCODING=QUOTED-PRINTABLE:private-value"]) {
+		for (const rev of [null, "20220101T000000Z"]) {
+			const { context, seen } = fixture(card(["REV:private-value", line]));
+			await assert.rejects(updateContact(context, { ...target, revisionRepair: { rev } }), failure("CONTENT_VALIDATION_FAILED", "final"));
+			assert.deepEqual(seen.map(item => item.method), ["GET"]);
+		}
+	}
+});
+
+test("显式 REV 修复不放宽普通属性、UID 或版本保护", async () => {
+	for (const changes of [{ properties: ["rEv:20200101T000000Z"] }, { removeProperties: ["rev"] },
+		{ properties: ["NOTE:合成\r\nREV:20200101T000000Z"] }, { properties: ["UID:other"] }, { properties: ["VERSION:3.0"] }]) {
+		const { context, seen } = fixture(card(["REV:private-value"]));
+		await assert.rejects(updateContact(context, { ...target, ...changes, revisionRepair: { rev: null } }), error => {
+			assert.ok(error instanceof DavToolError);
+			assert.equal(error.code, "INVALID_INPUT");
+			assert.equal(error.cause, undefined);
+			return true;
+		});
+		assert.deepEqual(seen.map(item => item.method), ["GET"]);
+	}
+	for (const [changes, code, methods] of [[{ uid: "other" }, "NOT_FOUND", ["GET"]],
+		[{ etag: '"other"' }, "CONFLICT", ["GET"]], [{ etag: 'W/"v1"' }, "INVALID_INPUT", []]] as const) {
+		const { context, seen } = fixture(card(["REV:private-value"]));
+		await assert.rejects(updateContact(context, { ...target, ...changes, revisionRepair: { rev: null } }), { code });
+		assert.deepEqual(seen.map(item => item.method), methods);
+	}
+});
+
+test("REV 修复条件写的冲突和未知结果不重试或补读", async () => {
+	for (const [status, code] of [[412, "CONFLICT"], [202, "REMOTE_RESULT_UNKNOWN"], [null, "REMOTE_RESULT_UNKNOWN"]] as const) {
+		const methods: string[] = [];
+		await assert.rejects(withDavAccount({ url: collectionUrl, user: "synthetic", password: "synthetic" }, undefined,
+			context => updateContact(context, { ...target, revisionRepair: { rev: null } }), {
+				fetch: async (_url, init) => {
+					methods.push(init!.method!);
+					if (init!.method === "GET") return new Response(card(["REV:private-value"]), { headers: { etag } });
+					assert.equal(init!.method, "PUT");
+					assert.equal(new Headers(init!.headers).get("if-match"), etag);
+					assert.equal(vcard.validateContact(String(init!.body)).valid, true);
+					if (status === null) throw new Error("合成断连");
+					return new Response(null, { status });
+				},
+			}), { code });
+		assert.deepEqual(methods, ["GET", "PUT"]);
 	}
 });
 

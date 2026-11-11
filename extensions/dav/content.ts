@@ -32,13 +32,15 @@ export function assertManagedMetadata(
 	validation: ContentValidationResult,
 	names: readonly string[],
 	details: Record<string, unknown>,
+	stage: "source" | "repair" = "source",
 ): void {
 	const issues = validation.issues.filter(issue =>
 		(issue.property !== undefined && names.includes(issue.property)) ||
 		issue.code === "structure" || issue.code === "ICAL_STRUCTURE");
-	if (issues.length) throw new DavToolError("REPAIR_UNSUPPORTED",
-		"源修订信息存在错误或无法确认，现有工具不能表达所需修正；请先确认修正方案，未执行写入。",
-		{ ...details, stage: "source", issues });
+	if (issues.length) throw new DavToolError("REPAIR_UNSUPPORTED", stage === "repair"
+		? "明确修复后，资源中仍有异常修订信息或无法确认的结构，未执行写入；请核对全部诊断和修正范围。"
+		: "源修订信息存在错误或无法确认；请先说明并确认具体修正，通过 revisionRepair 表达受管字段修复，未执行写入。",
+		{ ...details, stage, issues });
 }
 
 /** 必须检查实际候选；调用方不能在通过后刷新元数据或发送另一份字符串。 */

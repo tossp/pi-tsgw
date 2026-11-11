@@ -22,6 +22,11 @@ export const contactActionSchemas = {
 		note: Type.Optional(Type.String()), properties,
 	}, objectOptions),
 	contact_update: Type.Object({ ...target, name: Type.Optional(name),
+		revisionRepair: Type.Optional(Type.Object({
+			rev: Type.Union([Type.String({ minLength: 1, pattern: "^(?![\\s\\S]*[\\r\\n])",
+				description: "单个 REV 值，不带属性名、参数或换行；由库按 vCard 版本判断有效性。实际更新仍正常生成本次新 REV。" }),
+				Type.Null({ description: "明确丢弃异常源 REV；实际更新仍正常生成本次新 REV，不承诺最终缺省。" })]),
+		}, objectOptions)),
 		email: nullable(Type.String()), phone: nullable(Type.String({ description: "首个普通电话；显式 VALUE=uri 的首项须用 properties 完整替换，null 仍可只删首项。" })),
 		org: nullable(org), note: nullable(Type.String()),
 		properties, removeProperties: Type.Optional(Type.Array(id, {

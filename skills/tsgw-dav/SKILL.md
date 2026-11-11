@@ -33,9 +33,11 @@ license: MIT
 - 创建日程需要 `start`，日记需要明确 `date`；时间按工具 schema 使用基本格式及 `{ value, valueType?, tzid? }` 表示，例如 `{ value: "20261112T090000", tzid: "Asia/Shanghai" }`，全天为 `{ value: "20261112", valueType: "DATE" }`。不猜主机时区；保留本地重复规则的 TZID，不先转固定 UTC。列表的 ISO 时间窗口不代表写入接受同一格式。
 - 日历更新省略字段保留，时间标量沿用原有 DATE／floating／UTC／TZID 和参数。已有例外必须用完整 `RECURRENCE-ID` 逻辑行精确选择；不创建例外，也不把展开的 `recurrenceId` 当成可写资源。日历 delete 删除整份资源及其全部例外，没有单次发生项删除参数。
 - 联系人 `email/phone/org/note` 只改源顺序首项，`null` 只删除首项；`org` 为明确公司／部门组件数组，不传自行拼接的 vCard 字符串。姓名不可删空，其他多值和分组参数保留。若首项显式声明 `VALUE=uri`，不能用 `phone` 标量改写，须以完整 `properties` 明确替换；`null` 仍可只删除首项，普通电话无需因此改成 URI。高级 `properties` 按同名属性整组替换，便捷字段不能与同名整组操作混用。
-- 通用 `properties: []` 不修改；`removeProperties` 才显式删除命名属性，`alarms: []` 清空提醒。不要用空数组、空字符串和 null 相互替代；修订元数据由插件维护，不能直接改 UID、VERSION、REV 或日历受管修订字段。最终整份候选合规且无实际变化才返回 `unchanged`，不刷新修订或发送 PUT。
+- 通用 `properties: []` 不修改；`removeProperties` 才显式删除命名属性，`alarms: []` 清空提醒。不要用空数组、空字符串和 null 相互替代；修订元数据由插件维护，普通 properties/removeProperties 不能直接改 UID、VERSION、REV 或日历受管修订字段；异常修订信息仅通过明确的 revisionRepair 表达修正。最终整份候选合规且无实际变化才返回 `unchanged`，不刷新修订或发送 PUT。
 - 创建/更新检查最终整份候选，包含未修改字段、兄弟组件/例外和既有提醒/时区；invalid 与无法验证的 unsupported 都阻止 PUT。`CONTENT_VALIDATION_FAILED` 时结合原文说明具体问题、建议与影响，有歧义先确认；不默认替互斥结束字段、COUNT/UNTIL 或全天截止类型选择优先级，不提示后携带已知异常写回。
-- 合法修订信息正常维护；源 REV、DTSTAMP 等非法、重复或无法确认时，不能借自动刷新静默修复。`REPAIR_UNSUPPORTED` 表示现有接口不能表达本次所需修正，须说明实际边界并停写；不直接改原文绕过校验，不批改兄弟组件，不删除合法但尚不能验证的字段以凑通过。源其它问题可明确修正时，使用现有定向输入生成合规候选，不要求整个源先合规。DELETE 不写回内容，仍按授权、身份、范围和版本守卫处理。
+- 合法修订信息正常维护；源 REV、DTSTAMP 等非法、重复或无法确认时，不能借自动刷新静默修复。先结合原文说明诊断、修正值/删除动作及影响，有歧义先确认；再按实际工具 schema 在 update 的 revisionRepair 中仅声明明确修复的字段，并和同一目标的业务修正一次提交。没有明确修复仍停写，不能以删除历史记录代替能力修复。
+- revisionRepair 修正的是异常源状态，不是强行设置最终修订历史。日历时间须明确转换为 UTC，不猜旧时区；SEQUENCE 从修正后的基值递增。可选字段 null 表示明确放弃异常旧值，本次实际修改仍可能重新生成 LAST-MODIFIED、SEQUENCE 或 REV。CREATED 等未自动刷新的属性沿用已有定向 properties/removeProperties。
+- 明确声明不等于问题已解决；自动刷新前复验受管字段，最终仍校验整资源。`REPAIR_UNSUPPORTED` 表示修正未完整解决或当前定向接口仍不能安全表达，须说明实际边界并停写；不直接改原文绕过校验，不批改兄弟组件，不删除合法但尚不能验证的字段以凑通过。源其它问题可明确修正时不要求整个源先合规。DELETE 不写回内容，仍按授权、身份、范围和版本守卫处理。
 - 写工具返回身份、版本及 `outcome`，不在内部回读。`REMOTE_RESULT_UNKNOWN` 表示已发请求而未确认结果，使用错误详情中的实际目标在原授权范围内读取核对；创建错误还保留已生成的 `account/uid` 及日历 `kind`，可直接调用对应 `get`，不必先列表展开。不假定未生效，不自动重发或补偿。已确认成功与后续回读失败分开汇报；取消不保证撤销远端动作。
 
 ## 查询范围与结果解读

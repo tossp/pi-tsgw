@@ -289,3 +289,53 @@ test("工具层拒绝不合规最终候选与异常源 REV 的 no-op/修改，�
 		assert.doesNotMatch(JSON.stringify(limited), /synthetic-private-unparseable/);
 	} finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("四类更新的修复 schema 要求明确字段和值，创建删除及未知开关不接受", () => {
+	const dir = mkdtempSync(join(tmpdir(), "dav-repair-schema-"));
+	try {
+		const h = harness(dir); h.register();
+		const target = { account: "work", resourceUrl: "https://dav.example.invalid/cal/one.ics", uid: "source", etag: '"v1"' };
+		for (const prefix of ["event", "todo", "journal"]) {
+			const check = Compile(h.tools.get(`tsgw_dav_${prefix}_update`)!.parameters);
+			assert.equal(check.Check(target), true);
+			for (const revisionRepair of [{ dtstamp: "20260101T010000Z" }, { lastModified: null }, { sequence: null }, { sequence: 0 }])
+				assert.equal(check.Check({ ...target, revisionRepair }), true);
+			for (const revisionRepair of [{}, true, { force: true }, { dtstamp: null }, { dtstamp: "20260101T090000" },
+				{ sequence: -1 }, { sequence: 1.5 }, { sequence: 2147483648 }, { sequence: "3" }, { uid: "other" }])
+				assert.equal(check.Check({ ...target, revisionRepair }), false);
+			assert.equal(Compile(h.tools.get(`tsgw_dav_${prefix}_delete`)!.parameters).Check({ ...target, revisionRepair: { sequence: 0 } }), false);
+		}
+		const contact = Compile(h.tools.get("tsgw_dav_contact_update")!.parameters);
+		for (const rev of [null, "20260101T010000Z"]) assert.equal(contact.Check({ ...target, revisionRepair: { rev } }), true);
+		for (const revisionRepair of [{}, true, { rev: 3 }, { rev: "" }, { rev: "20260101T010000Z\r\nNOTE:injected" },
+			{ rev: null, force: true }]) assert.equal(contact.Check({ ...target, revisionRepair }), false);
+		assert.equal(Compile(h.tools.get("tsgw_dav_contact_create")!.parameters).Check({ account: "work",
+			collectionUrl: "https://dav.example.invalid/ab/", name: "合成", revisionRepair: { rev: null } }), false);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("明确修复后 PUT 结果未知仍只发一次，并保留实际回读身份", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "dav-repair-unknown-"));
+	try {
+		save(dir, config);
+		const source = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//fixture//CN", "BEGIN:VEVENT", "UID:source",
+			"DTSTAMP:20260101T090000", "DTSTART:20261112T090000Z", "END:VEVENT", "END:VCALENDAR", ""].join("\r\n");
+		const methods: string[] = [];
+		const h = harness(dir, async (_url, init) => {
+			methods.push(init!.method!);
+			if (init!.method === "GET") return new Response(source, { headers: { etag: '"v1"' } });
+			assert.equal(init!.method, "PUT");
+			assert.equal(new Headers(init!.headers).get("if-match"), '"v1"');
+			const { validateCalendarResource } = await import("davkit/ical");
+			assert.equal(validateCalendarResource(String(init!.body)).valid, true);
+			throw new Error("synthetic-private-disconnect");
+		}); h.register();
+		const resourceUrl = "https://dav.example.invalid/cal/one.ics";
+		const result = (await h.execute("event_update", { account: "work", resourceUrl, uid: "source", etag: '"v1"',
+			revisionRepair: { dtstamp: "20260101T010000Z" } })).structuredContent;
+		assert.equal(result.ok, false); assert.equal(result.error?.code, "REMOTE_RESULT_UNKNOWN");
+		assert.equal(result.error?.details?.resourceUrl, resourceUrl); assert.equal(result.error?.details?.method, "PUT");
+		assert.deepEqual(methods, ["GET", "PUT"]);
+		assert.doesNotMatch(JSON.stringify(result), /synthetic-private-disconnect|BEGIN:VCALENDAR|synthetic-secret/);
+	} finally { rmSync(dir, { recursive: true, force: true }); }
+});

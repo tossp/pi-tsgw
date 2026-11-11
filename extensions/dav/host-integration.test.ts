@@ -97,6 +97,14 @@ test("真实宿主：DAV 按需发现、缺配置重试、集合与写入调用�
 		const calendar = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//fixture//CN", "BEGIN:VEVENT", "UID:source",
 			"DTSTAMP:20261111T000000Z", "DTSTART:20261112T090000Z", "RRULE:FREQ=DAILY;COUNT=2;UNTIL=20261113T090000Z",
 			"END:VEVENT", "END:VCALENDAR", ""].join("\r\n");
+		const repairSources = new Map<string, { raw: string; etag: string }>();
+		for (const [prefix, kind] of [["event", "VEVENT"], ["todo", "VTODO"], ["journal", "VJOURNAL"]]) {
+			repairSources.set(`https://dav.example.invalid/cal/repair-${prefix}.ics`, { etag: '"repair-source"',
+				raw: ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//fixture//CN", `BEGIN:${kind}`, `UID:repair-${prefix}`,
+					"DTSTAMP:20260101T090000", "DTSTART:20261112T090000Z", `END:${kind}`, "END:VCALENDAR", ""].join("\r\n") });
+		}
+		repairSources.set("https://dav.example.invalid/ab/repair.vcf", { etag: '"repair-source"', raw: ["BEGIN:VCARD", "VERSION:4.0",
+			"UID;VALUE=text:repair-contact", "FN:合成修复联系人", "REV:synthetic-invalid", "END:VCARD", ""].join("\r\n") });
 		const guardedFetch = globalThis.fetch;
 		globalThis.fetch = async (input, init) => {
 			const request = new Request(input, init);
@@ -105,6 +113,18 @@ test("真实宿主：DAV 按需发现、缺配置重试、集合与写入调用�
 				assert.ok(!body.tools.some(tool => tool.name?.startsWith("tsgw_dav_")));
 				const tool = body.tools.find(tool => tool.name === "codemode")!;
 				const code = script; script = undefined; return response(code, tool.type === "custom");
+			}
+			const repairSource = repairSources.get(request.url);
+			if (repairSource) {
+				if (request.method === "GET") { reads++; return new Response(repairSource.raw, { headers: { etag: repairSource.etag } }); }
+				assert.equal(request.method, "PUT");
+				assert.equal(request.headers.get("if-match"), repairSource.etag);
+				const raw = await request.text();
+				const validation = request.url.endsWith(".vcf")
+					? (await import("davkit/vcard")).validateContact(raw) : (await import("davkit/ical")).validateCalendarResource(raw);
+				assert.equal(validation.valid, true);
+				repairSource.raw = raw; repairSource.etag = '"repair-updated"'; writes++;
+				return new Response(null, { status: 204, headers: { etag: repairSource.etag } });
 			}
 			if (request.url === "https://dav.example.invalid/.well-known/caldav") {
 				davRequests++; assert.equal(request.method, "PROPFIND");
@@ -153,6 +173,16 @@ test("真实宿主：DAV 按需发现、缺配置重试、集合与写入调用�
 		assert.equal(reads, 2);
 		const refused = await execute('text(await tools.tsgw_dav_contact_create({account:"work",collectionUrl:"https://dav.example.invalid/ab/",name:"合成联系人",properties:["BDAY:20261340"]}));');
 		assert.match(refused, /CONTENT_VALIDATION_FAILED/); assert.equal(writes, 1);
+		const beforeRepairReads = reads;
+		const unconfirmed = await execute('text(await tools.tsgw_dav_event_update({account:"work",resourceUrl:"https://dav.example.invalid/cal/repair-event.ics",uid:"repair-event",etag:"\\\"repair-source\\\""}));');
+		assert.match(unconfirmed, /REPAIR_UNSUPPORTED/); assert.equal(writes, 1);
+		const repaired = await execute('const identity={account:"work",etag:"\\\"repair-source\\\""}; const revisionRepair={dtstamp:"20260101T010000Z"}; text(await Promise.all([tools.tsgw_dav_event_update({...identity,resourceUrl:"https://dav.example.invalid/cal/repair-event.ics",uid:"repair-event",revisionRepair}),tools.tsgw_dav_todo_update({...identity,resourceUrl:"https://dav.example.invalid/cal/repair-todo.ics",uid:"repair-todo",revisionRepair}),tools.tsgw_dav_journal_update({...identity,resourceUrl:"https://dav.example.invalid/cal/repair-journal.ics",uid:"repair-journal",revisionRepair}),tools.tsgw_dav_contact_update({...identity,resourceUrl:"https://dav.example.invalid/ab/repair.vcf",uid:"repair-contact",revisionRepair:{rev:null}})]));');
+		assert.equal((repaired.match(/"outcome"\s*:\s*"updated"/g) ?? []).length, 4);
+		assert.equal(writes, 5); assert.equal(reads, beforeRepairReads + 5);
+		const beforeInvalid = reads;
+		const invalidRepair = await execute('try { await tools.tsgw_dav_event_update({account:"work",resourceUrl:"https://dav.example.invalid/cal/repair-event.ics",uid:"repair-event",etag:"\\\"repair-updated\\\"",revisionRepair:{force:true}}); text({schemaRejected:false}); } catch { text({schemaRejected:true}); }');
+		assert.match(invalidRepair, /"schemaRejected"\s*:\s*true/);
+		assert.equal(reads, beforeInvalid); assert.equal(writes, 5);
 		await session.reload(); assert.deepEqual(loader.getExtensions().errors, []);
 		assert.ok(davTools().some(tool => tool.name === "tsgw_dav_accounts"));
 		assert.match(await execute('text(await tools.tsgw_dav_accounts({}));'), /work/);

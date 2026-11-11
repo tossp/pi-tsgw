@@ -226,3 +226,178 @@ test("强 ETag 和输入冲突仍先拒绝；DELETE 不新增正文合规门槛"
 		assert.equal(deletion.calls[1]!.headers.get("if-match"), identity.etag);
 	}
 });
+
+for (const kind of ["VEVENT", "VTODO", "VJOURNAL"] as const) {
+	test(`${kind} 显式修复与业务修改合并，修订后校验实际正文且保留其它组件`, async () => {
+		const fields = kind === "VEVENT"
+			? ["DTSTART;VALUE=DATE:20261112", "DTEND;VALUE=DATE:20261113", "RRULE:FREQ=DAILY;UNTIL=20261212T000000"]
+			: ["DTSTART:20261112T090000Z"];
+		const source = component(kind, "UID:series", "DTSTAMP:20260101T090000", "LAST-MODIFIED:20260101T090000",
+			"CREATED:20260101T090000", "SEQUENCE;VALUE=TEXT:3", "SUMMARY:原文", "STATUS:PRIVATE",
+			"X-KEEP;X-P=unchanged:保留", ...fields, ...(kind === "VJOURNAL" ? [] : [alarm]));
+		const sibling = component("VTODO", "UID:other", stamp, "SUMMARY:保留兄弟");
+		const raw = calendar(source, sibling), f = fixture(raw);
+		const result = await updateCalendar(f.context, { ...identity, summary: "修复后的名称",
+			status: kind === "VEVENT" ? "CONFIRMED" : kind === "VTODO" ? "NEEDS-ACTION" : "DRAFT",
+			...(kind === "VEVENT" ? { rrule: "FREQ=DAILY;UNTIL=20261212" } : {}),
+			properties: ["CREATED:20260101T010000Z"],
+			revisionRepair: { dtstamp: "20260101T010000Z", lastModified: "20260101T010000Z", sequence: 7 },
+		}, kind);
+		assert.equal(result.outcome, "updated"); assert.deepEqual(methods(f), ["GET", "PUT"]);
+		const put = f.calls[1]!;
+		assert.equal(put.headers.get("if-match"), identity.etag);
+		assert.equal(f.checks.at(-1), put.body);
+		assert.equal(ical.validateCalendarResource(put.body).valid, true);
+		const [changed, kept] = ical.parseCalendar(put.body).components;
+		assert.equal(kept!.raw, ical.parseCalendar(raw).components[1]!.raw);
+		assert.equal(changed!.properties.find(p => p.name === "SEQUENCE")?.value, "8");
+		assert.equal(changed!.properties.find(p => p.name === "CREATED")?.value, "20260101T010000Z");
+		const currentStamp = changed!.properties.find(p => p.name === "DTSTAMP")?.value;
+		assert.match(currentStamp!, /^\d{8}T\d{6}Z$/);
+		assert.notEqual(currentStamp, "20260101T010000Z");
+		assert.equal(changed!.properties.find(p => p.name === "LAST-MODIFIED")?.value, currentStamp);
+		assert.ok(put.body.includes("X-KEEP;X-P=unchanged:保留"));
+		assert.deepEqual(changed!.alarms.map(item => item.raw), ical.parseCalendar(raw).components[0]!.alarms.map(item => item.raw));
+	});
+}
+
+test("重复修订字段可明确整组替换或丢弃，源删除不阻止正常生成本次修订", async () => {
+	const f = fixture(calendar(event(stamp, "LAST-MODIFIED:20200101T000000Z", "LAST-MODIFIED:20210101T000000Z",
+		"SEQUENCE:3", "SEQUENCE:8")));
+	await updateCalendar(f.context, { ...identity,
+		revisionRepair: { dtstamp: "20260101T000000Z", lastModified: null, sequence: null } }, "VEVENT");
+	assert.deepEqual(methods(f), ["GET", "PUT"]);
+	const beforeRefresh = ical.parseCalendar(f.edits[1]!).components[0]!;
+	assert.equal(beforeRefresh.properties.filter(p => p.name === "DTSTAMP").length, 1);
+	assert.ok(!beforeRefresh.properties.some(p => ["LAST-MODIFIED", "SEQUENCE"].includes(p.name)));
+	const changed = ical.parseCalendar(f.calls[1]!.body).components[0]!;
+	assert.equal(changed.properties.filter(p => p.name === "DTSTAMP").length, 1);
+	assert.equal(changed.properties.filter(p => p.name === "LAST-MODIFIED").length, 1);
+	assert.equal(changed.properties.find(p => p.name === "SEQUENCE")?.value, "1");
+	assert.equal(ical.validateCalendarResource(f.calls[1]!.body).valid, true);
+});
+
+test("缺失必需时间戳及旧编码只能用明确修复值解决，不能静默补齐", async () => {
+	for (const raw of [calendar(event()).replace(stamp + "\r\n", ""),
+		calendar(event()).replace(stamp, "DTSTAMP;ENCODING=QUOTED-PRINTABLE:20260101T000000Z")]) {
+		const f = fixture(raw);
+		await updateCalendar(f.context, { ...identity, revisionRepair: { dtstamp: "20260101T000000Z" } }, "VEVENT");
+		assert.deepEqual(methods(f), ["GET", "PUT"]);
+		assert.equal(ical.validateCalendarResource(f.calls[1]!.body).valid, true);
+		assert.doesNotMatch(f.calls[1]!.body, /ENCODING=QUOTED-PRINTABLE/);
+	}
+});
+
+test("不能借显式修复任意改写合法修订历史，且修复值仍须合规", async () => {
+	const clean = fixture(calendar(event("SEQUENCE:1")));
+	await assert.rejects(updateCalendar(clean.context, { ...identity, revisionRepair: { sequence: 7 } }, "VEVENT"),
+		failure("INVALID_INPUT", "repair"));
+	assert.deepEqual(methods(clean), ["GET"]); assert.deepEqual(clean.edits, []);
+	const bad = fixture(calendar(event("SEQUENCE;ENCODING=QUOTED-PRINTABLE:3")));
+	await assert.rejects(updateCalendar(bad.context, { ...identity, revisionRepair: { sequence: -1 } }, "VEVENT"),
+		(error: unknown) => error instanceof DavToolError && error.code === "REPAIR_UNSUPPORTED");
+	assert.deepEqual(methods(bad), ["GET"]);
+	const incomplete = fixture(calendar(event("LAST-MODIFIED;ENCODING=QUOTED-PRINTABLE:20260101T000000Z",
+		"SEQUENCE;ENCODING=QUOTED-PRINTABLE:3")));
+	await assert.rejects(updateCalendar(incomplete.context, { ...identity, revisionRepair: { sequence: 3 } }, "VEVENT"),
+		failure("REPAIR_UNSUPPORTED", "repair"));
+	assert.deepEqual(methods(incomplete), ["GET"]); assert.equal(incomplete.edits.length, 1);
+});
+
+test("兄弟同名诊断不能代替目标修复证明，VTIMEZONE 不参与目标数组下标推断", async () => {
+	const timezone = component("VTIMEZONE", "TZID:Asia/Shanghai", component("STANDARD", "DTSTART:19700101T000000",
+		"TZOFFSETFROM:+0800", "TZOFFSETTO:+0800"));
+	const primary = event("SEQUENCE:1");
+	const other = component("VEVENT", "UID:other", stamp, "DTSTART:20261112T090000Z",
+		"SEQUENCE;ENCODING=QUOTED-PRINTABLE:3");
+	const raw = calendar(timezone, primary, other);
+	const wrong = fixture(raw);
+	await assert.rejects(updateCalendar(wrong.context, { ...identity, revisionRepair: { sequence: 7 } }, "VEVENT"),
+		failure("INVALID_INPUT", "repair"));
+	assert.deepEqual(methods(wrong), ["GET"]); assert.deepEqual(wrong.edits, []);
+	const correct = fixture(raw);
+	await updateCalendar(correct.context, { ...identity, uid: "other", revisionRepair: { sequence: 3 } }, "VEVENT");
+	assert.deepEqual(methods(correct), ["GET", "PUT"]);
+	const changed = ical.parseCalendar(correct.calls[1]!.body);
+	assert.equal(changed.components[0]!.raw, ical.parseCalendar(raw).components[0]!.raw);
+	assert.equal(changed.timezones[0], ical.parseCalendar(raw).timezones[0]);
+	assert.equal(changed.components[1]!.properties.find(p => p.name === "SEQUENCE")?.value, "4");
+});
+
+test("无关嵌套提醒的同名异常不能授权改写目标合法 SEQUENCE，且零 PUT", async () => {
+	const raw = calendar(event("SEQUENCE:5", component("VALARM", "ACTION:DISPLAY", "TRIGGER:-PT15M",
+		"DESCRIPTION:待删除提醒", "SEQUENCE:-1")));
+	const sourceValidation = ical.validateCalendarResource(raw);
+	assert.ok(sourceValidation.issues.some(issue => issue.property === "SEQUENCE" && issue.componentPath.length === 2));
+	assert.ok(!sourceValidation.issues.some(issue => issue.property === "SEQUENCE" && issue.componentPath.length === 1));
+	const f = fixture(raw);
+	await assert.rejects(updateCalendar(f.context, { ...identity, alarms: [], revisionRepair: { sequence: 100 } }, "VEVENT"),
+		failure("INVALID_INPUT", "repair"));
+	assert.deepEqual(methods(f), ["GET"]); assert.deepEqual(f.edits, []);
+	assert.equal(ical.parseCalendar(raw).components[0]!.properties.find(property => property.name === "SEQUENCE")?.value, "5");
+});
+
+test("前置时区、已有例外、兄弟组件与嵌套提醒下只修复目标直接异常字段", async () => {
+	const timezone = component("VTIMEZONE", "TZID:Asia/Shanghai", component("STANDARD", "DTSTART:19700101T000000",
+		"TZOFFSETFROM:+0800", "TZOFFSETTO:+0800"));
+	const primary = event("RRULE:FREQ=DAILY;COUNT=2", "SEQUENCE:5", alarm);
+	const recurrenceId = "RECURRENCE-ID:20261113T090000Z";
+	const exception = component("VEVENT", "UID:series", stamp, "SEQUENCE;ENCODING=QUOTED-PRINTABLE:2",
+		recurrenceId, "DTSTART:20261113T100000Z", "SUMMARY:已有例外", alarm);
+	const sibling = component("VTODO", "UID:other", stamp, "SEQUENCE:1", "SUMMARY:兄弟");
+	const raw = calendar(timezone, primary, exception, sibling), before = ical.parseCalendar(raw), f = fixture(raw);
+	await updateCalendar(f.context, { ...identity, recurrenceId, revisionRepair: { sequence: 9 } }, "VEVENT");
+	assert.deepEqual(methods(f), ["GET", "PUT"]);
+	const changed = ical.parseCalendar(f.calls[1]!.body);
+	assert.equal(changed.timezones[0], before.timezones[0]);
+	assert.equal(changed.components[0]!.raw, before.components[0]!.raw);
+	assert.equal(changed.components[2]!.raw, before.components[2]!.raw);
+	assert.equal(changed.components[1]!.properties.find(property => property.name === "SEQUENCE")?.value, "10");
+	assert.deepEqual(changed.components[1]!.alarms.map(item => item.raw), before.components[1]!.alarms.map(item => item.raw));
+	assert.equal(ical.validateCalendarResource(f.calls[1]!.body).valid, true);
+});
+
+test("目标直接异常字段有源诊断时，同次删除含同名异常的提醒仍可修复", async () => {
+	const raw = calendar(event("SEQUENCE:-1", component("VALARM", "ACTION:DISPLAY", "TRIGGER:-PT15M",
+		"DESCRIPTION:待删除提醒", "SEQUENCE:-1")));
+	const f = fixture(raw);
+	await updateCalendar(f.context, { ...identity, alarms: [], revisionRepair: { sequence: 5 } }, "VEVENT");
+	assert.deepEqual(methods(f), ["GET", "PUT"]);
+	const changed = ical.parseCalendar(f.calls[1]!.body).components[0]!;
+	assert.deepEqual(changed.alarms, []);
+	assert.equal(changed.properties.find(property => property.name === "SEQUENCE")?.value, "6");
+	assert.equal(ical.validateCalendarResource(f.calls[1]!.body).valid, true);
+});
+
+test("显式修复不放宽其它最终校验、修订越界或调用方版本", async () => {
+	const badRule = fixture(calendar(event("SEQUENCE;ENCODING=QUOTED-PRINTABLE:3", "RRULE:FREQ=PRIVATE")));
+	await assert.rejects(updateCalendar(badRule.context, { ...identity, revisionRepair: { sequence: 3 } }, "VEVENT"),
+		failure("CONTENT_VALIDATION_FAILED", "final"));
+	assert.deepEqual(methods(badRule), ["GET"]);
+	const overflow = fixture(calendar(event("SEQUENCE:-1")));
+	await assert.rejects(updateCalendar(overflow.context, { ...identity, revisionRepair: { sequence: 2147483647 } }, "VEVENT"),
+		failure("CONTENT_VALIDATION_FAILED", "final"));
+	assert.deepEqual(methods(overflow), ["GET"]);
+	assert.match(overflow.checks.at(-1)!, /SEQUENCE:2147483648/);
+	const conflict = fixture(calendar(event("SEQUENCE:-1")));
+	await assert.rejects(updateCalendar(conflict.context, { ...identity, etag: '"stale"', revisionRepair: { sequence: 3 } }, "VEVENT"),
+		(error: unknown) => error instanceof DavToolError && error.code === "CONFLICT");
+	assert.deepEqual(methods(conflict), ["GET"]); assert.deepEqual(conflict.edits, []);
+});
+
+test("已有例外可独立修复修订字段，不改主件、发生身份及原提醒", async () => {
+	const primary = event("RRULE:FREQ=DAILY;COUNT=2", "SEQUENCE:4", alarm);
+	const recurrenceId = "RECURRENCE-ID:20261113T090000Z";
+	const exception = component("VEVENT", "UID:series", "DTSTAMP:20260101T090000", "SEQUENCE;ENCODING=QUOTED-PRINTABLE:2",
+		recurrenceId, "DTSTART:20261113T100000Z", "SUMMARY:已有例外", alarm);
+	const raw = calendar(primary, exception), f = fixture(raw);
+	await updateCalendar(f.context, { ...identity, recurrenceId,
+		revisionRepair: { dtstamp: "20260101T010000Z", sequence: 2 } }, "VEVENT");
+	assert.deepEqual(methods(f), ["GET", "PUT"]);
+	const changed = ical.parseCalendar(f.calls[1]!.body);
+	assert.equal(changed.components[0]!.raw, ical.parseCalendar(raw).components[0]!.raw);
+	assert.equal(changed.components[1]!.recurrenceId, recurrenceId);
+	assert.equal(changed.components[1]!.properties.find(p => p.name === "SEQUENCE")?.value, "3");
+	assert.deepEqual(changed.components[1]!.alarms.map(item => item.raw), ical.parseCalendar(raw).components[1]!.alarms.map(item => item.raw));
+	assert.equal(ical.validateCalendarResource(f.calls[1]!.body).valid, true);
+});
