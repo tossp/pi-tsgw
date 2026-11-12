@@ -34,8 +34,8 @@ function searchTool(request: CapturedRequest): Record<string, unknown> {
 function trace(request: CapturedRequest): { thread: string; turn: string } {
 	const thread = request.headers.get("AH-Thread-Id");
 	const turn = request.headers.get("AH-Trace-Id");
-	assert.match(thread ?? "", /^[0-9a-f-]{36}$/);
-	assert.match(turn ?? "", /^[0-9a-f-]{36}$/);
+	assert.ok(thread);
+	assert.ok(turn?.startsWith(`${thread}.`), "消息追踪身份必须包含所属真实会话身份");
 	return { thread: thread!, turn: turn! };
 }
 
@@ -67,7 +67,7 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		const { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } =
 			await import("@earendil-works/pi-coding-agent");
 		writeFileSync(join(sandbox.agentDir, "settings.json"), JSON.stringify({
-			tsgw: { baseUrl: TEST_ROOT, tsSearch: "live", traceHeaders: true, mcpUrl: "https://obsolete-mcp.invalid/mcp" },
+			tsgw: { baseUrl: TEST_ROOT, tsSearch: "live", mcpUrl: "https://obsolete-mcp.invalid/mcp" },
 		}));
 		const manifest = JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8"));
 		assert.deepEqual(manifest.pi.extensions, ["./index.ts"], "包清单只登记根插件入口");
@@ -203,17 +203,21 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		assert.equal(sandbox.catalogCalls, 4);
 		assert.deepEqual(runtime.getModels(PROVIDER_ID).map(model => model.id).sort(), expectedIds);
 		await session.setModel(runtime.getModel(PROVIDER_ID, model.id)!);
-		// 已失效运行器的迟到回调仍使用自身标量快照。
+		// 请求参数保留旧快照；已关闭运行器不能再声称拥有有效会话身份。
 		// 调用真实运行器的分发器，不直接调用扩展处理器。
 		const latePayload = await oldRunner.emitBeforeProviderRequest({ model: model.id, tools: [] });
 		const lateHeaders = await oldRunner.emitBeforeProviderHeaders({});
 		assert.equal(searchTool({ body: latePayload as Record<string, unknown>, headers: new Headers() }).external_web_access, false);
-		assert.equal(lateHeaders["AH-Thread-Id"], firstTrace.thread);
+		assert.deepEqual(lateHeaders, {});
 		await session.prompt("After reload: settings must restore live search");
 		assert.equal(session.getLastAssistantText(), "fixture reply");
 		assert.equal(sandbox.requests.length, 3);
 		assert.equal(searchTool(sandbox.requests[2]!).external_web_access, true);
-		assert.notEqual(trace(sandbox.requests[2]!).thread, firstTrace.thread);
+		assert.equal(trace(sandbox.requests[2]!).thread, firstTrace.thread);
+		for (const request of sandbox.requests) {
+			assert.equal(request.headers.get("X-Magpie-Session"), session.sessionManager.getSessionId());
+			assert.equal(request.headers.get("AH-Thread-Id"), session.sessionManager.getSessionId());
+		}
 		for (const request of sandbox.requests) {
 			const body = JSON.stringify(request.body);
 			const encodedRules = JSON.stringify(MEMORY_RULES).slice(1, -1);

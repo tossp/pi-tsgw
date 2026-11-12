@@ -27,6 +27,8 @@ pi install npm:pi-tsgw
 将占位地址替换为实际网关地址，通过 `/login` 选择 `tsgw` 配置密钥，然后执行 `/reload`。
 使用 `/tsgw` 查看目录状态，`/tsgw-refresh` 强制刷新。
 
+网关追踪头默认开启：`AH-Thread-Id` 和 `X-Magpie-Session` 使用真实会话 ID，`AH-Trace-Id` 关联真实用户消息；压缩、摘要等请求不冒充用户消息追踪。仅补充指向已配置网关的 `tsgw` 聊天请求，保留调用方已有同名头。可在 `settings.json` 的 `tsgw` 中设置 `"traceHeaders": false` 关闭插件补头，但不禁用宿主原生会话头或网关侧记录；网关已开启对话记录时，会话标识可能使其归集并保存对话。
+
 `/insagent` 显式安装标准子代理：覆盖当前定义，删除已退出清单的 `tsgw-*.md`，在代理目录的 `settings.json` 中启用 Agent 并停用 Pi Web 内置代理，最后自动重载当前会话；其他自定义代理和无关设置保留。
 
 ## 工具入口

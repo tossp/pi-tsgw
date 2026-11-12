@@ -12,6 +12,10 @@ type HookName =
 	| "session_start"
 	| "session_shutdown"
 	| "agent_start"
+	| "agent_end"
+	| "turn_start"
+	| "session_before_compact"
+	| "session_before_tree"
 	| "before_agent_start"
 	| "model_select"
 	| "thinking_level_select"
@@ -155,7 +159,8 @@ export class FakePi {
 		for (const handler of handlers) {
 			if (typeof handler !== "function")
 				throw new Error(`${event} 处理器无效`);
-			result = handler(payload, ctx);
+			const next = handler(payload, ctx);
+			if (next !== undefined) result = next;
 		}
 		return result;
 	}
@@ -173,6 +178,10 @@ export class FakePi {
 			event === "session_start" ||
 			event === "session_shutdown" ||
 			event === "agent_start" ||
+			event === "agent_end" ||
+			event === "turn_start" ||
+			event === "session_before_compact" ||
+			event === "session_before_tree" ||
 			event === "before_agent_start" ||
 			event === "model_select" ||
 			event === "thinking_level_select" ||

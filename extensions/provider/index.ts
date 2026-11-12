@@ -10,7 +10,7 @@ import {
 	VERSION,
 } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { registerGatewayTracing } from "./tracing.ts";
 import {
 	DEFAULT_ROOT,
 	PROVIDER_ID,
@@ -64,15 +64,6 @@ function rootForRuntime(configured: string | undefined): string {
 	}
 }
 
-function hasHeader(
-	headers: Record<string, string | null>,
-	name: string,
-): boolean {
-	return Object.keys(headers).some(
-		(key) => key.toLowerCase() === name.toLowerCase(),
-	);
-}
-
 function requestStateFor(
 	model: RequestModel | undefined,
 	thinkingLevel: ThinkingLevel,
@@ -85,17 +76,6 @@ function requestStateFor(
 		baseUrl: model.baseUrl,
 		thinkingLevel,
 	};
-}
-
-function isTsgwTraceTarget(state: RequestState, root: string): boolean {
-	if (state.provider !== PROVIDER_ID) return false;
-	try {
-		// 仅追踪发往已配置网关根地址的请求，避免为在其他位置
-		// 覆盖了 baseUrl 的模型添加追踪请求头。
-		return new URL(state.baseUrl).hostname === new URL(root).hostname;
-	} catch {
-		return false;
-	}
 }
 
 /** 模型缓存文件：<agent-dir>/tsgw/models-cache.json。 */
@@ -121,7 +101,7 @@ export async function registerTsgwProvider(
 		settings.tsSearch === "cached" || settings.tsSearch === "live"
 			? settings.tsSearch
 			: "live";
-	const traceEnabled = settings.traceHeaders === true;
+	const traceEnabled = settings.traceHeaders !== false;
 	const modelFilter: ModelFilter = {
 		include: settings.includeModels,
 		exclude: settings.excludeModels,
@@ -359,18 +339,5 @@ export async function registerTsgwProvider(
 		return applyModelOperations(event.payload, context);
 	});
 
-	if (!traceEnabled) return;
-	const threadId = randomUUID();
-	let traceId = randomUUID();
-	pi.on("agent_start", () => {
-		traceId = randomUUID();
-	});
-	pi.on("before_provider_headers", (event) => {
-		const state = requestState;
-		if (!state || !isTsgwTraceTarget(state, root)) return;
-		if (!hasHeader(event.headers, "AH-Thread-Id"))
-			event.headers["AH-Thread-Id"] = threadId;
-		if (!hasHeader(event.headers, "AH-Trace-Id"))
-			event.headers["AH-Trace-Id"] = traceId;
-	});
+	if (traceEnabled) registerGatewayTracing(pi, root);
 }

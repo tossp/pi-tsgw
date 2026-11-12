@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { MEMORY_RULES } from "#tsgw-prompts/memory";
 import { createPi } from "#tsgw/test-support.test";
 
@@ -12,7 +13,7 @@ test("记忆规则：入口注册、保留其他分区且重复注入不累加",
 		assert.equal(pi.invoke("before_agent_start", {
 			type: "before_agent_start", messageType,
 			systemPrompt: "保留完整宿主提示词", systemPromptOptions: options,
-		}), undefined);
+		}, { sessionManager: SessionManager.inMemory() }), undefined);
 		assert.deepEqual(sections, { other_extension: "保留其他扩展的提示词", tsgw_memory: MEMORY_RULES });
 		assert.equal(options.customPrompt, "保留宿主前缀");
 		assert.equal(options.appendSystemPrompt, "保留用户追加提示词");
@@ -23,5 +24,5 @@ test("记忆规则：旧宿主接口仅追加、不覆盖原提示词", async ()
 	const pi = await createPi();
 	assert.deepEqual(pi.invoke("before_agent_start", {
 		type: "before_agent_start", messageType: "user", systemPrompt: "原始提示词",
-	}), { systemPrompt: `原始提示词\n\n${MEMORY_RULES}` });
+	}, { sessionManager: SessionManager.inMemory() }), { systemPrompt: `原始提示词\n\n${MEMORY_RULES}` });
 });

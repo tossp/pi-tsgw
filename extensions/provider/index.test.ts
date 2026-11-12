@@ -1,7 +1,6 @@
 import {
 	deepStrictEqual,
 	equal,
-	match,
 	rejects,
 	strictEqual,
 } from "node:assert";
@@ -10,13 +9,6 @@ import registerTsgw from "../../index.ts";
 import { PROVIDER_ID } from "#tsgw/models/catalog";
 import { OPENAI_IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
 import { FakeContext, FakePi, createPi, createPiWithCatalog, sessionStart, agentStart, providerRequest, providerHeaders, withAgentDir, STALE_ERROR, TEST_ROOT, TSGW_SOL, TSGW_DEEPSEEK, TSGW_GLM } from "#tsgw/test-support.test";
-
-function assertUuid(value: string | null | undefined): void {
-	match(
-		value ?? "",
-		/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-	);
-}
 
 async function testChatCompletionsCompatibility(): Promise<void> {
 	const pi = await createPiWithCatalog();
@@ -65,8 +57,6 @@ async function testSafeProviderHooksAfterContextStales(): Promise<void> {
 	const sessionContext = new FakeContext(TSGW_SOL, "high");
 	sessionStart(pi, sessionContext);
 
-	const firstHeaders: Record<string, string | null> = {};
-	providerHeaders(pi, firstHeaders);
 	const agentContext = new FakeContext(TSGW_SOL, "high");
 	agentStart(pi, agentContext);
 	sessionContext.makeStale();
@@ -84,23 +74,6 @@ async function testSafeProviderHooksAfterContextStales(): Promise<void> {
 			},
 		],
 		text: { verbosity: "low" },
-	});
-	const headers: Record<string, string | null> = {};
-	providerHeaders(pi, headers);
-	assertUuid(headers["AH-Thread-Id"]);
-	assertUuid(headers["AH-Trace-Id"]);
-	strictEqual(headers["AH-Thread-Id"], firstHeaders["AH-Thread-Id"]);
-	if (headers["AH-Trace-Id"] === firstHeaders["AH-Trace-Id"])
-		throw new Error("agent_start 必须刷新 AH-Trace-Id");
-
-	const preserved = {
-		"ah-thread-id": "keep-thread",
-		"AH-Trace-Id": "keep-trace",
-	};
-	providerHeaders(pi, preserved);
-	deepStrictEqual(preserved, {
-		"ah-thread-id": "keep-thread",
-		"AH-Trace-Id": "keep-trace",
 	});
 }
 
@@ -149,49 +122,22 @@ async function testLifecycleStateUpdates(): Promise<void> {
 }
 
 async function testNoStateAndTraceLimits(): Promise<void> {
-	const pi = await createPi();
+	const pi = await createPi({ tsgw: { traceHeaders: false } });
 	const payload = { untouched: true };
 	strictEqual(providerRequest(pi, payload), undefined);
-	// 未启用 trace 时，不注册 before_provider_headers 钩子。
+	// 显式关闭 trace 时，不注册 before_provider_headers 钩子。
 	equal(pi.has("before_provider_headers"), false);
 }
 
 async function testTraceHeaderSettings(): Promise<void> {
-	const pi = await createPi({ tsgw: { traceHeaders: true } });
-	equal(pi.has("before_provider_headers"), true);
+	const pi = await createPi();
+	equal(pi.has("before_provider_headers"), true, "未配置时默认开启追踪头");
+	equal((await createPi({ tsgw: { traceHeaders: true } })).has("before_provider_headers"), true);
 
-	// 无 session 状态：不产生追踪头。
+	// 尚未启动会话，不读取缺失或过期的宿主上下文。
 	const empty: Record<string, string | null> = {};
 	providerHeaders(pi, empty);
 	deepStrictEqual(empty, {});
-
-	// 非 tsgw provider 不追踪。
-	sessionStart(
-		pi,
-		new FakeContext({ ...TSGW_SOL, provider: "other" }, "high"),
-	);
-	const foreign: Record<string, string | null> = {};
-	providerHeaders(pi, foreign);
-	deepStrictEqual(foreign, {});
-
-	// 模型 baseUrl 与配置 root 不同 host 时不追踪。
-	sessionStart(
-		pi,
-		new FakeContext(
-			{ ...TSGW_SOL, baseUrl: "https://example.test/v1" },
-			"high",
-		),
-	);
-	const otherHost: Record<string, string | null> = {};
-	providerHeaders(pi, otherHost);
-	deepStrictEqual(otherHost, {});
-
-	// 匹配 host：产生追踪头。
-	sessionStart(pi, new FakeContext(TSGW_SOL, "high"));
-	const headers: Record<string, string | null> = {};
-	providerHeaders(pi, headers);
-	assertUuid(headers["AH-Thread-Id"]);
-	assertUuid(headers["AH-Trace-Id"]);
 }
 
 async function testOldInstanceCallbacksKeepOwnSnapshot(): Promise<void> {
@@ -228,11 +174,6 @@ async function testOldInstanceCallbacksKeepOwnSnapshot(): Promise<void> {
 		{},
 		"新实例必须使用自身状态",
 	);
-
-	const headers: Record<string, string | null> = {};
-	providerHeaders(oldPi, headers);
-	assertUuid(headers["AH-Thread-Id"]);
-	assertUuid(headers["AH-Trace-Id"]);
 }
 
 async function testSettingsConfig(): Promise<void> {
