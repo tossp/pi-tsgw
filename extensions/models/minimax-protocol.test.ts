@@ -7,14 +7,14 @@ import type { Payload, ThinkingLevel } from "./_tools.ts";
 const root = "https://gateway.invalid";
 const config = minimaxModels(root).find(model => model.id === "MiniMax-M3.1-Flash")!;
 equal(config.api, "anthropic-messages");
-equal(config.baseUrl, `${root}/anthropic`);
+equal(config.baseUrl, root);
 equal(config.thinkingLevelMap?.off, null);
 deepStrictEqual(config.compat, { forceAdaptiveThinking: true, allowEmptySignature: true });
 // 全系列统一协议；M3 仍可关闭思考，且没有 M3.1 的 effort 档位。
 const legacy = minimaxModels(root).find(model => model.id === "MiniMax-M3")!;
 for (const entry of minimaxModels(root)) {
 	equal(entry.api, "anthropic-messages");
-	equal(entry.baseUrl, `${root}/anthropic`);
+	equal(entry.baseUrl, root);
 	deepStrictEqual(entry.compat, config.compat);
 }
 equal(legacy.thinkingLevelMap?.off, undefined);
@@ -104,7 +104,7 @@ async function testHost(config: ReturnType<typeof minimaxModels>[number]): Promi
 		try {
 			const request = new Request(url, init);
 			const endpoint = new URL(request.url);
-			equal(`${endpoint.origin}${endpoint.pathname}`, `${root}/anthropic/v1/messages`);
+			equal(`${endpoint.origin}${endpoint.pathname}`, `${root}/v1/messages`);
 			equal(request.headers.get("x-api-key"), "fixture-key");
 			const body = await request.json() as Payload;
 			fetched.push(body);

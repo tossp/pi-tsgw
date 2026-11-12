@@ -20,7 +20,7 @@ import { isPlainObject, type PayloadWriter, type ThinkingApplier, type ThinkingL
  * 未知零价占位与思考策略；正式版规格不因此变化。
  */
 export function minimaxModels(root: string): ProviderModelConfig[] {
-	const anthropic = `${root}/anthropic`;
+	// 宿主 SDK 会追加 /v1/messages，基地址不再加厂商路径。
 	// MiniMax 不要求 Claude 签名，复用宿主以保留空签名 thinking 块。
 	const compat = { ...ANTHROPIC_COMPAT, allowEmptySignature: true };
 	return [
@@ -28,7 +28,7 @@ export function minimaxModels(root: string): ProviderModelConfig[] {
 			id: "MiniMax-M3.1-Flash",
 			name: "MiniMax-M3.1-Flash",
 			api: "anthropic-messages",
-			baseUrl: anthropic,
+			baseUrl: root,
 			reasoning: true,
 			thinkingLevelMap: {
 				off: null,
@@ -49,7 +49,7 @@ export function minimaxModels(root: string): ProviderModelConfig[] {
 			id: "MiniMax-M3",
 			name: "MiniMax-M3",
 			api: "anthropic-messages",
-			baseUrl: anthropic,
+			baseUrl: root,
 			reasoning: true,
 			input: ["text", "image"],
 			cost: {

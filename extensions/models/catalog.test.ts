@@ -33,7 +33,7 @@ function testCatalogConcatenation(): void {
 	equal(new Set(ids).size, ids.length, "vendor 拼接后的 ID 全局唯一");
 	const endpoints = {
 		"openai-completions": "/v1", "openai-responses": "/v1",
-		"google-generative-ai": "/gemini", "anthropic-messages": "/anthropic",
+		"google-generative-ai": "/gemini", "anthropic-messages": "",
 	};
 	for (const model of models) {
 		equal(Object.hasOwn(endpoints, model.api!), true, `未知协议：${model.api}`);
@@ -80,7 +80,7 @@ function testModelCapabilities(): void {
 		const model = models.find((model) => model.id === id)!;
 		const minimax = id === "MiniMax-M3.1-Flash";
 		equal(model.api, minimax ? "anthropic-messages" : "openai-completions");
-		equal(model.baseUrl, `${ROOT}/${minimax ? "anthropic" : "v1"}`);
+		equal(model.baseUrl, minimax ? ROOT : `${ROOT}/v1`);
 		equal(model.reasoning, true);
 		deepStrictEqual(model.input, input);
 		if (id === "MiniMax-M3.1-Flash") {
@@ -179,7 +179,7 @@ function testModelCapabilities(): void {
 	for (const id of ["claude-opus-5", "claude-sonnet-5"]) {
 		const claude = models.find(model => model.id === id);
 		strictEqual(claude?.api, "anthropic-messages");
-		strictEqual(claude?.baseUrl, `${ROOT}/anthropic`);
+		strictEqual(claude?.baseUrl, ROOT);
 	}
 }
 

@@ -11,7 +11,7 @@ export const LUNA_ID = "gpt-6-luna";
 export const DEEPSEEK_ID = "deepseek-flash";
 export const MINIMAX_ID = "MiniMax-M3.1-Flash";
 /** MiniMax 走 Anthropic Messages，请求路径与 Responses 通道不同。 */
-export const MINIMAX_PATH = "/anthropic/v1/messages";
+export const MINIMAX_PATH = "/v1/messages";
 export const CLASSIFIER_IDS = ["jev-latest", "jev-preview"] as const;
 /** 三款聊天通道的约定发起顺序；chatModel 记录其中首个实际发起者。 */
 export const CHAT_LANE_IDS = [LUNA_ID, DEEPSEEK_ID, MINIMAX_ID] as const;

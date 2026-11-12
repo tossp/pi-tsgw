@@ -78,7 +78,7 @@ test(
 						apiKey: TEST_KEY,
 						models: [...FIXTURE_MODELS,
 							{ ...FIXTURE_MODELS[0]!, id: "fixture-completions", api: "openai-completions", reasoning: false },
-							{ ...FIXTURE_MODELS[0]!, id: "fixture-messages", api: "anthropic-messages", baseUrl: `${TEST_ROOT}/anthropic`, reasoning: false },
+							{ ...FIXTURE_MODELS[0]!, id: "fixture-messages", api: "anthropic-messages", baseUrl: TEST_ROOT, reasoning: false },
 						],
 					});
 					pi.registerProvider("tracing-other", {
@@ -341,7 +341,7 @@ test(
 			// 8. 真实 Completions / Messages 适配器同样收到动态追踪头。
 			for (const [modelId, path] of [
 				["fixture-completions", "/v1/chat/completions"],
-				["fixture-messages", "/anthropic/v1/messages"],
+				["fixture-messages", "/v1/messages"],
 			] as const) {
 				const protocolModel = runtime.getModel(PROVIDER_ID, modelId);
 				assert.ok(protocolModel);

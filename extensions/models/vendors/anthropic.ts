@@ -7,13 +7,13 @@ import { ANTHROPIC_COMPAT } from "./_protocols.ts";
  * 规格/定价以网关目录为准（opus/sonnet 两档）。
  */
 export function anthropicModels(root: string): ProviderModelConfig[] {
-	const anthropic = `${root}/anthropic`;
+	// 宿主 SDK 会追加 /v1/messages，基地址不再加厂商路径。
 	return [
 		{
 			id: "claude-opus-5",
 			name: "Claude Opus 5",
 			api: "anthropic-messages",
-			baseUrl: anthropic,
+			baseUrl: root,
 			reasoning: true,
 			thinkingLevelMap: {
 				low: "low",
@@ -32,7 +32,7 @@ export function anthropicModels(root: string): ProviderModelConfig[] {
 			id: "claude-sonnet-5",
 			name: "Claude Sonnet 5",
 			api: "anthropic-messages",
-			baseUrl: anthropic,
+			baseUrl: root,
 			reasoning: true,
 			thinkingLevelMap: {
 				low: "low",
