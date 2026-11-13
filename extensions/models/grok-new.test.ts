@@ -120,5 +120,13 @@ deepStrictEqual(second.content.filter(part => part.type === "text").map(part => 
 const replay = fetched[1]!.input as Record<string, unknown>[];
 equal(replay.some(item => item.type === "reasoning" && item.encrypted_content === "encrypted-fixture"), true);
 equal(replay.some(item => item.type === "function_call_output" && item.output === "OK"), true);
-equal(requests, 2);
+// long 不得发送 xAI 未声明支持的 24h retention；普通缓存关联键仍保留。
+const cached = await runtime.streamSimple(model, context, {
+	...options, cacheRetention: "long", sessionId: "grok-cache-fixture",
+}).result();
+equal(cached.stopReason, "stop");
+equal(fetched[2]!.prompt_cache_key, "grok-cache-fixture");
+equal(Object.hasOwn(fetched[2]!, "prompt_cache_retention"), false);
+equal(Object.hasOwn(fetched[2]!, "prompt_cache_options"), false);
+equal(requests, 3);
 console.log("grok-new.test.ts：档位、过滤及宿主 encrypted reasoning 工具回放夹具通过（不代表真实端点工具可用）");

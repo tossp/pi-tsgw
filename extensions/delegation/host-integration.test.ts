@@ -43,7 +43,7 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			createAgentSession, DefaultResourceLoader, ModelRuntime: Runtime, SessionManager,
 			SettingsManager, VERSION,
 		} = await import("@earendil-works/pi-coding-agent");
-		assert.ok(["1.2.0", "1.4.0"].includes(VERSION), `未验证的宿主 SDK 版本：${VERSION}`);
+		assert.ok(["1.2.0", "1.4.0", "1.5.2"].includes(VERSION), `未验证的宿主 SDK 版本：${VERSION}`);
 		const configure = (extra: AnyRecord = {}) => writeFileSync(join(sandbox.agentDir, "settings.json"),
 			JSON.stringify({ tsgw: { baseUrl: TEST_ROOT, ...extra } }));
 		configure();

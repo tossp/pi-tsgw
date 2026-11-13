@@ -309,8 +309,8 @@ try {
 		const result = await generateImages(model(), context(), { apiKey: KEY, fetch: h.fetch });
 		assert.ok(result.usage);
 		assert.deepEqual({ ...result.usage, cost: undefined }, { input: 80, output: 50, cacheRead: 15, cacheWrite: 5, totalTokens: 150, cost: undefined });
-		for (const [field, value] of Object.entries({ input: 0.00016, output: 0.0004, cacheRead: 0.0000075, cacheWrite: 0.000015, total: 0.0005825 })) {
-			assert.ok(Math.abs(result.usage.cost[field as keyof typeof result.usage.cost] - value) < 1e-12);
+		for (const [field, value] of [["input", 0.00016], ["output", 0.0004], ["cacheRead", 0.0000075], ["cacheWrite", 0.000015], ["total", 0.0005825]] as const) {
+			assert.ok(Math.abs(result.usage.cost[field] - value) < 1e-12);
 		}
 		const zero = mockFetch(() => jsonResponse(reply({ usage: { input_tokens: 0, output_tokens: 0 } })));
 		assert.equal((await generateImages(model(), context(), { apiKey: KEY, fetch: zero.fetch })).usage?.totalTokens, 0);

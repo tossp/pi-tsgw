@@ -83,7 +83,7 @@ const runtime = await ModelRuntime.create({
 	},
 	modelsPath: null, refreshOnCreate: false, allowModelNetwork: false,
 });
-runtime.registerProvider("tsgw", { models: [config] });
+runtime.registerProvider("tsgw", { models: openaiModels(root) });
 const model = runtime.getModel("tsgw", id)!;
 deepStrictEqual(getSupportedThinkingLevels(model), levels);
 const requests: Record<string, unknown>[] = [];
@@ -159,4 +159,28 @@ const replay = requests.at(-1)!.input as Record<string, unknown>[];
 equal(replay.some(item => item.type === "reasoning" && item.encrypted_content === "fixture-encrypted"), true);
 equal(replay.some(item => item.type === "function_call_output" && item.output === "OK"), true);
 equal(requests.length, levels.length + 2);
-console.log("openai-terra.test.ts：目录过滤、七档请求与 Responses 工具回放夹具通过（非真实网关验收）");
+
+// 按已确认的型号范围验证最终 HTTP 字段，不用待测 compat 生成预期。
+const cacheCases = [
+	{ retention: "short", options: undefined, key: "openai-cache-fixture" },
+	{ retention: "long", options: { ttl: "30m" }, key: "openai-cache-fixture" },
+	{ retention: "none", options: { mode: "explicit" }, key: undefined },
+] as const;
+for (const cacheId of ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol"]) {
+	const cacheModel = runtime.getModel("tsgw", cacheId)!;
+	equal(cacheModel.promptCache, undefined, "显式缓存开关不得额外登记后台保温 TTL");
+	for (const entry of cacheCases) {
+		const result = await runtime.streamSimple(cacheModel, context, {
+			reasoning: "low", maxTokens: 512, maxRetries: 0, fetch: fakeFetch,
+			cacheRetention: entry.retention, sessionId: "openai-cache-fixture",
+		}).result();
+		equal(result.stopReason, "stop", result.errorMessage ?? cacheId);
+		const body = requests.at(-1)!;
+		equal(body.model, cacheId);
+		deepStrictEqual(body.prompt_cache_options, entry.options);
+		equal(Object.hasOwn(body, "prompt_cache_retention"), false);
+		equal(body.prompt_cache_key, entry.key);
+	}
+}
+equal(requests.length, levels.length + 2 + 15);
+console.log("openai-terra.test.ts：目录过滤、七档请求、工具回放与逐型号缓存字段夹具通过（非真实网关验收）");

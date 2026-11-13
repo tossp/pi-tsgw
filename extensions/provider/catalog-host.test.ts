@@ -208,7 +208,7 @@ test("Pi SDK 真实宿主：目录加载、命令刷新与退出语义", { timeo
 	await t.test("带凭据无缓存：加载/绑定零网络，挂起请求不阻塞，放行后 registry 更新；dispose 不发 shutdown", async () => {
 		await withSandbox(async sandbox => {
 			const sdk = await sdkFor();
-			assert.ok(["1.2.0", "1.4.0"].includes(sdk.VERSION), `未验证的宿主 SDK 版本：${sdk.VERSION}`);
+			assert.ok(["1.2.0", "1.4.0", "1.5.2"].includes(sdk.VERSION), `未验证的宿主 SDK 版本：${sdk.VERSION}`);
 			const key = `no-cache-${randomUUID()}`;
 			const catalog = interceptCatalog(sandbox, key, true);
 			let shutdowns = 0;

@@ -24,6 +24,9 @@ export function grokModels(root: string): ProviderModelConfig[] {
 			contextWindow: 500000,
 			// 官方不设独立文本输出上限；此值取上下文容量上界，不宣称可同时填满输入与输出。
 			maxTokens: 500000,
+			// 与 Pi 1.5.2 的 xAI 同型号声明一致，不向网关发送 OpenAI 的 24h 缓存字段。
+			// https://github.com/earendil-works/pi/blob/v1.5.2/packages/ai/catalog/providers/xai.ts
+			compat: { supportsLongCacheRetention: false },
 			thinkingLevelMap: { off: null, minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "xhigh" },
 		},
 		{

@@ -8,6 +8,8 @@ import { ANTHROPIC_COMPAT } from "./_protocols.ts";
  */
 export function anthropicModels(root: string): ProviderModelConfig[] {
 	// 宿主 SDK 会追加 /v1/messages，基地址不再加厂商路径。
+	// 线程续接仅用于 Claude，不放入其他厂商复用的协议配置。
+	const compat = { ...ANTHROPIC_COMPAT, supportsMessageThreads: true };
 	return [
 		{
 			id: "claude-opus-5",
@@ -26,7 +28,7 @@ export function anthropicModels(root: string): ProviderModelConfig[] {
 			cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
 			contextWindow: 1000000,
 			maxTokens: 128000,
-			compat: ANTHROPIC_COMPAT,
+			compat,
 		},
 		{
 			id: "claude-sonnet-5",
@@ -45,7 +47,7 @@ export function anthropicModels(root: string): ProviderModelConfig[] {
 			cost: { input: 6, output: 30, cacheRead: 0.6, cacheWrite: 7.5 },
 			contextWindow: 1000000,
 			maxTokens: 128000,
-			compat: ANTHROPIC_COMPAT,
+			compat,
 		},
 	];
 }

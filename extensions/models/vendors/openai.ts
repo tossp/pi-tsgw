@@ -19,6 +19,9 @@ import { type PayloadWriter, type ThinkingApplier } from "../_tools.ts";
  */
 export function openaiModels(root: string): ProviderModelConfig[] {
 	const v1 = `${root}/v1`;
+	// 同一网关供应商下的 GPT Responses 统一跟随 OpenAI API 显式缓存策略。
+	// https://github.com/earendil-works/pi/blob/v1.5.2/packages/ai/catalog/providers/openai.ts
+	const explicitCacheCompat = { supportsExplicitPromptCacheMode: true };
 	return [
 		{
 			id: "gpt-6-astra",
@@ -40,6 +43,7 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			cost: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
 			contextWindow: 1050000,
 			maxTokens: 128000,
+			compat: explicitCacheCompat,
 		},
 		{
 			id: "gpt-6.1-sol",
@@ -61,6 +65,7 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
 			contextWindow: 500000,
 			maxTokens: 128000,
+			compat: explicitCacheCompat,
 		},
 		{
 			id: "gpt-6.1-terra",
@@ -82,6 +87,7 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			cost: { input: 1, output: 5, cacheRead: 0.05, cacheWrite: 1.25 },
 			contextWindow: 1050000,
 			maxTokens: 128000,
+			compat: explicitCacheCompat,
 		},
 		{
 			id: "gpt-6-sol",
@@ -102,6 +108,7 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
 			contextWindow: 1050000,
 			maxTokens: 128000,
+			compat: explicitCacheCompat,
 		},
 		{
 			id: "gpt-6-luna",
@@ -122,6 +129,7 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			cost: { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 },
 			contextWindow: 1050000,
 			maxTokens: 128000,
+			compat: explicitCacheCompat,
 		},
 	];
 }

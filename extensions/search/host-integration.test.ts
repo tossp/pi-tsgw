@@ -199,7 +199,7 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			};
 			assert.deepEqual(result.usage, {
 				input: 90, output: 30, cacheRead: 20, cacheWrite: 10, reasoning: 7, totalTokens: 150,
-				cost: { ...cost, total: cost.input + cost.output + cost.cacheRead + cost.cacheWrite },
+				cost: { ...cost, total: cost.input + cost.output + cost.cacheRead + cost.cacheWrite, totalFromProvider: false },
 			});
 			const request = requests[1]!;
 			assert.equal(request.body.model, luna.id, "即使注册了 Sol/Astra/Grok，也优先选 Luna");

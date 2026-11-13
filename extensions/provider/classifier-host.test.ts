@@ -66,7 +66,7 @@ test("Pi SDK classifier：源码加载、原生认证/解析、codemode、过滤
 	try {
 		const { createAgentSession, createCodemodeExtension, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, VERSION } =
 			await import("@earendil-works/pi-coding-agent");
-		assert.ok(["1.2.0", "1.4.0"].includes(VERSION), `未验证的宿主 SDK 版本：${VERSION}`);
+		assert.ok(["1.2.0", "1.4.0", "1.5.2"].includes(VERSION), `未验证的宿主 SDK 版本：${VERSION}`);
 		const configure = (extra = {}) => writeFileSync(join(sandbox.agentDir, "settings.json"),
 			JSON.stringify({ tsgw: { baseUrl: TEST_ROOT, ...extra } }));
 		configure();
