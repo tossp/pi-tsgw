@@ -45,6 +45,7 @@ const geminiCases = {
 	"gemini-3.5-flash-low": "flash-level",
 	"gemini-3.5-flash-extra-low": "flash-level",
 	"gemini-3.5-flash-lite": "completions-level",
+	"gemini-3.8-flash": "pro-level",
 	"gemini-3.8-flash-high": "pro-level",
 } as const;
 coverage(Object.keys(geminiCases), geminiThinking, geminiModels(root));

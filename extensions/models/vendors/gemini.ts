@@ -15,8 +15,11 @@ import { OPENAI_COMPLETIONS_COMPAT } from "./_protocols.ts";
  *   https://ai.google.dev/gemini-api/docs/thinking 的逐型号表。
  * - gemini-3.8-flash-high：网关精确 ID。官方无该后缀型号，规格（input
  *   1,048,576 / output 65,536；思考 low/medium/high，默认 medium，minimal
- *   会报错）继承基础型号 gemini-3.8-flash，实际别名路由未验证；不登记
- *   裸 ID gemini-3.8-flash，也不把 high 后缀当作固定思考档位。
+ *   会报错）继承基础型号 gemini-3.8-flash，实际别名路由未验证；不把
+ *   high 后缀当作固定思考档位。
+ * - 2026-11-15：确认接入裸 ID gemini-3.8-flash；当日复核上述官方模型页、
+ *   thinking 与 pricing，规格和介绍价未变。宿主使用显式版本路径；按当前
+ *   网关公开的 Google 路由使用 root/v1beta，旧别名路径保持不变。
  *   https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash
  *   https://ai.google.dev/gemini-api/docs/whats-new-gemini-3.8
  * - 3.5 Flash-Lite 与 3.8 起废弃采样参数（temperature/top_p/top_k 被忽略，
@@ -102,6 +105,19 @@ export function geminiModels(root: string): ProviderModelConfig[] {
 			maxTokens: 65536,
 		},
 		{
+			id: "gemini-3.8-flash",
+			name: "Gemini 3.8 Flash",
+			api: "google-generative-ai",
+			baseUrl: `${root}/v1beta`,
+			thinkingLevelMap: { off: null, minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "high", max: "high" },
+			reasoning: true,
+			input: ["text", "image"],
+			// 官方标准层介绍价（截至 2026-12-31），非网关实扣；来源见文件头。
+			cost: { input: 0.75, output: 3.75, cacheRead: 0.075, cacheWrite: 0 },
+			contextWindow: 1048576,
+			maxTokens: 65536,
+		},
+		{
 			id: "gemini-3.8-flash-high",
 			name: "Gemini 3.8 Flash",
 			api: "google-generative-ai",
@@ -171,5 +187,6 @@ export const geminiThinking: Record<string, ThinkingApplier> = {
 	"gemini-3.5-flash-extra-low": (w, c) => applyGemini35Flash(w, c.thinkingLevel),
 	"gemini-3.5-flash-lite": (w, c) => applyGemini35FlashLite(w, c.thinkingLevel),
 	"gemini-pro": (w, c) => applyGeminiPro(w, c.thinkingLevel),
+	"gemini-3.8-flash": (w, c) => applyGemini38Flash(w, c.thinkingLevel),
 	"gemini-3.8-flash-high": (w, c) => applyGemini38Flash(w, c.thinkingLevel),
 };

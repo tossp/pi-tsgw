@@ -37,7 +37,8 @@ function testCatalogConcatenation(): void {
 	};
 	for (const model of models) {
 		equal(Object.hasOwn(endpoints, model.api!), true, `未知协议：${model.api}`);
-		const endpoint = model.id === "gemini-3.8-flash-high" ? "/gemini/v1beta"
+		const endpoint = model.id === "gemini-3.8-flash" ? "/v1beta"
+			: model.id === "gemini-3.8-flash-high" ? "/gemini/v1beta"
 			: endpoints[model.api as keyof typeof endpoints];
 		equal(model.baseUrl, `${ROOT}${endpoint}`);
 	}
