@@ -16,7 +16,6 @@ const usage: Reply["usage"] = {
 function fixture() {
 	let tool!: Tool;
 	let delegate: SearchDelegate | undefined = { modelId: "gpt-6-luna", kind: "gpt" };
-	let mode: "live" | "cached" = "live";
 	const model = { ...modelsForRoot("https://proxy-test.invalid").find(model => model.id === "gpt-6-luna")!, provider: "tsgw" } as NonNullable<ReturnType<Registry["find"]>>;
 	let calls = 0;
 	let reply = { content: [{ type: "text", text: "answer" }], stopReason: "stop", usage } as Reply;
@@ -39,7 +38,9 @@ function fixture() {
 			for (const event of [
 				{ type: "response.output_text.annotation.added", annotation: { url } },
 				{ type: "response.output_item.done", item: { content: [{ annotations: [{ url }] }] } },
-				{ citations: [url, "javascript:alert(1)", "invalid", { url: "https://source.example/other" }] },
+				{ type: "response.output_item.done", item: { content: [{ annotations: [
+					{ url }, { url: "javascript:alert(1)" }, { url: "invalid" }, { url: "https://source.example/other" },
+				] }] } },
 			]) options?.onProviderStreamEvent?.(Object.freeze(event), model as never);
 			return { result: async () => {
 				if (thrown) throw new Error("private-provider-response-with-secret");
@@ -48,25 +49,23 @@ function fixture() {
 		},
 	} satisfies Pick<Registry, "streamSimple" | "find">;
 	registerSearchProxyTool({ registerTool: value => { tool = value as unknown as Tool; } } as ExtensionAPI,
-		{ delegate: () => delegate, mode: () => mode });
+		{ delegate: () => delegate });
 	const ctx = { modelRegistry: registry } as unknown as ExtensionToolContext;
 	return {
 		tool, registry, model, calls: () => calls, payload: () => payload, operation: () => operation,
-		run: (signal?: AbortSignal) => tool.execute("call", { query: "question" }, signal, undefined, ctx),
+		run: (signal?: AbortSignal, mode?: "live" | "cached") => tool.execute("call", { query: "question", ...(mode ? { mode } : {}) }, signal, undefined, ctx),
 		delegate: (value: SearchDelegate | undefined) => { delegate = value; },
-		mode: (value: typeof mode) => { mode = value; },
 		reply: (value: Partial<Reply>) => { reply = { ...reply, ...value }; },
 		throw: () => { thrown = true; },
 	};
 }
 
-test("代理保存模式快照、向冻结请求体注入参数并保留 Pi 用量与引用 URL", async () => {
+test("代理按调用模式向冻结请求体注入参数并保留 Pi 用量与引用 URL", async () => {
 	const f = fixture();
 	assert.equal(f.tool.exposure, "deferred");
 	assert.equal(f.tool.namespace?.name, "tsgw_search");
-	f.mode("cached");
 	const controller = new AbortController();
-	const result = await f.run(controller.signal);
+	const result = await f.run(controller.signal, "cached");
 	assert.equal(result.usage, usage);
 	assert.equal(result.isError, undefined);
 	assert.deepEqual(result.structuredContent, {
@@ -81,11 +80,22 @@ test("代理保存模式快照、向冻结请求体注入参数并保留 Pi 用�
 	assert.equal(f.operation()?.aborted, true);
 });
 
+test("每次调用独立选择模式，省略时回到实时且不继承前次缓存模式", async () => {
+	const f = fixture();
+	for (const mode of [undefined, "cached", "live", "cached", undefined] as const) {
+		await f.run(undefined, mode);
+		assert.equal((f.payload() as { tools: { external_web_access: boolean }[] }).tools[0]!.external_web_access,
+			mode !== "cached");
+	}
+	assert.equal(f.calls(), 5);
+});
+
 test("代理在请求前校验当前委托模型与注册表中的实际协议", async () => {
 	const f = fixture();
 	f.delegate(undefined);
 	await assert.rejects(f.run());
-	f.delegate({ modelId: "gpt-6-luna", kind: "grok" });
+	f.delegate({ modelId: "gpt-6-luna", kind: "gpt" });
+	f.model.api = "openai-completions";
 	await assert.rejects(f.run());
 	assert.equal(f.calls(), 0);
 });

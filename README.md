@@ -37,7 +37,7 @@ pi install npm:pi-tsgw
 
 图片工具固定登记已接入的两款模型，不受 `tsgw.includeModels` / `excludeModels` 或网关模型目录缺席影响；仍复用宿主认证，由实际调用确认上游支持，失败不自动重试或换模型。
 
-本地上传工具名为 `tsgw_upload_local_file`，不再提供旧名 `upload_local_file`；已有调用需更新。代理搜索仍遵守当前模型及可用目录限制，不因切换模型或刷新目录自动激活。
+本地上传工具名为 `tsgw_upload_local_file`，不再提供旧名 `upload_local_file`；已有调用需更新。代理搜索仅使用可用目录内的 GPT，支持原生搜索的 TSGW 主模型也可调用；每次由模型选择 `mode: "live" | "cached"`，省略时默认实时。旧全局 `tsgw.tsSearch` 和 `/tsgw-search` 设置入口已移除，底部仅保留 TSGW 入口。
 
 ## 可选邮件配置
 

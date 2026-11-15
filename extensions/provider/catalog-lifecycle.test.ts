@@ -1,7 +1,7 @@
 import { deepStrictEqual, equal, match, rejects } from "node:assert/strict";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { catalogLabel, searchLabel } from "./status.ts";
+import { catalogLabel } from "./status.ts";
 import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL, gatewayModelCacheScope, saveGatewayModelCache } from "#tsgw/models/gateway-catalog";
 import { withAgentDir, providerRequest } from "#tsgw/test-support.test";
 import { fixture, modelResponse, nextFixtureId, waitUntil, withUi, FIXED_IMAGE_IDS, sortedWithFixedImages } from "./catalog-test-support.test.ts";
@@ -195,20 +195,20 @@ await withUi(async ({ pi, ctx, statuses, setConfigured, refreshCalls, notices })
 
 
 await withUi(async ({ pi, ctx, key, statuses, refreshModels }) => {
-	// 后台刷新更新代理支持状态，但不自动激活 deferred 工具。
+	// 后台刷新不添加独立搜索状态项，也不自动激活 deferred 工具。
 	ctx.model = { ...ctx.model, id: "glm-5.2", api: "openai-completions" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
-	equal(statuses.get("command:/tsgw-search"), searchLabel("live", "proxy-gpt"));
+	equal(statuses.has("command:/tsgw-search"), false);
 	equal(pi.activeTools.includes("tsgw_search"), false);
 	globalThis.fetch = async () => modelResponse(["glm-5.2"]);
 	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key },
 		force: true, signal: new AbortController().signal });
 	equal(pi.activeTools.includes("tsgw_search"), false);
-	equal(statuses.get("command:/tsgw-search"), searchLabel("live", undefined));
+	equal(statuses.has("command:/tsgw-search"), false);
 	globalThis.fetch = async () => modelResponse(["gpt-6-luna"]);
 	await refreshModels({ allowNetwork: true, credential: { type: "api_key", key },
 		force: true, signal: new AbortController().signal });
-	equal(statuses.get("command:/tsgw-search"), searchLabel("live", "proxy-gpt"));
+	equal(statuses.has("command:/tsgw-search"), false);
 	equal(pi.activeTools.includes("tsgw_search"), false);
 	ctx.hasUI = false;
 	const setStatus = ctx.ui.setStatus;
@@ -289,7 +289,7 @@ for (const succeeds of [false, true]) {
 }
 
 
-for (const commandName of ["tsgw-refresh", "tsgw-search", "tsgw"]) {
+for (const commandName of ["tsgw-refresh", "tsgw"]) {
 	await withUi(async ({ pi, ctx }) => {
 		let stale = false;
 		const guarded = new Proxy(ctx, { get(target, property, receiver) {
@@ -305,7 +305,7 @@ for (const commandName of ["tsgw-refresh", "tsgw-search", "tsgw"]) {
 			});
 		} else {
 			ctx.ui.select = (_title, options) => new Promise((resolve) => {
-				release = () => resolve(options[commandName === "tsgw" ? 0 : 1]);
+				release = () => resolve(options[0]);
 				started();
 			});
 		}
@@ -315,27 +315,11 @@ for (const commandName of ["tsgw-refresh", "tsgw-search", "tsgw"]) {
 		stale = true;
 		release();
 		await pending;
-		// 迟到的选择器结果不得修改旧实例的搜索快照。
+		// 迟到的菜单结果不得访问已关闭会话；请求快照仍可用。
 		equal((providerRequest(pi, {}) as { tools: Array<{ external_web_access: boolean }> })
-			.tools[0].external_web_access, false);
-	}, "cached");
+			.tools[0].external_web_access, true);
+	});
 }
-
-
-await withUi(async ({ pi, ctx, statuses, notices }) => {
-	// 上一会话的选择器不能覆盖已恢复的默认值。
-	await pi.invokeCommand("tsgw-search", ctx, "cached");
-	ctx.ui.select = async (_title, options) => {
-		pi.invoke("session_start", { reason: "new" }, ctx);
-		return options[0];
-	};
-	const count = notices.length;
-	await pi.invokeCommand("tsgw-search", ctx);
-	equal(notices.length, count);
-	equal(statuses.get("command:/tsgw-search"), searchLabel("live", "gpt"));
-	equal((providerRequest(pi, {}) as { tools: Array<{ external_web_access: boolean }> })
-		.tools[0].external_web_access, true);
-});
 
 
 for (const stale of [false, true]) {
@@ -389,14 +373,14 @@ await withUi(async ({ pi, ctx, statuses, notices }) => {
 		"网关重复返回图片 ID 也不会重复登记固定图片");
 	ctx.model = { ...ctx.model, id: "glm-5.2", api: "openai-completions" };
 	pi.invoke("model_select", { model: ctx.model }, ctx);
-	equal(statuses.get("command:/tsgw-search"), searchLabel("live", "proxy-gpt"));
+	equal(statuses.has("command:/tsgw-search"), false);
 	equal(pi.activeTools.includes("tsgw_search"), false, "有 GPT 候选也不自动激活");
 	globalThis.fetch = async () => modelResponse(["jev-preview"]);
 	await pi.invokeCommand("tsgw-refresh", ctx);
 	match(notices.at(-1)!.text, new RegExp(`${catalogCount(3)} → ${catalogCount(1)}`));
 	equal(statuses.get("command:/tsgw"), catalogLabel({ count: catalogCount(1), source: "network", storedAt: Date.now(), loading: false }, true, true));
 	// 只余 classifier 时代理不可用；不能把分类器当聊天候选。
-	equal(statuses.get("command:/tsgw-search"), searchLabel("live", undefined));
+	equal(statuses.has("command:/tsgw-search"), false);
 	equal(pi.activeTools.includes("tsgw_search"), false);
 });
 

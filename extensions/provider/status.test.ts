@@ -2,7 +2,6 @@ import { deepStrictEqual, match, strictEqual } from "node:assert";
 import {
 	catalogDiagnostics,
 	catalogLabel,
-	searchLabel,
 	type CatalogStatus,
 } from "./status.ts";
 import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL } from "#tsgw/models/gateway-catalog";
@@ -148,7 +147,7 @@ function testBuiltinSearchSupport(): void {
 	const gptModels = [
 		"gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna",
 	];
-	const grokModels = ["grok-4.5"];
+	const grokModels = ["grok-4.5", "grok-4.7"];
 	const unsupportedModels = [
 		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5",
 		"", "gpt-5.6-k3", "gpt-6.1", "gpt-6.1-sol-extra", "GPT-6.1-SOL",
@@ -164,11 +163,7 @@ function testBuiltinSearchSupport(): void {
 	];
 	for (const model of [...gptModels, ...grokModels, ...unsupportedModels]) {
 		for (const api of apis) {
-			const expected = api === "openai-responses" && gptModels.includes(model)
-				? "gpt"
-				: api === "openai-completions" && grokModels.includes(model)
-					? "grok"
-					: undefined;
+			const expected = api === "openai-responses" && gptModels.includes(model) ? "gpt" : undefined;
 			strictEqual(builtinSearchSupport(model, api), expected, `${model}/${api}`);
 			// 查询与实际注入使用同一支持判断；不支持仍返回原对象。
 			for (const mode of ["cached", "live"] as const) {
@@ -176,8 +171,6 @@ function testBuiltinSearchSupport(): void {
 				const result = applyBuiltinSearchTool(input, model, api, mode);
 				if (expected === undefined) {
 					strictEqual(result, input);
-				} else if (expected === "grok") {
-					deepStrictEqual(result, { ...input, search_parameters: { mode: "on" } });
 				} else {
 					deepStrictEqual(result, {
 						...input,
@@ -193,21 +186,8 @@ function testBuiltinSearchSupport(): void {
 	}
 }
 
-function testSearchLabels(): void {
-	for (const mode of ["cached", "live"] as const) {
-		strictEqual(searchLabel(mode, undefined), "⚪ 内置联网：不支持");
-		strictEqual(searchLabel(mode, "proxy-gpt"), mode === "cached"
-			? "🟡 内置联网：代理缓存" : "🟢 内置联网：代理");
-		strictEqual(searchLabel(mode, "proxy-grok"), "🟢 内置联网：代理");
-		strictEqual(searchLabel(mode, "gpt"), mode === "cached"
-			? "🟡 内置联网：缓存" : "🟢 内置联网：实时");
-		strictEqual(searchLabel(mode, "grok"), "🟢 内置联网：实时");
-	}
-}
-
 testCatalogLabels();
 testTtlAndTimestamps();
 testDiagnostics();
 testBuiltinSearchSupport();
-testSearchLabels();
 console.log("status.test.ts：全部断言通过");

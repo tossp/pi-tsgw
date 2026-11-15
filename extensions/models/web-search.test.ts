@@ -139,26 +139,15 @@ function testNoOpsAndScope(): void {
 		);
 }
 
-function testGrokSearchInjection(): void {
-	// Grok（openai-completions）注入 search_parameters: { mode: "on" }。
-	for (const modelId of ["grok-4.5"]) {
-		const result = applyBuiltinSearchTool(
-			{ messages: [{ role: "user", content: "hi" }] },
-			modelId,
-			"openai-completions",
-			"cached",
-		);
-		if (!isPlainObject(result)) throw new Error("应为普通对象");
-		deepStrictEqual((result as Payload).search_parameters, { mode: "on" });
-	}
-
-	// 两种 GPT 会话模式下 Grok 均固定实时，保留现有搜索字段。
-	for (const mode of ["cached", "live"] as const) {
-		deepStrictEqual(applyBuiltinSearchTool({}, "grok-4.5", "openai-completions", mode),
-			{ search_parameters: { mode: "on" } });
-		for (const input of [{ search_parameters: { mode: "off" } }, { web_search_options: {} }]) {
-			Object.freeze(input);
-			strictEqual(applyBuiltinSearchTool(input, "grok-4.5", "openai-completions", mode), input);
+function testGrokSearchNoOps(): void {
+	for (const modelId of ["grok-4.5", "grok-4.7"]) {
+		for (const api of ["openai-completions", "openai-responses"]) {
+			for (const mode of ["cached", "live"] as const) {
+				for (const input of [{}, { search_parameters: { mode: "off" } }, { web_search_options: {} }]) {
+					Object.freeze(input);
+					strictEqual(applyBuiltinSearchTool(input, modelId, api, mode), input);
+				}
+			}
 		}
 	}
 }
@@ -169,5 +158,5 @@ testBuiltinSearchInjection();
 testGpt6SearchInjection();
 testRemovedGptSearchNoOps();
 testNoOpsAndScope();
-testGrokSearchInjection();
+testGrokSearchNoOps();
 console.log("web-search.test.ts：全部断言通过");

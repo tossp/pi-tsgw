@@ -30,10 +30,9 @@ import { classify } from "#tsgw/models/adapter/classifiers/adapter";
 import {
 	catalogLabel,
 	catalogDiagnostics,
-	searchLabel,
 	type CatalogStatus,
 } from "./status.ts";
-import type { ThinkingLevel, WebSearchMode } from "#tsgw/models/_tools";
+import type { ThinkingLevel } from "#tsgw/models/_tools";
 import type { TsgwSettings } from "./config.ts";
 
 /**
@@ -97,10 +96,6 @@ export async function registerTsgwProvider(
 	const root = rootForRuntime(settings.baseUrl);
 	const imagesEnabled = supportsImageModels(VERSION);
 	const classifiersEnabled = supportsClassifierModels(VERSION);
-	const defaultSearchMode: WebSearchMode =
-		settings.tsSearch === "cached" || settings.tsSearch === "live"
-			? settings.tsSearch
-			: "live";
 	const traceEnabled = settings.traceHeaders !== false;
 	const modelFilter: ModelFilter = {
 		include: settings.includeModels,
@@ -162,13 +157,8 @@ export async function registerTsgwProvider(
 		directory.invalidate();
 	};
 	const search = registerSearch(pi, {
-		defaultMode: defaultSearchMode,
 		state: () => requestState,
 		models: () => latestModels.filter(model => model.type === undefined || model.type === "chat"),
-		revision: () => lifecycleRevision,
-		refreshState: refreshRequestState,
-		bindStatus: ctx => bindStatus(ctx),
-		publishStatus: () => publishStatus?.(),
 	});
 	// 仅保留界面输出端，绝不保留生命周期上下文；关闭时断开。
 	const bindStatus = (ctx: ExtensionContext): void => {
@@ -183,9 +173,6 @@ export async function registerTsgwProvider(
 		publishStatus = () => {
 			ui.setStatus("command:/tsgw",
 				catalogLabel(catalog, credentialConfigured, rootConfigured));
-			ui.setStatus("command:/tsgw-search",
-				requestState?.provider === PROVIDER_ID
-					? searchLabel(search.mode(), search.support()) : undefined);
 		};
 		publishStatus();
 	};
@@ -333,7 +320,7 @@ export async function registerTsgwProvider(
 			modelId: state.modelId,
 			api: state.api,
 			thinkingLevel: state.thinkingLevel,
-			tsSearchMode: search.mode(),
+			tsSearchMode: "live" as const,
 		};
 		// 模型模块统一完成请求改写：厂商思维链策略 + 内置查询工具注入。
 		return applyModelOperations(event.payload, context);

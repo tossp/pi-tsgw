@@ -70,7 +70,7 @@ async function testSafeProviderHooksAfterContextStales(): Promise<void> {
 			{
 				type: "web_search",
 				search_context_size: "medium",
-				external_web_access: false,
+				external_web_access: true,
 			},
 		],
 		text: { verbosity: "low" },
@@ -162,7 +162,7 @@ async function testOldInstanceCallbacksKeepOwnSnapshot(): Promise<void> {
 				{
 					type: "web_search",
 					search_context_size: "medium",
-					external_web_access: false,
+					external_web_access: true,
 				},
 			],
 			text: { verbosity: "low" },
@@ -186,13 +186,13 @@ async function testSettingsConfig(): Promise<void> {
 		?.baseUrl;
 	strictEqual(baseUrl, "https://gateway.example.net/v1");
 
-	// 缺失、旧版 off 和无效配置默认使用 live；保留已有 cached。
+	// 已退出的 tsSearch 配置不再限制搜索；原生请求默认实时。
 	for (const tsSearch of [undefined, "off", "invalid", null, false, 42, {}, "cached", "live"]) {
 		const piSearch = await createPi({ tsgw: { tsSearch } });
 		sessionStart(piSearch, new FakeContext(TSGW_SOL, "off"));
 		deepStrictEqual(providerRequest(piSearch, { tools: [] }), {
 			tools: [{ type: "web_search", search_context_size: "medium",
-				external_web_access: tsSearch !== "cached" }],
+				external_web_access: true }],
 			text: { verbosity: "low" },
 		});
 	}

@@ -1,15 +1,12 @@
 /**
  * 内置网页搜索工具注入。
  *
- * 对原生支持内置查询的模型（GPT Responses / Grok），在请求改写阶段把
- * 搜索参数追加进请求。属于模型请求改写的一部分，与思维链策略一起在
- * `before_provider_request` 中应用。
+ * 对支持内置查询的 GPT Responses 模型，在请求改写阶段把搜索参数追加进请求。
+ * 属于模型请求改写的一部分，与思维链策略一起在 `before_provider_request` 中应用。
  *
- * - GPT（openai-responses）：追加 `tools: [{ type: "web_search", ... }]`
- * - Grok 4.5（Completions）：追加 `search_parameters: { mode: "on" }`
- *   （xAI 文档：https://docs.x.ai/developers/tools/web-search）
+ * GPT（openai-responses）：追加 `tools: [{ type: "web_search", ... }]`
  *
- * 名单外主模型通过 tsgw_search 调用目录内支持模型；注入逻辑保持共用。
+ * TSGW 主模型均可通过 tsgw_search 调用目录内支持模型；注入逻辑保持共用。
  */
 
 import {
@@ -20,7 +17,6 @@ import {
 } from "./_tools.ts";
 
 const OPENAI_RESPONSES = "openai-responses";
-const OPENAI_COMPLETIONS = "openai-completions";
 
 // 支持内置查询的模型名单（GPT Responses 系列）。
 const BUILTIN_SEARCH_MODELS = new Set([
@@ -30,26 +26,21 @@ const BUILTIN_SEARCH_MODELS = new Set([
 	"gpt-6-luna",
 ]);
 
-// 支持内置查询的 Grok 系列（openai-completions 协议，search_parameters 模式）。
-const GROK_SEARCH_MODELS = new Set(["grok-4.5"]);
-
 /** 精确判定模型/协议支持性，由请求注入与展示代码共用。 */
 export function builtinSearchSupport(
 	modelId: string,
 	api: string,
-): "gpt" | "grok" | undefined {
+): "gpt" | undefined {
 	if (api === OPENAI_RESPONSES && BUILTIN_SEARCH_MODELS.has(modelId))
 		return "gpt";
-	if (api === OPENAI_COMPLETIONS && GROK_SEARCH_MODELS.has(modelId))
-		return "grok";
 	return undefined;
 }
 
-/** 内置联网搜索代理：主模型不支持原生联网时的代理执行模型。 */
+/** 内置联网搜索代理：独立执行代理搜索的模型。 */
 export interface SearchDelegate {
 	modelId: string;
 	/** 代理协议族；请求和响应处理复用宿主适配器。 */
-	kind: "gpt" | "grok";
+	kind: "gpt";
 }
 
 // 搜索任务优先 Luna；其余仅在优先候选不在生效目录时依序候补。
@@ -58,7 +49,6 @@ const DELEGATE_PREFERENCE = [
 	"gpt-6-sol",
 	"gpt-6.1-sol",
 	"gpt-6-astra",
-	"grok-4.5",
 ] as const;
 
 /**
@@ -86,13 +76,6 @@ function isExistingWebSearchTool(tools: readonly unknown[]): boolean {
 	});
 }
 
-function hasGrokSearchFields(payload: Payload): boolean {
-	return (
-		Object.hasOwn(payload, "search_parameters") ||
-		Object.hasOwn(payload, "web_search_options")
-	);
-}
-
 function applyGptSearch(writer: PayloadWriter, mode: WebSearchMode): void {
 	const tools = writer.get("tools");
 	if (tools !== undefined && !Array.isArray(tools)) return;
@@ -106,11 +89,6 @@ function applyGptSearch(writer: PayloadWriter, mode: WebSearchMode): void {
 			external_web_access: mode === "live",
 		},
 	]);
-}
-
-function applyGrokSearch(writer: PayloadWriter): void {
-	if (hasGrokSearchFields(writer.result())) return;
-	writer.set("search_parameters", { mode: "on" });
 }
 
 /**
@@ -132,10 +110,6 @@ export function applyBuiltinSearchTool<T>(
 
 	if (support === "gpt") {
 		applyGptSearch(writer, mode);
-		return writer.result();
-	}
-	if (support === "grok") {
-		applyGrokSearch(writer);
 		return writer.result();
 	}
 	return payload;

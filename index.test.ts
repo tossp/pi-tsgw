@@ -67,7 +67,7 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		const { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager } =
 			await import("@earendil-works/pi-coding-agent");
 		writeFileSync(join(sandbox.agentDir, "settings.json"), JSON.stringify({
-			tsgw: { baseUrl: TEST_ROOT, tsSearch: "live", mcpUrl: "https://obsolete-mcp.invalid/mcp" },
+			tsgw: { baseUrl: TEST_ROOT, tsSearch: "cached", mcpUrl: "https://obsolete-mcp.invalid/mcp" },
 		}));
 		const manifest = JSON.parse(readFileSync(join(dirname(entry), "package.json"), "utf8"));
 		assert.deepEqual(manifest.pi.extensions, ["./index.ts"], "包清单只登记根插件入口");
@@ -116,7 +116,7 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		for (const type of ["chat", "classifier"] as const)
 			assert.deepEqual(runtime.getModelsOfType(type, PROVIDER_ID), []);
 		const names = session.extensionRunner.getRegisteredCommands().map((command) => command.name).sort();
-		assert.deepEqual(names, ["insagent", "tsgw", "tsgw-refresh", "tsgw-search"]);
+		assert.deepEqual(names, ["insagent", "tsgw", "tsgw-refresh"]);
 		await runtime.setRuntimeApiKey(PROVIDER_ID, TEST_KEY);
 		assert.deepEqual(runtime.getAllModels(PROVIDER_ID).map(model => model.id), [...IMAGE_MODEL_IDS], "仅配置密钥不恢复聊天目录");
 		sandbox.catalogIds = [...staticModels.map(model => model.id), ...IMAGE_MODEL_IDS];
@@ -175,14 +175,12 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		assert.deepEqual(runtime.getModels(PROVIDER_ID).map((m) => m.id).sort(), expectedIds);
 		sandbox.catalogFails = false;
 
-		await session.prompt("/tsgw-search cached");
 		await session.prompt("First fixture request");
 		assert.equal(session.getLastAssistantText(), "fixture reply");
 		assert.equal(sandbox.requests.length, 1);
 		assert.equal(sandbox.requests[0]!.body.model, model.id);
-		assert.equal(searchTool(sandbox.requests[0]!).external_web_access, false);
+		assert.equal(searchTool(sandbox.requests[0]!).external_web_access, true);
 		const firstTrace = trace(sandbox.requests[0]!);
-		await session.prompt("/tsgw-search live");
 		await session.prompt("Second fixture request");
 		assert.equal(sandbox.requests.length, 2);
 		assert.equal(searchTool(sandbox.requests[1]!).external_web_access, true);
@@ -190,7 +188,6 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		assert.equal(secondTrace.thread, firstTrace.thread);
 		assert.notEqual(secondTrace.turn, firstTrace.turn);
 
-		await session.prompt("/tsgw-search cached");
 		const oldRunner = session.extensionRunner;
 		await session.reload();
 		assert.notEqual(session.extensionRunner, oldRunner);
@@ -207,9 +204,9 @@ test("Pi 1.2 SDK：源码加载、目录刷新、命令、请求钩子、记忆�
 		// 调用真实运行器的分发器，不直接调用扩展处理器。
 		const latePayload = await oldRunner.emitBeforeProviderRequest({ model: model.id, tools: [] });
 		const lateHeaders = await oldRunner.emitBeforeProviderHeaders({});
-		assert.equal(searchTool({ body: latePayload as Record<string, unknown>, headers: new Headers() }).external_web_access, false);
+		assert.equal(searchTool({ body: latePayload as Record<string, unknown>, headers: new Headers() }).external_web_access, true);
 		assert.deepEqual(lateHeaders, {});
-		await session.prompt("After reload: settings must restore live search");
+		await session.prompt("After reload: native search remains live");
 		assert.equal(session.getLastAssistantText(), "fixture reply");
 		assert.equal(sandbox.requests.length, 3);
 		assert.equal(searchTool(sandbox.requests[2]!).external_web_access, true);

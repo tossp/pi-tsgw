@@ -1,4 +1,3 @@
-import type { WebSearchMode } from "#tsgw/models/_tools";
 import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS } from "#tsgw/models/gateway-catalog";
 
 export interface CatalogStatus {
@@ -79,20 +78,4 @@ export function catalogDiagnostics(
 		`追踪开关：${options.traceEnabled ? "开" : "关"}`,
 		"仅表示目录状态，不代表模型推理健康；不展示密钥或 URL。",
 	].join("\n");
-}
-
-/** 内置联网支持性：原生（gpt/grok）或代理（proxy-*，目录内支持模型代搜）。 */
-export type SearchSupport = "gpt" | "grok" | "proxy-gpt" | "proxy-grok";
-
-export function searchLabel(
-	mode: WebSearchMode,
-	support: SearchSupport | undefined,
-): string {
-	if (support === undefined) return "⚪ 内置联网：不支持";
-	const proxy =
-		support === "proxy-gpt" || support === "proxy-grok";
-	// Grok 原生与 Grok 代理固定实时，不受 GPT 的 cached/live 会话模式影响。
-	if (support === "grok" || support === "proxy-grok" || mode === "live")
-		return proxy ? "🟢 内置联网：代理" : "🟢 内置联网：实时";
-	return proxy ? "🟡 内置联网：代理缓存" : "🟡 内置联网：缓存";
 }

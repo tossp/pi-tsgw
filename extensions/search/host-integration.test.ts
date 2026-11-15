@@ -55,16 +55,6 @@ function responsesSse(truncated = false): Response {
 	});
 }
 
-function completionsSse(): Response {
-	const events = [
-		{ id: "chatcmpl_search", object: "chat.completion.chunk", choices: [{ index: 0, delta: { content: ANSWER }, finish_reason: null }], citations: SOURCES },
-		{ id: "chatcmpl_search", object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "stop" }], usage: { prompt_tokens: 24, completion_tokens: 9, total_tokens: 33 } },
-	];
-	return new Response(events.map(event => `data: ${JSON.stringify(event)}\n\n`).join("") + "data: [DONE]\n\n", {
-		headers: { "content-type": "text/event-stream" },
-	});
-}
-
 // 与根 index.test.ts 一样使用独立 Node 进程：沙箱接管环境、cwd 与网络。
 test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Responses 适配器", { timeout: 60_000 }, async t => {
 	const entry = sourceEntry();
@@ -77,7 +67,7 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 		const { createAgentSession, createCodemodeExtension, createMcpExtension, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager,
 			readStoredCredential } = await import("@earendil-works/pi-coding-agent");
 		const writeSettings = (includeModels?: string[]) => writeFileSync(join(sandbox.agentDir, "settings.json"), JSON.stringify({
-			tsgw: { baseUrl: TEST_ROOT, tsSearch: "live", traceHeaders: true, ...(includeModels ? { includeModels, excludeModels: ["*"] } : {}) },
+			tsgw: { baseUrl: TEST_ROOT, tsSearch: "cached", traceHeaders: true, ...(includeModels ? { includeModels, excludeModels: ["*"] } : {}) },
 		}));
 		writeSettings();
 		const settings = SettingsManager.inMemory({
@@ -138,19 +128,14 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 		// 仅扩展沙箱允许的 Responses 端点；其他请求仍受防护。
 		const guardedFetch = globalThis.fetch;
 		const requests: (CapturedRequest & { signal: AbortSignal })[] = [];
-		const grokRequests: (CapturedRequest & { signal: AbortSignal })[] = [];
 		let behavior: "success" | "truncated" | "error" | "pending" = "success";
 		let started: (() => void) | undefined;
 		globalThis.fetch = async (input, init) => {
 			const request = new Request(input, init);
-			if (request.url !== `${TEST_ROOT}/v1/responses` && request.url !== `${TEST_ROOT}/v1/chat/completions`) return guardedFetch(request);
+			if (request.url !== `${TEST_ROOT}/v1/responses`) return guardedFetch(request);
 			assert.equal(request.method, "POST");
 			assert.equal(request.headers.get("authorization"), `Bearer ${TEST_KEY}`);
 			const captured = { body: await request.json() as Record<string, unknown>, headers: request.headers, signal: request.signal };
-			if (request.url === `${TEST_ROOT}/v1/chat/completions`) {
-				grokRequests.push(captured);
-				return completionsSse();
-			}
 			requests.push(captured);
 			if (behavior === "pending") {
 				return new Promise<Response>((_resolve, reject) => {
@@ -165,9 +150,9 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 		};
 		const active = () => host.getActiveToolNames().includes("tsgw_search");
 		// deferred 工具不在模型可见的 AgentState.tools 中，通过宿主嵌套执行 API 调用。
-		const execute = async (signal?: AbortSignal) => {
+		const execute = async (signal?: AbortSignal, mode?: "live" | "cached") => {
 			const ctx = host.extensionRunner.createToolContext("host-search", signal);
-			const outcome = await ctx.executeTool("tsgw_search", { query: "Fixture research question" }, { signal });
+			const outcome = await ctx.executeTool("tsgw_search", { query: "Fixture research question", ...(mode ? { mode } : {}) }, { signal });
 			return { ...outcome.result, isError: outcome.isError };
 		};
 
@@ -229,15 +214,16 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			assert.equal(active(), false);
 		});
 
-		await t.test("缓存模式与截断标记经真实适配器后仍保留", async () => {
-			await host.prompt("/tsgw-search cached");
+		await t.test("缓存模式与截断标记经真实适配器后仍保留，下次未指定模式恢复实时", async () => {
 			behavior = "truncated";
-			const result = await execute();
+			const result = await execute(undefined, "cached");
 			assert.equal(requests.at(-1)!.body.model, luna.id);
 			assert.deepEqual(requests.at(-1)!.body.tools, [{ type: "web_search", search_context_size: "medium", external_web_access: false }]);
 			assert.deepEqual(result.structuredContent, { delegate: luna.id, answer: ANSWER, citations: SOURCES, truncated: true });
 			assert.notEqual(result.isError, true);
 			behavior = "success";
+			assert.notEqual((await execute()).isError, true);
+			assert.deepEqual(requests.at(-1)!.body.tools, [{ type: "web_search", search_context_size: "medium", external_web_access: true }]);
 		});
 
 		await t.test("HTTP 错误脱敏；调用方取消传递到 HTTP；预先取消不发送请求", async () => {
@@ -266,30 +252,46 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			behavior = "success";
 		});
 
-		await t.test("原生搜索或非 TSGW 模型下按需调用也被拒绝，切回后恢复可用但不激活", async () => {
-			await host.setModel(luna);
-			assert.equal(active(), false);
-			assert.ok(!host.agent.state.tools.some(tool => tool.name === "tsgw_search"));
-			const nativeCount = requests.length + grokRequests.length;
-			assert.equal((await execute()).isError, true);
-			assert.equal(requests.length + grokRequests.length, nativeCount);
+		await t.test("GPT 原生搜索模型和其他主模型均能调用 Luna 代理，每次模式独立且保留主模型", async () => {
+			for (const model of [luna, runtime.getModel("tsgw", "gpt-6.1-sol"), runtime.getModel("tsgw", "grok-4.7")]) {
+				assert.ok(model);
+				await host.setModel(model);
+				assert.equal(active(), false);
+				assert.ok(!host.agent.state.tools.some(tool => tool.name === "tsgw_search"));
+				for (const mode of ["cached", "live", undefined] as const) {
+					const count = requests.length;
+					const result = await execute(undefined, mode);
+					assert.notEqual(result.isError, true);
+					assert.equal(requests.length, count + 1);
+					assert.equal(requests.at(-1)!.body.model, luna.id);
+					assert.deepEqual(requests.at(-1)!.body.tools, [{
+						type: "web_search", search_context_size: "medium",
+						external_web_access: mode !== "cached",
+					}]);
+					assert.equal(host.model?.id, model.id);
+					assert.equal(host.thinkingLevel, "high");
+				}
+			}
+		});
+
+		await t.test("非 TSGW 模型下按需调用被拒绝，切回后恢复可用但不激活", async () => {
 			await host.setModel(main);
 			assert.equal(active(), false);
 			assert.notEqual((await execute()).isError, true);
 			const other = runtime.getModels("openai")[0];
 			assert.ok(other, "真实宿主内置模型注册表中应有非 TSGW 模型");
 			await runtime.setRuntimeApiKey(other.provider, "non-tsgw-runtime-fixture-key");
-			const count = requests.length + grokRequests.length;
+			const count = requests.length;
 			await host.setModel(other);
 			assert.equal(active(), false);
 			assert.equal((await execute()).isError, true);
-			assert.equal(requests.length + grokRequests.length, count);
+			assert.equal(requests.length, count);
 			await host.setModel(main);
 			assert.equal(active(), false);
 			assert.notEqual((await execute()).isError, true);
 		});
 
-		await t.test("真实 Grok Completions 代理可用，随后目录回退至 Sol 并撤下候选模型", async () => {
+		await t.test("只有 Grok 时拒绝代搜，GPT 回归目录后使用 Sol，候选撤下后停止请求", async () => {
 			sandbox.catalogIds = [main.id, "grok-4.5"];
 			await host.prompt("/tsgw-refresh");
 			assert.equal(sandbox.catalogCalls, 2);
@@ -298,19 +300,9 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			assert.ok(grok);
 			assert.equal(grok.api, "openai-completions");
 			assert.equal(host.model?.id, main.id, "委托不得切换主会话模型");
-			await host.prompt("/tsgw-search cached");
-			const grokResult = await execute();
-			assert.equal(grokRequests.length, 1);
-			assert.equal(grokRequests[0]!.body.model, grok.id);
-			assert.deepEqual(grokRequests[0]!.body.search_parameters, { mode: "on" });
-			assert.equal(grokRequests[0]!.body.stream, true);
-			assert.deepEqual(grokResult.structuredContent, { delegate: grok.id, answer: ANSWER, citations: SOURCES, truncated: false });
-			assert.ok(grokResult.content.some(part => part.type === "text" && SOURCES.every(url => part.text.includes(url))));
-			assert.equal(grokResult.usage?.input, 24);
-			assert.equal(grokResult.usage?.output, 9);
-			assert.equal(grokResult.usage?.totalTokens, 33);
-			assert.equal(host.model?.id, main.id);
-			await host.prompt("/tsgw-search live");
+			const before = requests.length;
+			assert.equal((await execute()).isError, true);
+			assert.equal(requests.length, before, "Grok 不能作为搜索代理发起请求");
 
 			sandbox.catalogIds = [main.id, sol.id];
 			await host.prompt("/tsgw-refresh");
@@ -325,9 +317,9 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			await host.prompt("/tsgw-refresh");
 			assert.equal(sandbox.catalogCalls, 4);
 			assert.equal(active(), false);
-			const count = requests.length + grokRequests.length;
+			const count = requests.length;
 			assert.equal((await execute()).isError, true);
-			assert.equal(requests.length + grokRequests.length, count);
+			assert.equal(requests.length, count);
 			assert.equal(host.model?.id, main.id);
 		});
 

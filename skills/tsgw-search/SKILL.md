@@ -8,9 +8,11 @@ license: MIT
 
 ## 选择入口
 
-- 当前 TSGW 模型支持原生内置搜索时，使用其原生能力，不调用代理工具。
-- 当前 TSGW 模型不支持原生搜索时，可通过 codemode 按需发现 `tsgw_search` 命名空间：先用 `describeNamespace("tsgw_search")`，再用 `describeTool("tsgw_search")` 读取当前说明，随后调用 `tools.tsgw_search(...)`。不预加载或复制参数 schema。
-- 代理可用性由当前模型及宿主目录决定，不因发现了工具就一定能执行。没有可用代理或当前不是 TSGW 模型时，报告限制；不擅自切换主模型、修改配置或另找凭据。
+- 当前 TSGW 模型支持原生内置搜索时，可直接使用其原生能力，也可按任务需要调用代理搜索。
+- 当前使用 TSGW 模型且目录存在代理候选时，可通过 codemode 按需发现 `tsgw_search` 命名空间：先用 `describeNamespace("tsgw_search")`，再用 `describeTool("tsgw_search")` 读取当前说明，随后调用 `tools.tsgw_search(...)`。不预加载或复制参数 schema。
+- 代理仅使用目录内支持联网的 GPT 模型，优先使用 GPT 6 Luna。代理可用性由当前模型及宿主目录决定，不因发现了工具就一定能执行。没有可用代理或当前不是 TSGW 模型时，报告限制；不擅自切换主模型、修改配置或另找凭据。
+
+每次调用由模型根据问题选择 `mode`：默认 `live` 实时访问网页，适合近期信息、最新状态或原文核验；不需要最新信息时可选 `cached`，仅使用搜索缓存。选择只影响本次调用，不继承前次模式，也不受全局配置限制。
 
 ## 查询与使用结果
 

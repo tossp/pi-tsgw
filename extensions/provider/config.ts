@@ -9,7 +9,6 @@ import { join } from "node:path";
  */
 export interface TsgwSettings {
 	baseUrl?: string;
-	tsSearch?: string;
 	/** 默认开启网关追踪头；显式设为 false 时关闭。 */
 	traceHeaders?: boolean;
 	includeModels?: string[];
