@@ -59,6 +59,7 @@ async function fixture(t: TestContext, magpie = true) {
 
 test("启动与空闲不查询，正常用户任务最终完成后读一次全局卡片，重试结束和自定义任务不读取", async t => {
 	const f = await fixture(t);
+	equal(f.extension.label(), undefined);
 	equal(f.calls.length, 0);
 	f.pi.invoke("before_agent_start", { messageType: "custom" }, f.ctx);
 	f.pi.invoke("agent_settled", { aborted: false }, f.ctx);
@@ -194,7 +195,7 @@ test("显式状态仍按真实会话读取，额度失败保留全局旧读数�
 	match(f.extension.label()!, /旧/);
 	globalThis.fetch = async () => new Response(null, { status: 403 });
 	await f.extension.handle(f.extension.choices()[2], f.ctx);
-	equal(f.extension.label()!.includes("80%"), false);
+	equal(f.extension.label(), undefined);
 });
 
 test("认证失败只隐藏旧作用域，识别新凭据后直接显示其共享读数", async t => {
@@ -255,21 +256,35 @@ test("目录识别为 Magpie、失去标记与重新识别均通知空闲界面"
 	match(published!, /80%/);
 });
 
-test("另一实例首次识别 Magpie 后，空闲界面同步显示且不额外查询额度", async t => {
+test("另一实例首次识别后通知空闲界面，无有效额度不占底部且不额外查询", async t => {
 	const f = await fixture(t, false);
 	const pi = new FakePi();
 	let published: string | undefined;
+	let updates = 0;
 	const other = registerMagpie(pi, { root: f.root, gateway: () => f.catalog,
-		onChange: () => { published = other.label(); } });
+		onChange: () => { updates++; published = other.label(); } });
 	pi.invoke("session_start", {}, f.ctx);
 	t.after(() => pi.invoke("session_shutdown", {}, f.ctx));
 	published = other.label();
 	equal(published, undefined);
 	globalThis.fetch = async () => Response.json({ data: [{ id: "synthetic-model", magpie_label: "synthetic" }] });
 	await f.catalog.request("synthetic-key", { allowNetwork: true, force: true });
-	equal(published, other.label());
-	equal(typeof published, "string");
+	equal(updates > 0, true);
+	equal(published, undefined);
+	equal(other.label(), undefined);
 	equal(f.calls.length, 0);
+});
+
+test("无有效额度或首次读取失败时不展示底部占位", async t => {
+	const f = await fixture(t);
+	equal(f.extension.label(), undefined);
+	globalThis.fetch = async () => new Response(null, { status: 503 });
+	await f.extension.handle(f.extension.choices()[2], f.ctx);
+	equal(f.extension.label(), undefined);
+	globalThis.fetch = async () => Response.json({ object: "list", data: [{ provider: "codex", windows: [{}] },
+		{ provider: "minimax", windows: [{ used: 0 }] }] });
+	await f.extension.handle(f.extension.choices()[2], f.ctx);
+	equal(f.extension.label(), undefined);
 });
 
 test("会话结束后的旧请求不再更新界面", async t => {

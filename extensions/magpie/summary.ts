@@ -1,57 +1,32 @@
 import type { MagpieCard, MagpieWindow } from "./data.ts";
 import { groupCards } from "./view.ts";
 
-const SHORT_NAMES: Readonly<Record<string, string>> = {
-	"OpenAI / Codex": "OpenAI",
-	"Anthropic / Claude": "Claude",
-	"Moonshot / Kimi": "Kimi",
-};
-
 interface Reading {
 	percent?: number;
-	balances: string[];
 	stale: boolean;
 }
 
-/** 同账户取瓶颈窗口，同厂商取已知账户最大值；金额只展示，不相加或折算。 */
-export function quotaSummary(cards: readonly MagpieCard[]): string {
-	const groups = groupCards(cards);
-	if (!groups.length) return "剩余：?";
-	return `剩余：${groups.map(group => {
-		const readings = group.cards.filter(card => !card.held && !card.needsAccessKey).map(cardReading);
-		const known = readings.filter(reading => reading.percent !== undefined || reading.balances.length);
-		// 当前读数优先，避免一个失败账户的旧高值盖过正常账户的新低值。
-		const fresh = known.filter(reading => !reading.stale);
-		const usable = fresh.length ? fresh : known;
-		const percentages = usable.flatMap(reading => reading.percent === undefined ? [] : [reading.percent]);
-		const parts: string[] = [];
-		if (percentages.length) {
-			const best = Math.max(...percentages);
-			parts.push(best === Infinity ? "∞" : `${Math.round(best * 100) / 100}%`);
-		} else parts.push(...new Set(usable.flatMap(reading => reading.balances)));
-		if (!parts.length) parts.push("?");
-		else if (readings.some(reading => reading.percent === undefined && !reading.balances.length)) parts.push("?");
-		const stale = usable.length && !fresh.length ? "（旧）" : "";
-		return `${SHORT_NAMES[group.name] ?? group.name} ${parts.join("/")}${stale}`;
-	}).join(" · ")}`.replace(/[\r\n]+/g, " ");
+/** 底部仅展示 OpenAI：同账户取瓶颈窗口，再取已知账户最大值。 */
+export function quotaSummary(cards: readonly MagpieCard[]): string | undefined {
+	const group = groupCards(cards).find(group => group.name === "OpenAI / Codex");
+	const readings = (group?.cards ?? []).filter(card => !card.held && !card.needsAccessKey).map(cardReading);
+	const known = readings.filter((reading): reading is Reading & { percent: number } => reading.percent !== undefined);
+	// 当前读数优先，避免一个失败账户的旧高值盖过正常账户的新低值。
+	const fresh = known.filter(reading => !reading.stale);
+	const usable = fresh.length ? fresh : known;
+	if (!usable.length) return;
+	const best = Math.max(...usable.map(reading => reading.percent));
+	const value = best === Infinity ? "∞" : `${Math.round(best * 100) / 100}%`;
+	return `剩余：OpenAI ${value}${fresh.length ? "" : "（旧）"}`;
 }
 
 function cardReading(card: MagpieCard): Reading {
-	const balances: string[] = [];
-	if (card.balance?.trim()) balances.push(card.balance.trim());
 	// 独立图片通道与额外消费行不是账户的共同额度限制。
 	const windows = (card.windows ?? []).filter(window => !window.lane && !window.extra && !window.text);
-	const percentages: number[] = [];
-	let unknown = false;
-	for (const window of windows) {
-		if (window.balance !== undefined) balances.push(`${window.balance}${window.unit ? ` ${window.unit}` : ""}`);
-		const percent = windowRemaining(window);
-		if (percent !== undefined) percentages.push(percent);
-		else if (window.balance === undefined) unknown = true;
-	}
+	const percentages = windows.map(windowRemaining);
 	return {
-		percent: !unknown && percentages.length ? Math.min(...percentages) : undefined,
-		balances,
+		percent: percentages.length && percentages.every(percent => percent !== undefined)
+			? Math.min(...percentages) : undefined,
 		stale: Boolean(card.error?.trim() || card.asOf?.trim()),
 	};
 }

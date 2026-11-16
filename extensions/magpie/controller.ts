@@ -118,8 +118,10 @@ export function registerMagpie(pi: ExtensionAPI, options: {
 			const service = currentService();
 			if (!service) return;
 			const snapshot = service.cards();
-			if (!snapshot.data) return snapshot.error ? "额度读取失败" : "剩余：?";
-			return `${quotaSummary(snapshot.data)}${snapshot.error ? "（旧）" : ""}`;
+			if (!snapshot.data) return;
+			const summary = quotaSummary(snapshot.data);
+			if (!summary) return;
+			return snapshot.error ? `${summary}（旧）` : summary;
 		},
 		async handle(choice: string, ctx: ExtensionCommandContext): Promise<void> {
 			if (![STATUS, CARDS, RELOAD, REFRESH].includes(choice) || !ctx.hasUI) return;
