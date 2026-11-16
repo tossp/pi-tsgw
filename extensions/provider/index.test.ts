@@ -310,7 +310,7 @@ async function testDynamicModelRefresh(): Promise<void> {
 				["deepseek-flash", "glm-5.2", ...OPENAI_IMAGE_MODEL_IDS]);
 			// 已退役 ID 不能通过网关刷新恢复；K3 256K 可以。
 			globalThis.fetch = async () => new Response(JSON.stringify({ data: [
-				"deepseek-flash", "glm-5.2", "kimi-k3-256k",
+				"deepseek-flash", "glm-5.2", "k3-256k",
 				"deepseek-v4-flash", "glm-5.1", "MiniMax-M2.7",
 				"kimi-k2.6", "gpt-5.6-sol", "gemini-2.5-pro",
 			].map(id => ({ id })) }), { status: 200 });
@@ -319,7 +319,7 @@ async function testDynamicModelRefresh(): Promise<void> {
 				allowNetwork: true, force: true, signal,
 			});
 			deepStrictEqual(curated.map(model => model.id),
-				["deepseek-flash", "glm-5.2", "kimi-k3-256k", ...OPENAI_IMAGE_MODEL_IDS]);
+				["deepseek-flash", "glm-5.2", "k3-256k", ...OPENAI_IMAGE_MODEL_IDS]);
 		} finally {
 			pi.invoke("session_shutdown", { type: "session_shutdown" }, sessionContext);
 			globalThis.fetch = previousFetch;

@@ -3,11 +3,17 @@ import { OPENAI_COMPLETIONS_COMPAT } from "./_protocols.ts";
 import { type PayloadWriter, type ThinkingApplier, type ThinkingLevel } from "../_tools.ts";
 
 /**
- * 月之暗面（Moonshot）Kimi K3 系列。
+ * 月之暗面（Moonshot）Kimi K3 与 K2.8。
+ * Kimi Code 模型 ID 与思考档位（2026-11-16）：
+ * https://www.kimi.com/code/docs/kimi-code/models.html
+ * kimi-for-coding 对应 K2.8 Preview，支持 low/high/max；关闭思考仍为 K2.8。
+ * K2.8 的 1M 上下文、32768 最大输出取自本次网关目录；宿主仅登记文字和图片输入。
+ * 官方未公开该 Code 型号的独立词元价格，cost=0 表示未知，不代表免费。
+ * K3 系列本次只适配 Code 模型 ID，保留既有规格和思考策略。
  * 官方文档：https://platform.kimi.ai/docs/guide/kimi-k3-quickstart
  * 思考档位：https://platform.kimi.ai/docs/guide/use-reasoning-effort
- * kimi-k3-256k 是网关变体：按已确认约定将上下文限制为 256 * 1024，
- * 其余元数据/价格估算沿用 K3，不代表该变体已逐项通过端点验证。
+ * k3-256k 上下文按 Code 官方规格限制为 256 * 1024，
+ * 其余元数据/价格估算保留既有 K3 登记，不代表该变体已逐项通过端点验证。
  * maxTokens 保留既有 131072，并非把 256K 上下文当成最大输出。
  * 2026-10-24 K3.1 Pro 国内官方核验：
  * https://platform.kimi.com/docs/guide/kimi-k3-1-pro-quickstart （输入、上下文与最大输出）
@@ -20,7 +26,7 @@ import { type PayloadWriter, type ThinkingApplier, type ThinkingLevel } from "..
  */
 export function kimiModels(root: string): ProviderModelConfig[] {
 	const k3: ProviderModelConfig = {
-		id: "kimi-k3",
+		id: "k3",
 		name: "Kimi K3",
 		api: "openai-completions",
 		baseUrl: `${root}/v1`,
@@ -42,7 +48,7 @@ export function kimiModels(root: string): ProviderModelConfig[] {
 	return [
 		{
 			...k3,
-			id: "kimi-k3.1-pro",
+			id: "k3.1-pro",
 			name: "Kimi K3.1 Pro",
 			thinkingLevelMap: {
 				off: null,
@@ -60,18 +66,38 @@ export function kimiModels(root: string): ProviderModelConfig[] {
 		k3,
 		{
 			...k3,
-			id: "kimi-k3-256k",
+			id: "k3-256k",
 			name: "Kimi K3 (256K)",
 			contextWindow: 262144,
+		},
+		{
+			...k3,
+			id: "kimi-for-coding",
+			name: "Kimi K2.8 Preview",
+			thinkingLevelMap: {
+				off: "none",
+				minimal: "low",
+				low: "low",
+				medium: "high",
+				high: "high",
+				xhigh: "high",
+				max: "max",
+			},
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+			contextWindow: 1048576,
+			maxTokens: 32768,
 		},
 	];
 }
 
-// Kimi K3 思维链：移除 `thinking` 字段，改用 `reasoning_effort` 表达深度。
-function applyKimiK3(writer: PayloadWriter, level: ThinkingLevel): void {
+// Code 模型使用 reasoning_effort；K3 保留 off 降至 low，避免路由到另一型号。
+function applyKimiEffort(writer: PayloadWriter, level: ThinkingLevel, offEffort: "low" | "none" = "low"): void {
 	writer.remove("thinking");
-	// K3 始终思考，省略思考深度设置时默认为 max；直接或迟到的 off 请求降至 low。
-	if (level === "off" || level === "minimal" || level === "low") {
+	if (level === "off") {
+		writer.set("reasoning_effort", offEffort);
+		return;
+	}
+	if (level === "minimal" || level === "low") {
 		writer.set("reasoning_effort", "low");
 		return;
 	}
@@ -79,7 +105,8 @@ function applyKimiK3(writer: PayloadWriter, level: ThinkingLevel): void {
 }
 
 export const kimiThinking: Record<string, ThinkingApplier> = {
-	"kimi-k3.1-pro": (w, c) => applyKimiK3(w, c.thinkingLevel),
-	"kimi-k3": (w, c) => applyKimiK3(w, c.thinkingLevel),
-	"kimi-k3-256k": (w, c) => applyKimiK3(w, c.thinkingLevel),
+	"k3.1-pro": (w, c) => applyKimiEffort(w, c.thinkingLevel),
+	k3: (w, c) => applyKimiEffort(w, c.thinkingLevel),
+	"k3-256k": (w, c) => applyKimiEffort(w, c.thinkingLevel),
+	"kimi-for-coding": (w, c) => applyKimiEffort(w, c.thinkingLevel, "none"),
 };

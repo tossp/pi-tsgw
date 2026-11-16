@@ -162,12 +162,12 @@ for (const model of minimaxModels(root)) {
 	equal(model.thinkingLevelMap?.off, minimax31Ids.includes(model.id) ? null : undefined);
 }
 
-const kimiIds = ["kimi-k3.1-pro", "kimi-k3", "kimi-k3-256k"];
+const kimiIds = ["k3.1-pro", "k3", "k3-256k", "kimi-for-coding"];
 coverage(kimiIds, kimiThinking, kimiModels(root));
-for (const model of kimiModels(root)) {
-	equal(model.maxTokens, model.id === "kimi-k3.1-pro" ? 1048576 : 131072);
+for (const model of kimiModels(root).filter(model => model.id !== "kimi-for-coding")) {
+	equal(model.maxTokens, model.id === "k3.1-pro" ? 1048576 : 131072);
 	equal(model.thinkingLevelMap?.off, null);
-	equal(model.contextWindow, model.id === "kimi-k3.1-pro" ? 1048576 : model.id === "kimi-k3" ? 1000000 : 262144);
+	equal(model.contextWindow, model.id === "k3.1-pro" ? 1048576 : model.id === "k3" ? 1000000 : 262144);
 	for (const level of levels) {
 		const result = apply(kimiThinking, model.id, level, { ...base(), thinking: { type: "disabled" } });
 		equal(Object.hasOwn(result, "thinking"), false);
@@ -179,6 +179,25 @@ for (const model of kimiModels(root)) {
 		const result = apply(kimiThinking, model.id, "off", { ...base(), reasoning_effort: staleEffort });
 		equal(result.reasoning_effort, "low");
 	}
+}
+
+// K2.8 关闭思考仍使用该型号；改写须保留模型 ID、消息和工具引用。
+const k28 = kimiModels(root).find(model => model.id === "kimi-for-coding")!;
+equal(k28.contextWindow, 1048576);
+equal(k28.maxTokens, 32768);
+equal(k28.thinkingLevelMap?.off, "none");
+for (const [level, effort] of [
+	["off", "none"], ["minimal", "low"], ["low", "low"], ["medium", "high"],
+	["high", "high"], ["xhigh", "high"], ["max", "max"],
+] as const) {
+	const payload: Payload = { ...base(), model: "kimi-for-coding", thinking: { type: "legacy" }, reasoning_effort: "stale" };
+	const result = apply(kimiThinking, k28.id, level, payload);
+	equal(Object.hasOwn(result, "thinking"), false);
+	equal(result.reasoning_effort, effort);
+	equal(result.model, "kimi-for-coding");
+	strictEqual(result.messages, payload.messages);
+	strictEqual(result.tools, payload.tools);
+	strictEqual(apply(kimiThinking, k28.id, level, result), result);
 }
 
 // Grok 4.5 与 4.7 使用不同协议，均须覆盖逐 ID 档位。

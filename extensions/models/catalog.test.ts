@@ -141,13 +141,13 @@ function testModelCapabilities(): void {
 		xhigh: "xhigh",
 		max: "max",
 	});
-	const k3 = models.find(({ id }) => id === "kimi-k3")!;
-	const k3Short = models.find(({ id }) => id === "kimi-k3-256k")!;
+	const k3 = models.find(({ id }) => id === "k3")!;
+	const k3Short = models.find(({ id }) => id === "k3-256k")!;
 	const { id: _id, name: _name, ...k3Capabilities } = k3;
 	const { id: _shortId, name: _shortName, ...shortCapabilities } = k3Short;
 	deepStrictEqual(shortCapabilities, { ...k3Capabilities, contextWindow: 262144 });
 	equal(k3Short.maxTokens, 131072);
-	const k31 = models.find(({ id }) => id === "kimi-k3.1-pro")!;
+	const k31 = models.find(({ id }) => id === "k3.1-pro")!;
 	equal(k31.api, "openai-completions");
 	equal(k31.baseUrl, `${ROOT}/v1`);
 	deepStrictEqual(k31.input, ["text", "image"]);
@@ -160,7 +160,7 @@ function testModelCapabilities(): void {
 	});
 	const removed = [
 		"deepseek-v4-flash", "glm-5.1", "glm-5", "glm-5-turbo", "glm-4.7", "glm-4.6", "glm-4.5",
-		"MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1", "MiniMax-M3.1-Flash-Preview", "kimi-for-coding", "kimi-k2.7-code",
+		"MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1", "MiniMax-M3.1-Flash-Preview", "kimi-k3", "kimi-k3-256k", "kimi-k3.1-pro", "kimi-k2.7-code",
 		"kimi-k2.7-code-highspeed", "kimi-k2.6", "kimi-k2.5", "gpt-5.6-sol", "gpt-5.6-terra",
 		"gpt-5.6-luna", "gpt-5.5", "gemini-3.1-pro-low", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
 		"qwen3.7-max", "qwen3.6-plus", "qwen3.5-plus", "claude-fable-5", "grok-4.20", "grok-4.20-fast",
@@ -252,17 +252,19 @@ function testEffectiveCatalog(): void {
 	const filter = Object.freeze({ exclude: Object.freeze(["*"]), include: Object.freeze(["*"]) });
 	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, undefined, true, true), images, "没有网关目录时仅保留固定图片");
 	deepStrictEqual(effectiveModelsForGateway(ROOT, filter, new Set(), true, true), images, "include 不恢复空网关交集中的聊天或分类");
-	const kimiId = "kimi-k3.1-pro";
-	const unselectedKimiIds = ["k3.1-pro", "k3.1-pro-highspeed", "kimi-k3.1-pro-highspeed"];
-	const kimiGateway = new Set([kimiId, ...unselectedKimiIds]);
+	const kimiIds = ["k3.1-pro", "k3", "k3-256k", "kimi-for-coding"];
+	const unselectedKimiIds = ["kimi-k3", "kimi-k3-256k", "kimi-k3.1-pro", "k3.1-pro-highspeed", "kimi-for-coding-highspeed"];
+	const kimiGateway = new Set([...kimiIds, ...unselectedKimiIds]);
 	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, kimiGateway, false, false).map(model => model.id),
-		[kimiId], "K3.1 只登记带 Kimi 前缀的普通版，不自动登记其他渠道或高速版");
+		kimiIds, "仅登记已确认的四个 Code ID");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, new Set(kimiIds.map(id => `auto/${id}`)), false, false).map(model => model.id),
+		kimiIds, "渠道前缀不改变登记 ID，四款均可匹配");
 	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, new Set(unselectedKimiIds), false, false),
-		[], "无前缀或高速版 ID 不代替用户选定的普通版");
-	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["kimi-*"] }, kimiGateway, false, false),
+		[], "旧 ID 和高速版不代替已确认型号");
+	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["k3*", "kimi-*"] }, kimiGateway, false, false),
 		[], "新增 Kimi 不绕过用户过滤");
 	deepStrictEqual(modelsForRoot(ROOT, { exclude: ["*"], include: unselectedKimiIds }), [],
-		"include 不增加未登记的 K3.1 渠道或高速版");
+		"include 不恢复旧 ID 或新增高速版");
 	const minimaxId = "MiniMax-M3.1-Flash";
 	deepStrictEqual(effectiveModelsForGateway(ROOT, { exclude: ["MINIMAX-*"], include: ["minimax-m3.1*"] },
 		new Set([minimaxId, "MiniMax-M3"]), false, false).map(model => model.id),

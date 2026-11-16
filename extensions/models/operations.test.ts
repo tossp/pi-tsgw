@@ -132,12 +132,20 @@ function testCompletionProfiles(): void {
 		}
 	}
 
-	for (const modelId of ["kimi-k3.1-pro", "kimi-k3", "kimi-k3-256k"]) {
+	for (const modelId of ["k3.1-pro", "k3", "k3-256k"]) {
 		for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const) {
 			const result = apply(completionBase(), modelId, "openai-completions", level);
 			const effort = ["off", "minimal", "low"].includes(level) ? "low" : level === "max" ? "max" : "high";
 			deepStrictEqual(result, { stream: true, reasoning_effort: effort });
 		}
+	}
+
+	for (const [level, effort] of [
+		["off", "none"], ["minimal", "low"], ["low", "low"], ["medium", "high"],
+		["high", "high"], ["xhigh", "high"], ["max", "max"],
+	] as const) {
+		deepStrictEqual(apply(completionBase(), "kimi-for-coding", "openai-completions", level),
+			{ stream: true, reasoning_effort: effort });
 	}
 
 	for (const modelId of ["qwen3.7-plus"]) {
@@ -320,7 +328,7 @@ function testNoOpsAndProtectedFields(): void {
 	// 已退役 ID 不得保留过时的思考或搜索注入策略。
 	for (const id of [
 		"deepseek-v4-flash", "glm-5.1", "glm-5", "glm-5-turbo", "glm-4.7", "glm-4.6", "glm-4.5",
-		"MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1", "MiniMax-M3.1-Flash-Preview", "kimi-for-coding", "kimi-k2.7-code",
+		"MiniMax-M2.7", "MiniMax-M2.5", "MiniMax-M2.1", "MiniMax-M3.1-Flash-Preview", "kimi-k3", "kimi-k3-256k", "kimi-k3.1-pro", "kimi-k2.7-code",
 		"kimi-k2.7-code-highspeed", "kimi-k2.6", "kimi-k2.5", "gpt-5.6-sol", "gpt-5.6-terra",
 		"gpt-5.6-luna", "gpt-5.5", "gemini-3.1-pro-low", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite",
 		"qwen3.7-max", "qwen3.6-plus", "qwen3.5-plus", "claude-fable-5", "grok-4.20", "grok-4.20-fast",

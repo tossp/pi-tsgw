@@ -122,7 +122,7 @@ test("Pi Kimi 适配器发送图片工具时保留显式类型、联合空值和
 			assert.equal(request.url, `${TEST_ROOT}/v1/chat/completions`);
 			assert.equal(request.headers.get("authorization"), `Bearer ${TEST_KEY}`);
 			const body = await request.json() as { model: string; tools: { function: { name: string; parameters: unknown } }[] };
-			assert.equal(body.model, "kimi-k3.1-pro");
+			assert.equal(body.model, "k3.1-pro");
 			assert.equal(body.tools.length, 2);
 			for (const tool of tools) {
 				const sent = body.tools.find(item => item.function.name === tool.name);
@@ -133,7 +133,7 @@ test("Pi Kimi 适配器发送图片工具时保留显式类型、联合空值和
 			const chunk = { id: "synthetic", choices: [{ index: 0, delta: { content: "fixture" }, finish_reason: "stop" }] };
 			return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, { headers: { "content-type": "text/event-stream" } });
 		};
-		const spec = kimiModels(TEST_ROOT).find(model => model.id === "kimi-k3.1-pro");
+		const spec = kimiModels(TEST_ROOT).find(model => model.id === "k3.1-pro");
 		assert.ok(spec?.baseUrl);
 		const model = { ...spec, baseUrl: spec.baseUrl, provider: "tsgw", api: "openai-completions" as const };
 		const result = await streamSimple(model, normalizeContext({ tools,
