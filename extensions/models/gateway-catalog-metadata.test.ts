@@ -7,6 +7,7 @@ import { test, type TestContext } from "node:test";
 import {
 	DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS as TTL,
 	getGatewayModelIds,
+	fetchGatewayModelIds,
 	gatewayModelCacheScope,
 	getCachedGatewayModelIds,
 	loadGatewayModelCache,
@@ -14,6 +15,56 @@ import {
 	saveGatewayModelCache,
 	type GatewayFetch,
 } from "./gateway-catalog.ts";
+
+test("目录请求仅凭有效模型项的字符串 magpie_label 识别 Magpie", async () => {
+	for (const label of ["模型 · 网关", "", undefined, null, 1, false, {}]) {
+		let calls = 0;
+		const result = await fetchGatewayModelIds("https://gateway.invalid", "key", {
+			fetcher: async () => {
+				calls++;
+				return Response.json({ magpie_label: "顶层字段不参与识别", data: [
+					{ id: " model ", magpie_label: label }, { id: "model" },
+					{ magpie_label: "没有模型 ID 的项不参与识别" },
+				] });
+			},
+		});
+		deepStrictEqual(result, { ok: true, ids: ["model"],
+			...(typeof label === "string" ? { magpie: true } : {}) });
+		equal(calls, 1, "识别复用目录响应，不额外探测");
+	}
+});
+
+test("Magpie 识别随目录缓存恢复，刷新失败保留，普通网关成功响应清除", async t => {
+	const { baseUrl, cacheFilePath } = fixture(t);
+	const scope = gatewayModelCacheScope(baseUrl, "key");
+	const first = await getGatewayModelIds(baseUrl, "key", { cacheFilePath,
+		fetcher: async () => Response.json({ data: [{ id: "model", magpie_label: "模型" }] }),
+	}, 100);
+	if (!first.ok) throw new Error("目录应成功");
+	equal(first.magpie, true);
+	equal(JSON.parse(readFileSync(cacheFilePath, "utf8")).magpie, true);
+	deepStrictEqual(loadGatewayModelCache(cacheFilePath, scope, 101), {
+		ids: ["model"], fresh: true, magpie: true,
+	});
+	equal(getCachedGatewayModelIds(baseUrl, "key", { cacheFilePath }, 101)?.magpie, true);
+	const blocked = cacheOnly();
+	const cached = await getGatewayModelIds(baseUrl, "key", { cacheFilePath, fetcher: blocked.fetcher }, 101);
+	equal(cached.ok && cached.magpie, true);
+	equal(blocked.calls(), 0);
+	const failed = await getGatewayModelIds(baseUrl, "key", { cacheFilePath, force: true,
+		fetcher: async () => new Response(null, { status: 503 }),
+	}, 102);
+	equal(failed.ok && failed.magpie, true);
+	const ordinary = await getGatewayModelIds(baseUrl, "key", { cacheFilePath, force: true,
+		fetcher: success(["model"]),
+	}, 103);
+	equal(ordinary.ok && ordinary.magpie, undefined);
+	equal(loadGatewayModelCache(cacheFilePath, scope, 104)?.magpie, undefined);
+	equal(getCachedGatewayModelIds(baseUrl, "key", { cacheFilePath }, 104)?.magpie, undefined);
+	// 旧缓存没有识别信息，仍能正常加载目录。
+	saveGatewayModelCache(cacheFilePath, scope, ["legacy"], 105);
+	deepStrictEqual(loadGatewayModelCache(cacheFilePath, scope, 106), { ids: ["legacy"], fresh: true });
+});
 
 function fixture(t: TestContext) {
 	const directory = mkdtempSync(join(tmpdir(), "gateway-catalog-metadata-"));

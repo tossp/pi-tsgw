@@ -77,6 +77,9 @@ export function createCatalogState(options: {
 
 	return {
 		models: () => models,
+		/** 从进程共享服务读取，其他实例刷新后立即生效。 */
+		isMagpie: () => service?.isMagpie() ?? false,
+		gateway: () => service,
 		status: () => status,
 		outcome(failed = false): GatewayCatalogOutcome {
 			return { ...(service?.peek() ? { snapshot: service.peek() } : {}),
@@ -84,7 +87,7 @@ export function createCatalogState(options: {
 		},
 		matches(entry?: GatewayCatalogSnapshot): boolean {
 			const current = snapshot;
-			return !!entry && !!current && entry.storedAt === current.storedAt &&
+			return !!entry && !!current && entry.storedAt === current.storedAt && entry.magpie === current.magpie &&
 				entry.ids.length === current.ids.length && entry.ids.every((id, index) => id === current.ids[index]);
 		},
 		recoverUsing(run: (signal: AbortSignal) => Promise<GatewayCatalogOutcome>, signal?: AbortSignal) {

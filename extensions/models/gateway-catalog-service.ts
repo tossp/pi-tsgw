@@ -76,6 +76,8 @@ function createService(root: string, scope: string, cacheFilePath: string) {
 	let valid = true;
 	let snapshot: GatewayCatalogSnapshot | undefined;
 	let task: FetchTask | undefined;
+	const listeners = new Set<() => void>();
+	const changed = () => { for (const listener of listeners) listener(); };
 	const recovery = createGatewayCatalogRecovery({ onIdle: () => {
 		if (task?.waiters === 0 && !task.cacheSelected) task.controller.abort();
 	} });
@@ -86,8 +88,11 @@ function createService(root: string, scope: string, cacheFilePath: string) {
 	const read = (key: string): GatewayCatalogSnapshot | undefined => {
 		check(key);
 		const local = getCachedGatewayModelIds(root, key, { cacheFilePath });
-		if (local && (!snapshot || local.storedAt > snapshot.storedAt))
-			snapshot = { ids: [...local.ids], storedAt: local.storedAt, source: "cache" };
+		if (local && (!snapshot || local.storedAt > snapshot.storedAt)) {
+			snapshot = { ids: [...local.ids], storedAt: local.storedAt, source: "cache",
+				...(local.magpie ? { magpie: local.magpie } : {}) };
+			changed();
+		}
 		return snapshot ? copy(snapshot) : undefined;
 	};
 	const currentOutcome = (networkAttempted: boolean, networkSucceeded: boolean,
@@ -98,7 +103,12 @@ function createService(root: string, scope: string, cacheFilePath: string) {
 
 	const api = {
 		scope,
+		subscribe(listener: () => void): () => void {
+			listeners.add(listener);
+			return () => { listeners.delete(listener); };
+		},
 		valid: () => valid,
+		isMagpie: () => valid && snapshot?.magpie === true,
 		read,
 		fetching: () => !!task?.networkStarted && !task.controller.signal.aborted,
 		refreshKind: () => task && !task.controller.signal.aborted ? (task.force ? "force" : "normal") : undefined,
@@ -113,6 +123,8 @@ function createService(root: string, scope: string, cacheFilePath: string) {
 			task?.controller.abort();
 			task = undefined;
 			snapshot = undefined;
+			changed();
+			listeners.clear();
 		},
 		/** 后台通过仍活跃实例的宿主服务发起单次获取，联网许可和凭据仍交宿主。 */
 		recoverUsing(run: (signal: AbortSignal) => Promise<GatewayCatalogOutcome>, signal?: AbortSignal): Promise<GatewayCatalogOutcome> {
@@ -169,8 +181,11 @@ function createService(root: string, scope: string, cacheFilePath: string) {
 					const code = result.ok ? result.fallbackStatus : result.status;
 					return currentOutcome(true, false, true, code !== 401 && code !== 403);
 				}
-				if (!snapshot || result.storedAt >= snapshot.storedAt)
-					snapshot = { ids: [...result.ids], storedAt: result.storedAt, source: result.cached ? "cache" : "network" };
+				if (!snapshot || result.storedAt >= snapshot.storedAt) {
+					snapshot = { ids: [...result.ids], storedAt: result.storedAt, source: result.cached ? "cache" : "network",
+						...(result.magpie ? { magpie: result.magpie } : {}) };
+					changed();
+				}
 				return currentOutcome(true, !result.cached);
 			});
 			// 即使底层忽略取消，取消仍立即释放共享槽；迟到结果不能提交。
@@ -192,7 +207,7 @@ function createService(root: string, scope: string, cacheFilePath: string) {
 export type GatewayCatalogService = ReturnType<typeof createService>;
 
 interface ServiceRegistry {
-	version: 4;
+	version: 6;
 	/** 每个 agent-dir 的唯一缓存路径一个当前槽，不按密钥维护多个目录。 */
 	slots: Map<string, GatewayCatalogService>;
 }
@@ -203,8 +218,8 @@ const REGISTRY = Symbol.for("pi-tsgw:gateway-catalog");
 export function getGatewayCatalogService(root: string, key: string, cacheFilePath: string): GatewayCatalogService {
 	const globals = globalThis as typeof globalThis & { [REGISTRY]?: ServiceRegistry };
 	let registry = globals[REGISTRY];
-	if (registry && registry.version !== 4) throw new Error("TSGW 目录共享状态版本不兼容，请重启宿主。");
-	registry ??= globals[REGISTRY] = { version: 4, slots: new Map() };
+	if (registry && registry.version !== 6) throw new Error("TSGW 目录共享状态版本不兼容，请重启宿主。");
+	registry ??= globals[REGISTRY] = { version: 6, slots: new Map() };
 	const path = resolve(cacheFilePath);
 	const scope = gatewayModelCacheScope(root, key);
 	let service = registry.slots.get(path);

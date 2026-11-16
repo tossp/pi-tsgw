@@ -7,6 +7,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { parseGatewayModelList } from "./gateway-model-list.ts";
 
 export const DEFAULT_GATEWAY_MODEL_TIMEOUT_MS = 5_000;
 export const DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
@@ -39,7 +40,7 @@ export interface GetGatewayModelIdsOptions extends FetchGatewayModelIdsOptions {
 }
 
 export type FetchGatewayModelIdsResult =
-	| { ok: true; ids: string[] }
+	| { ok: true; ids: string[]; magpie?: true }
 	| {
 			ok: false;
 			reason: GatewayModelFailureReason;
@@ -50,17 +51,19 @@ export type FetchGatewayModelIdsResult =
 export interface ModelCacheEntry {
 	ids: string[];
 	storedAt: number;
+	magpie?: true;
 }
 
 export interface ModelCache {
 	get(): ModelCacheEntry | undefined;
-	set(ids: readonly string[], now?: number): void;
+	set(ids: readonly string[], now?: number, magpie?: true): void;
 	isFresh(now?: number): boolean;
 }
 
 export interface LoadedGatewayModelCache {
 	ids: string[];
 	fresh: boolean;
+	magpie?: true;
 }
 
 export type CachedGatewayModelIds = ModelCacheEntry & { fresh: boolean };
@@ -77,6 +80,7 @@ export type GetGatewayModelIdsResult =
 			cached: boolean;
 			stale: boolean;
 			storedAt: number;
+			magpie?: true;
 			fallbackReason?: GatewayModelFailureReason;
 			fallbackStatus?: number;
 	  }
@@ -94,16 +98,6 @@ function checkedTtl(ttlMs = DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS): number {
 
 function modelsUrl(baseUrl: string): string {
 	return `${baseUrl.replace(/\/+$/, "")}/v1/models`;
-}
-
-function uniqueModelIds(data: unknown[]): string[] {
-	const ids = new Set<string>();
-	for (const item of data) {
-		if (!item || typeof item !== "object") continue;
-		const id = (item as { id?: unknown }).id;
-		if (typeof id === "string" && id.trim()) ids.add(id.trim());
-	}
-	return Array.from(ids);
 }
 
 /** 加载网关提供的 OpenAI 兼容模型列表。 */
@@ -159,13 +153,7 @@ export async function fetchGatewayModelIds(
 
 		if (timedOut) return { ok: false, reason: "timeout" };
 		if (opts.signal?.aborted) return { ok: false, reason: "aborted" };
-		if (!payload || typeof payload !== "object")
-			return { ok: false, reason: "invalid-data" };
-		const data = (payload as { data?: unknown }).data;
-		if (!Array.isArray(data)) return { ok: false, reason: "invalid-data" };
-		const ids = uniqueModelIds(data);
-		if (ids.length === 0) return { ok: false, reason: "empty" };
-		return { ok: true, ids };
+		return parseGatewayModelList(payload);
 	} finally {
 		clearTimeout(timeout);
 		opts.signal?.removeEventListener("abort", abortFromCaller);
@@ -182,11 +170,11 @@ export function createModelCache(
 	return {
 		get() {
 			return entry
-				? { ids: [...entry.ids], storedAt: entry.storedAt }
+				? { ...entry, ids: [...entry.ids] }
 				: undefined;
 		},
-		set(ids, now = Date.now()) {
-			entry = { ids: [...ids], storedAt: now };
+		set(ids, now = Date.now(), magpie) {
+			entry = { ids: [...ids], storedAt: now, ...(magpie ? { magpie } : {}) };
 		},
 		isFresh(now = Date.now()) {
 			if (!entry) return false;
@@ -208,10 +196,11 @@ function readStoredGatewayModelCache(
 	try {
 		const payload: unknown = JSON.parse(readFileSync(filePath, "utf8"));
 		if (!payload || typeof payload !== "object") return undefined;
-		const { storedAt, ids, scope: storedScope } = payload as {
+		const { storedAt, ids, scope: storedScope, magpie } = payload as {
 			scope?: unknown;
 			storedAt?: unknown;
 			ids?: unknown;
+			magpie?: unknown;
 		};
 		if (
 			typeof storedScope !== "string" || !storedScope ||
@@ -226,6 +215,7 @@ function readStoredGatewayModelCache(
 			scope: storedScope,
 			storedAt,
 			ids: Array.from(new Set(ids.map((id) => id.trim()))),
+			...(magpie === true ? { magpie } : {}),
 		};
 	} catch {
 		return undefined;
@@ -238,7 +228,8 @@ function readGatewayModelCacheEntry(
 ): ModelCacheEntry | undefined {
 	const snapshot = readStoredGatewayModelCache(filePath);
 	if (!scope || snapshot?.scope !== scope) return undefined;
-	return { storedAt: snapshot.storedAt, ids: snapshot.ids };
+	const { scope: _scope, ...entry } = snapshot;
+	return entry;
 }
 
 /** 刷新后的文件摘要；可同时核对当前配置及已应用的完整模型 ID 快照。 */
@@ -273,13 +264,14 @@ export function saveGatewayModelCache(
 	scope: string,
 	ids: readonly string[],
 	now = Date.now(),
+	magpie?: true,
 ): void {
 	const temporaryPath = `${filePath}.${process.pid}.${randomUUID()}.tmp`;
 	try {
 		mkdirSync(dirname(filePath), { recursive: true });
 		writeFileSync(
 			temporaryPath,
-			JSON.stringify({ scope, storedAt: now, ids: [...ids] }),
+			JSON.stringify({ scope, storedAt: now, ids: [...ids], ...(magpie ? { magpie } : {}) }),
 			{ encoding: "utf8", mode: 0o600 },
 		);
 		renameSync(temporaryPath, filePath);
@@ -305,6 +297,7 @@ export function loadGatewayModelCache(
 	return {
 		ids: [...entry.ids],
 		fresh: isCacheEntryFresh(entry, now, ttl),
+		...(entry.magpie ? { magpie: entry.magpie } : {}),
 	};
 }
 
@@ -373,8 +366,9 @@ export function getCachedGatewayModelIds(
 	// 选中更新的磁盘快照时同步共享内存，避免磁盘随后损坏或删除时回退旧内存。
 	// 仅预热内存，不写磁盘，也不改变原始获取时间。
 	if (!memory || selected.entry.storedAt > memory.storedAt)
-		cacheFor(cacheKey).set(selected.entry.ids, selected.entry.storedAt);
+		cacheFor(cacheKey).set(selected.entry.ids, selected.entry.storedAt, selected.entry.magpie);
 	return {
+		...selected.entry,
 		ids: [...selected.entry.ids],
 		storedAt: selected.entry.storedAt,
 		fresh: selected.fresh,
@@ -402,8 +396,9 @@ export async function getGatewayModelIds(
 		key, opts.cacheFilePath, ttlMs, now,
 	);
 	if (!opts.force && local?.fresh) {
-		cache.set(local.entry.ids, local.entry.storedAt);
+		cache.set(local.entry.ids, local.entry.storedAt, local.entry.magpie);
 		return {
+			...local.entry,
 			ok: true,
 			ids: [...local.entry.ids],
 			cached: true,
@@ -453,12 +448,12 @@ export async function getGatewayModelIds(
 		// 以后启动的请求为准，即使较新的请求失败或取消。
 		// 被取代的成功请求仍向调用者返回结果，但不写入缓存。
 		if (latestRequests.get(cacheKey) === request.revision) {
-			cache.set(fetched.ids, request.storedAt);
+			cache.set(fetched.ids, request.storedAt, fetched.magpie);
 			if (diskPath && latestDiskRequests.get(diskPath) === request.revision)
-				saveGatewayModelCache(diskPath, key, fetched.ids, request.storedAt);
+				saveGatewayModelCache(diskPath, key, fetched.ids, request.storedAt, fetched.magpie);
 		}
 		return {
-			ok: true,
+			...fetched,
 			ids: [...fetched.ids],
 			cached: false,
 			stale: false,
@@ -472,6 +467,7 @@ export async function getGatewayModelIds(
 	);
 	if (fallback) {
 		return {
+			...fallback.entry,
 			ok: true,
 			ids: [...fallback.entry.ids],
 			storedAt: fallback.entry.storedAt,

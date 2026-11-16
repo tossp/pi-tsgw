@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { join } from "node:path";
 import { registerGatewayTracing } from "./tracing.ts";
+import { registerMagpie } from "#tsgw/magpie/controller";
 import {
 	DEFAULT_ROOT,
 	PROVIDER_ID,
@@ -129,6 +130,8 @@ export async function registerTsgwProvider(
 	});
 	latestModels = directory.models();
 	catalog = directory.status();
+	const magpie = registerMagpie(pi, { root, gateway: directory.gateway,
+		onChange: () => publishStatus?.() });
 	const coordinator = createCatalogCoordinator({
 		begin: () => directory.beginRefresh(),
 		inspect: () => ({ networkAttempted: directory.networkAttempted(),
@@ -171,8 +174,9 @@ export async function registerTsgwProvider(
 		const ui = ctx.ui;
 		notify = message => ui.notify(message, "error");
 		publishStatus = () => {
-			ui.setStatus("command:/tsgw",
-				catalogLabel(catalog, credentialConfigured, rootConfigured));
+			ui.setStatus("command:/tsgw", [
+				catalogLabel(catalog, credentialConfigured, rootConfigured), magpie.label(),
+			].filter(Boolean).join(" · "));
 		};
 		publishStatus();
 	};
@@ -242,14 +246,15 @@ export async function registerTsgwProvider(
 		handler: async (_args, ctx) => refreshCatalog(ctx),
 	});
 	pi.registerCommand("tsgw", {
-		description: "TSGW 模型目录与配置诊断",
+		description: "TSGW 模型目录、Magpie 状态与额度",
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) return;
 			const lifecycle = lifecycleRevision;
 			bindStatus(ctx);
-			const choice = await ctx.ui.select("TSGW", ["刷新模型目录", "查看状态与诊断"]);
+			const choice = await ctx.ui.select("TSGW", ["刷新模型目录", "查看状态与诊断", ...magpie.choices()]);
 			if (lifecycle !== lifecycleRevision) return;
 			if (choice === "刷新模型目录") await refreshCatalog(ctx);
+			if (choice && magpie.choices().includes(choice)) await magpie.handle(choice, ctx);
 			if (choice === "查看状态与诊断") {
 				bindStatus(ctx);
 				const diagnostics = catalogDiagnostics(catalog,

@@ -13,6 +13,7 @@ type HookName =
 	| "session_shutdown"
 	| "agent_start"
 	| "agent_end"
+	| "agent_settled"
 	| "turn_start"
 	| "session_before_compact"
 	| "session_before_tree"
@@ -179,6 +180,7 @@ export class FakePi {
 			event === "session_shutdown" ||
 			event === "agent_start" ||
 			event === "agent_end" ||
+			event === "agent_settled" ||
 			event === "turn_start" ||
 			event === "session_before_compact" ||
 			event === "session_before_tree" ||

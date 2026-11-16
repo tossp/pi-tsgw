@@ -286,6 +286,37 @@ test("不同实例共用实际 GET，各自过滤和退出不干扰另一实例"
 	assert.equal(third.status().error, undefined);
 });
 
+test("Magpie 状态由全局目录服务共享，刷新与凭据切换立即反映到各实例", async t => {
+	const f = fixture(t);
+	const second = createCatalogState({ root: f.root, filter: {}, cacheFilePath: f.cacheFilePath,
+		initialKey: f.key, imagesEnabled: true, classifiersEnabled: true, onChange() {} });
+	t.after(() => second.stop());
+	assert.equal(f.directory.isMagpie(), false);
+	assert.equal(second.isMagpie(), false);
+	let calls = 0;
+	globalThis.fetch = async () => {
+		calls++;
+		return Response.json({ data: [{ id: "gpt-6-sol", magpie_label: "模型" }] });
+	};
+	await f.directory.refresh(f.context(true));
+	assert.equal(calls, 1);
+	assert.equal(f.directory.isMagpie(), true);
+	assert.equal(second.isMagpie(), true, "另一实例无需刷新即可读取共享结果");
+	globalThis.fetch = async () => new Response(null, { status: 503 });
+	await assert.rejects(second.refresh(f.context(true)));
+	assert.equal(f.directory.isMagpie(), true, "网络失败不冒充识别为其他网关");
+	globalThis.fetch = async () => Response.json({ data: [{ id: "gpt-6-sol" }] });
+	await second.refresh(f.context(true));
+	assert.equal(f.directory.isMagpie(), false, "成功响应不再包含特征时全局清除");
+	saveGatewayModelCache(f.cacheFilePath, gatewayModelCacheScope(f.root, f.key),
+		["gpt-6-sol"], Date.now() + 1, true);
+	await second.refresh(f.context(false, false));
+	assert.equal(f.directory.isMagpie(), true, "从磁盘恢复的状态同样共享");
+	await second.refresh({ allowNetwork: false, credential: { type: "api_key", key: "new-key" } });
+	assert.equal(second.isMagpie(), false);
+	assert.equal(f.directory.isMagpie(), false, "凭据切换使旧共享服务失效");
+});
+
 test("截止或退出使迟到请求失效；不能覆盖失败提示、模型及磁盘", async t => {
 	const f = fixture(t, 1000);
 	f.directory.enableNetwork();
