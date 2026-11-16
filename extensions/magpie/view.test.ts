@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { MagpieCard, MagpieStatusline } from "./data.ts";
+import { parseCards, type MagpieCard, type MagpieStatusline } from "./data.ts";
 import { cardDetails, cardLabel, groupCards, statusDetails } from "./view.ts";
 
 function card(fields: Partial<MagpieCard> & { provider: string }): MagpieCard {
@@ -93,6 +93,39 @@ test("有效百分比窗口展示已用与剩余，并保留重置时间", () =>
 	assert.match(computed, /剩余 87.5%/);
 });
 
+test("used 缺失但 remaining 有效时展示剩余，不补已用或标未知", () => {
+	const details = cardDetails(card({ provider: "codex", windows: [{ name: "Weekly", remaining: 80 }] })).join("\n");
+	assert.match(details, /剩余 80%/);
+	assert.doesNotMatch(details, /已用|读数未知/);
+	const [cleaned] = parseCards({ object: "list", data: [{ provider: "codex", windows: [{ used: "80", remaining: 60 }] }] });
+	const sanitized = cardDetails(cleaned).join("\n");
+	assert.match(sanitized, /剩余 60%/);
+	assert.doesNotMatch(sanitized, /读数未知/);
+});
+
+test("超出范围的 remaining 仍显示读数未知", () => {
+	const details = cardDetails(card({ provider: "codex", windows: [{ name: "Weekly", remaining: 140 }] })).join("\n");
+	assert.match(details, /读数未知/);
+	assert.doesNotMatch(details, /剩余 140%/);
+});
+
+test("异常账户状态只标不确定，不声称停派或缺少密钥", () => {
+	const [cleaned] = parseCards({ object: "list", data: [{ provider: "codex", held: "yes", needsAccessKey: 1, windows: [{ used: 20 }] }] });
+	const details = cardDetails(cleaned).join("\n");
+	assert.match(details, /账户状态字段异常/);
+	assert.match(details, /剩余 80%/);
+	assert.doesNotMatch(details, /当前未被网关派发|缺少该账户的读取密钥/);
+});
+
+test("未知窗口占位不遮挡同一卡片的有效窗口", () => {
+	const details = cardDetails(card({
+		provider: "codex",
+		windows: [{ name: "5h", used: 20 }, {}],
+	})).join("\n");
+	assert.match(details, /5h：已用 20%/);
+	assert.match(details, /未命名窗口：读数未知/);
+});
+
 test("超出范围的 used 不作为百分比读数", () => {
 	const details = cardDetails(card({ provider: "codex", windows: [{ name: "Odd", used: 140 }] })).join("\n");
 	assert.match(details, /140/);
@@ -117,6 +150,15 @@ test("钱包余额窗口的 used 无总量时不当作占比", () => {
 	assert.match(details, /钱包余额 12.5 credits/);
 	assert.ok(!details.includes("剩余 100%"));
 	assert.ok(!details.includes("已用 0%"));
+});
+
+test("计量缺少 amount 时标为未知，不补 0", () => {
+	const details = cardDetails(card({
+		provider: "deepseek",
+		windows: [{ name: "Capped", used: 40, limit: 10, unit: "credits" }],
+	})).join("\n");
+	assert.match(details, /计量 未知 \/ 10 credits/);
+	assert.doesNotMatch(details, /计量 0 credits/);
 });
 
 test("有消费上限的钱包窗口仍可展示占比、计量与余额", () => {
@@ -241,4 +283,11 @@ test("状态行标明模型名可能回退，并汇总账户卡片而不冒充�
 	const empty = statusDetails({ text: "", model: "", accounts: [] }).join("\n");
 	assert.match(empty, /模型（网关状态报告值）：未提供/);
 	assert.match(empty, /账户卡片：未返回/);
+});
+
+test("状态行缺失文本与模型时仍展示账户", () => {
+	const details = statusDetails({ accounts: [card({ provider: "codex" })] }).join("\n");
+	assert.match(details, /模型（网关状态报告值）：未提供/);
+	assert.match(details, /账户卡片：1 条/);
+	assert.doesNotMatch(details, /网关状态行/);
 });

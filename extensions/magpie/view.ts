@@ -112,7 +112,7 @@ function round2(value: number): number {
 	return Math.round(value * 100) / 100;
 }
 
-// 输入已由 data.ts 校验，这里只按语义判断（文本行、无总量钱包、有效百分比），不重复校验类型。
+// 输入已经在 data.ts 入口完成类型降级；这里只按语义判断（文本行、无总量钱包、有效百分比），不重复校验类型。
 function windowLine(window: MagpieWindow): string {
 	const name = nonEmpty(window.name) ?? "未命名窗口";
 	const details: string[] = [];
@@ -131,6 +131,7 @@ function windowLine(window: MagpieWindow): string {
 		details.push(display ? "文本行（used 不是占比）" : "文本读数未知（used 不是占比）");
 	} else if (!unlimited) {
 		// 钱包窗口没有总量时，used=0 不代表未使用，只有 amount/limit 才构成占比。
+		let remainingShown = false;
 		const percentReadable = used !== undefined && used >= 0 && used <= 100 && (wallet === undefined || limit !== undefined);
 		if (used !== undefined && percentReadable) {
 			details.push(`已用 ${used}%`);
@@ -138,10 +139,21 @@ function windowLine(window: MagpieWindow): string {
 			details.push(`剩余 ${remaining}%`);
 		} else if (used !== undefined && (used < 0 || used > 100)) {
 			details.push(`used=${used}（超出百分比范围，不是有效读数）`);
+		} else if (used === undefined) {
+			// 入口可能因数据异常剔除 used；remaining 仍是可消费读数时不能一起丢掉。
+			const remaining = window.remaining;
+			if (remaining !== undefined && remaining >= 0 && remaining <= 100 && (wallet === undefined || limit !== undefined)) {
+				details.push(`剩余 ${remaining}%`);
+				remainingShown = true;
+			}
 		}
 		if (wallet !== undefined) details.push(`钱包余额 ${withUnit(wallet, unit)}`);
-		if (limit !== undefined) details.push(`计量 ${withUnit(window.amount ?? 0, unit)} / ${withUnit(limit, unit)}`);
-		if (!display && wallet === undefined && limit === undefined && used === undefined) details.push("读数未知");
+		if (limit !== undefined) {
+			// 入口可能剔除异常 amount；缺失是未知，不能补成 0。
+			const amount = window.amount !== undefined ? withUnit(window.amount, unit) : "未知";
+			details.push(`计量 ${amount} / ${withUnit(limit, unit)}`);
+		}
+		if (!display && wallet === undefined && limit === undefined && used === undefined && !remainingShown) details.push("读数未知");
 	}
 	if (window.resetsAt) details.push(`重置 ${window.resetsAt}`);
 	if (window.runsOut !== undefined || window.runsOutAt) {

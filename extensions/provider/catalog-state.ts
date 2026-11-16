@@ -1,6 +1,7 @@
 import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { effectiveModelsForGateway, type ModelFilter } from "#tsgw/models/catalog";
 import { DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS } from "#tsgw/models/gateway-catalog";
+import { getGatewayCatalogRegistry } from "#tsgw/models/gateway-catalog-shared";
 import {
 	catalogCancelledError,
 	getGatewayCatalogService,
@@ -39,6 +40,8 @@ export function createCatalogState(options: {
 	initialKey?: string;
 	onChange(): void;
 }) {
+	// 破坏性契约变更在加载入口明确提示，避免无初始凭据时被后续刷新错误吞掉。
+	getGatewayCatalogRegistry();
 	const { root, filter, cacheFilePath, imagesEnabled, classifiersEnabled } = options;
 	let models = effectiveModelsForGateway(root, filter, undefined, imagesEnabled, classifiersEnabled);
 	let status: CatalogStatus = { count: models.length, source: "empty", loading: false };

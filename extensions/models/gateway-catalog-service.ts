@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { createGatewayCatalogRecovery } from "./gateway-catalog-recovery.ts";
+import { getGatewayCatalogRegistry, type GatewayCatalogState, type CatalogFetchTask as FetchTask } from "./gateway-catalog-shared.ts";
 import {
 	DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS,
 	gatewayModelCacheScope,
@@ -19,15 +20,6 @@ export interface GatewayCatalogOutcome {
 	networkSucceeded: boolean;
 	retryable: boolean;
 	failed: boolean;
-}
-
-interface FetchTask {
-	controller: AbortController;
-	force: boolean;
-	networkStarted: boolean;
-	cacheSelected: boolean;
-	waiters: number;
-	promise: Promise<GatewayCatalogOutcome>;
 }
 
 export function catalogCancelledError(): Error {
@@ -71,70 +63,69 @@ function waitForTask(task: FetchTask, signal: AbortSignal | undefined, valid: ()
 	});
 }
 
-/** 原始目录的共享服务，不保存 UI、过滤配置、宿主 context 或常驻明文密钥。 */
-function createService(root: string, scope: string, cacheFilePath: string) {
-	let valid = true;
-	let snapshot: GatewayCatalogSnapshot | undefined;
-	let task: FetchTask | undefined;
-	const listeners = new Set<() => void>();
-	const changed = () => { for (const listener of listeners) listener(); };
-	const recovery = createGatewayCatalogRecovery({ onIdle: () => {
-		if (task?.waiters === 0 && !task.cacheSelected) task.controller.abort();
+/** 当前模块的方法包装共享状态，不保存 UI、过滤配置、宿主 context 或常驻明文密钥。 */
+function createService(root: string, cacheFilePath: string, state: GatewayCatalogState) {
+	const { scope } = state;
+	const changed = () => { for (const listener of state.listeners) listener(); };
+	const recovery = createGatewayCatalogRecovery({ state: state.recovery, onIdle: () => {
+		if (state.task?.waiters === 0 && !state.task.cacheSelected) state.task.controller.abort();
 	} });
 
 	const check = (key: string): void => {
-		if (!valid || gatewayModelCacheScope(root, key) !== scope) throw catalogCancelledError();
+		if (!state.valid || gatewayModelCacheScope(root, key) !== scope) throw catalogCancelledError();
 	};
 	const read = (key: string): GatewayCatalogSnapshot | undefined => {
 		check(key);
 		const local = getCachedGatewayModelIds(root, key, { cacheFilePath });
-		if (local && (!snapshot || local.storedAt > snapshot.storedAt)) {
-			snapshot = { ids: [...local.ids], storedAt: local.storedAt, source: "cache",
+		if (local && (!state.snapshot || local.storedAt > state.snapshot.storedAt)) {
+			state.snapshot = { ids: [...local.ids], storedAt: local.storedAt, source: "cache",
 				...(local.magpie ? { magpie: local.magpie } : {}) };
 			changed();
 		}
-		return snapshot ? copy(snapshot) : undefined;
+		return state.snapshot ? copy(state.snapshot) : undefined;
 	};
 	const currentOutcome = (networkAttempted: boolean, networkSucceeded: boolean,
 		failed = false, retryable = true): GatewayCatalogOutcome => ({
-		...(snapshot ? { snapshot: copy(snapshot) } : {}),
+		...(state.snapshot ? { snapshot: copy(state.snapshot) } : {}),
 		networkAttempted, networkSucceeded, failed, retryable,
 	});
 
 	const api = {
 		scope,
+		/** 方法包装可更新，额度共享始终关联这一份稳定状态。 */
+		identity: state as object,
 		subscribe(listener: () => void): () => void {
-			listeners.add(listener);
-			return () => { listeners.delete(listener); };
+			state.listeners.add(listener);
+			return () => { state.listeners.delete(listener); };
 		},
-		valid: () => valid,
-		isMagpie: () => valid && snapshot?.magpie === true,
+		valid: () => state.valid,
+		isMagpie: () => state.valid && state.snapshot?.magpie === true,
 		read,
-		fetching: () => !!task?.networkStarted && !task.controller.signal.aborted,
-		refreshKind: () => task && !task.controller.signal.aborted ? (task.force ? "force" : "normal") : undefined,
-		summary(minimumStoredAt = 0, applied = snapshot) {
-			if (!valid || !applied) return undefined;
+		fetching: () => !!state.task?.networkStarted && !state.task.controller.signal.aborted,
+		refreshKind: () => state.task && !state.task.controller.signal.aborted ? (state.task.force ? "force" : "normal") : undefined,
+		summary(minimumStoredAt = 0, applied = state.snapshot) {
+			if (!state.valid || !applied) return undefined;
 			const result = readGatewayModelCacheSummary(cacheFilePath, minimumStoredAt, scope, applied.ids);
 			return result?.storedAt === applied.storedAt ? result : undefined;
 		},
 		invalidate() {
-			valid = false;
+			state.valid = false;
 			recovery.stop();
-			task?.controller.abort();
-			task = undefined;
-			snapshot = undefined;
+			state.task?.controller.abort();
+			state.task = undefined;
+			state.snapshot = undefined;
 			changed();
-			listeners.clear();
+			state.listeners.clear();
 		},
 		/** 后台通过仍活跃实例的宿主服务发起单次获取，联网许可和凭据仍交宿主。 */
 		recoverUsing(run: (signal: AbortSignal) => Promise<GatewayCatalogOutcome>, signal?: AbortSignal): Promise<GatewayCatalogOutcome> {
-			if (!valid) return Promise.reject(catalogCancelledError());
+			if (!state.valid) return Promise.reject(catalogCancelledError());
 			return recovery.join(run, () => currentOutcome(false, false, true), signal).then(outcome => {
-				if (!valid || signal?.aborted) throw catalogCancelledError();
+				if (!state.valid || signal?.aborted) throw catalogCancelledError();
 				return outcome;
 			});
 		},
-		peek: () => snapshot ? copy(snapshot) : undefined,
+		peek: () => state.snapshot ? copy(state.snapshot) : undefined,
 		recover(key: string, signal?: AbortSignal): Promise<GatewayCatalogOutcome> {
 			try { check(key); } catch (error) { return Promise.reject(error); }
 			return recovery.join(
@@ -150,19 +141,19 @@ function createService(root: string, scope: string, cacheFilePath: string) {
 				read(key);
 				return Promise.resolve(currentOutcome(false, false));
 			}
-			if (task?.controller.signal.aborted) task = undefined;
-			if (task?.cacheSelected && options.force) {
+			if (state.task?.controller.signal.aborted) state.task = undefined;
+			if (state.task?.cacheSelected && options.force) {
 				// 缓存决定已经完成；这次 force 不能被旧缓存结果吞掉。
-				return task.promise.then(() => api.request(key, options));
+				return state.task.promise.then(() => api.request(key, options));
 			}
-			if (task) {
-				task.force ||= options.force === true;
-				return waitForTask(task, options.signal, () => valid, recovery.hasParticipants);
+			if (state.task) {
+				state.task.force ||= options.force === true;
+				return waitForTask(state.task, options.signal, () => state.valid, recovery.hasParticipants);
 			}
 			const controller = new AbortController();
 			const active: FetchTask = { controller, force: options.force === true,
 				networkStarted: false, cacheSelected: false, waiters: 0, promise: Promise.resolve(currentOutcome(false, false)) };
-			task = active;
+			state.task = active;
 			// 微任务内才决定缓存/网络，使同批 force 能提升尚未决策的 normal。
 			const execute = Promise.resolve().then(async () => {
 				controller.signal.throwIfAborted();
@@ -175,14 +166,14 @@ function createService(root: string, scope: string, cacheFilePath: string) {
 				const result = await getGatewayModelIds(root, key, {
 					cacheFilePath, force: true, signal: controller.signal,
 				});
-				if (!valid || task !== active || controller.signal.aborted) throw catalogCancelledError();
+				if (!state.valid || state.task !== active || controller.signal.aborted) throw catalogCancelledError();
 				if (!result.ok || result.stale) {
 					read(key);
 					const code = result.ok ? result.fallbackStatus : result.status;
 					return currentOutcome(true, false, true, code !== 401 && code !== 403);
 				}
-				if (!snapshot || result.storedAt >= snapshot.storedAt) {
-					snapshot = { ids: [...result.ids], storedAt: result.storedAt, source: result.cached ? "cache" : "network",
+				if (!state.snapshot || result.storedAt >= state.snapshot.storedAt) {
+					state.snapshot = { ids: [...result.ids], storedAt: result.storedAt, source: result.cached ? "cache" : "network",
 						...(result.magpie ? { magpie: result.magpie } : {}) };
 					changed();
 				}
@@ -196,9 +187,9 @@ function createService(root: string, scope: string, cacheFilePath: string) {
 			});
 			active.promise = Promise.race([execute, aborted]).finally(() => {
 				if (onAbort) controller.signal.removeEventListener("abort", onAbort);
-				if (task === active) task = undefined;
+				if (state.task === active) state.task = undefined;
 			});
-			return waitForTask(active, options.signal, () => valid, recovery.hasParticipants);
+			return waitForTask(active, options.signal, () => state.valid, recovery.hasParticipants);
 		},
 	};
 	return api;
@@ -206,27 +197,24 @@ function createService(root: string, scope: string, cacheFilePath: string) {
 
 export type GatewayCatalogService = ReturnType<typeof createService>;
 
-interface ServiceRegistry {
-	version: 6;
-	/** 每个 agent-dir 的唯一缓存路径一个当前槽，不按密钥维护多个目录。 */
-	slots: Map<string, GatewayCatalogService>;
-}
+const services = new WeakMap<GatewayCatalogState, GatewayCatalogService>();
 
-const REGISTRY = Symbol.for("pi-tsgw:gateway-catalog");
-
-/** 跨工厂调用与 jiti 重导入复用；不同 agent-dir 仅作宿主存储边界隔离。 */
+/** 当前模块复用自己的方法包装；跨重导入共用稳定状态与实际 GET。 */
 export function getGatewayCatalogService(root: string, key: string, cacheFilePath: string): GatewayCatalogService {
-	const globals = globalThis as typeof globalThis & { [REGISTRY]?: ServiceRegistry };
-	let registry = globals[REGISTRY];
-	if (registry && registry.version !== 6) throw new Error("TSGW 目录共享状态版本不兼容，请重启宿主。");
-	registry ??= globals[REGISTRY] = { version: 6, slots: new Map() };
+	const registry = getGatewayCatalogRegistry();
 	const path = resolve(cacheFilePath);
 	const scope = gatewayModelCacheScope(root, key);
-	let service = registry.slots.get(path);
-	if (!service || service.scope !== scope || !service.valid()) {
-		service?.invalidate();
-		service = createService(root, scope, path);
-		registry.slots.set(path, service);
+	let state = registry.slots.get(path);
+	if (!state || state.scope !== scope || !state.valid) {
+		if (state) {
+			let previous = services.get(state);
+			previous ??= createService(root, path, state);
+			previous.invalidate();
+		}
+		state = { scope, valid: true, listeners: new Set(), recovery: {} };
+		registry.slots.set(path, state);
 	}
+	let service = services.get(state);
+	if (!service) services.set(state, service = createService(root, path, state));
 	return service;
 }

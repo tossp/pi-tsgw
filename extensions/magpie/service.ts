@@ -23,18 +23,24 @@ interface Resource<T> {
 	blocked?: boolean;
 	task?: Task<T>;
 }
+interface MagpieState {
+	cards: Resource<MagpieCard[]>;
+	listeners: Set<() => void>;
+	sessions: Map<string, Resource<MagpieStatusline>>;
+	statusBlocked: boolean;
+	refresh?: { target?: RefreshTarget; task: Task<MagpieCard[]> };
+	cardsRevision: number;
+}
 const TTL = 60_000;
 const resource = <T>(): Resource<T> => ({ snapshot: {} });
+const createState = (): MagpieState => ({
+	cards: resource(), listeners: new Set(), sessions: new Map(), statusBlocked: false, cardsRevision: 0,
+});
 
 /** 只共享同一目录作用域的内存读数，不保存宿主上下文或常驻明文凭据。 */
 export function createMagpieService(catalog: Pick<GatewayCatalogService, "valid" | "isMagpie">,
-	fetcher: typeof fetch = (...args) => globalThis.fetch(...args), now = Date.now) {
-	const cards = resource<MagpieCard[]>();
-	const listeners = new Set<() => void>();
-	const sessions = new Map<string, Resource<MagpieStatusline>>();
-	let statusBlocked = false;
-	let refresh: { target?: RefreshTarget; task: Task<MagpieCard[]> } | undefined;
-	let cardsRevision = 0;
+	fetcher: typeof fetch = (...args) => globalThis.fetch(...args), now = Date.now, state = createState()) {
+	const { cards, listeners, sessions } = state;
 	const valid = () => catalog.valid() && catalog.isMagpie();
 	const session = (id: string) => {
 		let state = sessions.get(id);
@@ -88,51 +94,51 @@ export function createMagpieService(catalog: Pick<GatewayCatalogService, "valid"
 		async readStatus(id: string, request: MagpieRequest,
 			options: { force?: boolean; automatic?: boolean; signal?: AbortSignal } = {}): Promise<MagpieSnapshot<MagpieStatusline>> {
 			if (!valid() || options.signal?.aborted) return {};
-			const state = session(id);
-			if (state.task?.controller.signal.aborted) state.task = undefined;
-			if (state.task) return wait(state.task, options.signal);
-			if (options.automatic && (statusBlocked ||
-				(state.attemptedAt !== undefined && now() - state.attemptedAt < TTL))) return state.snapshot;
-			if (!options.force && state.snapshot.fetchedAt !== undefined && now() - state.snapshot.fetchedAt < TTL)
-				return state.snapshot;
-			const task = start(state, request, `statusline?format=json&session=${encodeURIComponent(id)}`, parseStatusline, "GET");
+			const statusState = session(id);
+			if (statusState.task?.controller.signal.aborted) statusState.task = undefined;
+			if (statusState.task) return wait(statusState.task, options.signal);
+			if (options.automatic && (state.statusBlocked ||
+				(statusState.attemptedAt !== undefined && now() - statusState.attemptedAt < TTL))) return statusState.snapshot;
+			if (!options.force && statusState.snapshot.fetchedAt !== undefined && now() - statusState.snapshot.fetchedAt < TTL)
+				return statusState.snapshot;
+			const task = start(statusState, request, `statusline?format=json&session=${encodeURIComponent(id)}`, parseStatusline, "GET");
 			const result = await wait(task, options.signal);
-			statusBlocked = state.blocked === true;
+			state.statusBlocked = statusState.blocked === true;
 			if (result.status === 401 || result.status === 403)
 				for (const other of sessions.values()) other.snapshot = { error: result.error, status: result.status };
 			return result;
 		},
 		readCards(request: MagpieRequest, options: { force?: boolean; automatic?: boolean; signal?: AbortSignal } = {}): Promise<MagpieSnapshot<MagpieCard[]>> {
 			if (!valid() || options.signal?.aborted) return Promise.resolve({});
-			if (refresh?.task.controller.signal.aborted) refresh = undefined;
+			if (state.refresh?.task.controller.signal.aborted) state.refresh = undefined;
 			if (cards.task?.controller.signal.aborted) cards.task = undefined;
-			if (refresh) return wait(refresh.task, options.signal);
+			if (state.refresh) return wait(state.refresh.task, options.signal);
 			if (cards.task) return wait(cards.task, options.signal);
 			if (options.automatic && (cards.blocked ||
 				(cards.attemptedAt !== undefined && now() - cards.attemptedAt < TTL))) return Promise.resolve(cards.snapshot);
 			if (!options.force && cards.snapshot.fetchedAt !== undefined && now() - cards.snapshot.fetchedAt < TTL)
 				return Promise.resolve(cards.snapshot);
-			const revision = cardsRevision;
-			return wait(start(cards, request, "quotas/cards", parseCards, "GET", () => revision === cardsRevision), options.signal);
+			const revision = state.cardsRevision;
+			return wait(start(cards, request, "quotas/cards", parseCards, "GET", () => revision === state.cardsRevision), options.signal);
 		},
 		refreshCards(request: MagpieRequest, target?: RefreshTarget, signal?: AbortSignal): Promise<MagpieSnapshot<MagpieCard[]>> {
 			if (!valid() || signal?.aborted) return Promise.resolve({});
-			if (refresh?.task.controller.signal.aborted) refresh = undefined;
-			if (refresh) {
-				const current = refresh.target;
+			if (state.refresh?.task.controller.signal.aborted) state.refresh = undefined;
+			if (state.refresh) {
+				const current = state.refresh.target;
 				if (!current || (target && current.provider === target.provider &&
-					(!current.user || current.user.toLowerCase() === target.user?.toLowerCase()))) return wait(refresh.task, signal);
+					(!current.user || current.user.toLowerCase() === target.user?.toLowerCase()))) return wait(state.refresh.task, signal);
 				return Promise.resolve({ ...cards.snapshot, error: "另一范围的额度刷新正在进行，请完成后再操作。" });
 			}
-			cardsRevision++;
+			state.cardsRevision++;
 			const query = new URLSearchParams();
 			if (target) {
 				query.set("provider", target.provider);
 				if (target.user) query.set("user", target.user);
 			}
 			const task = start(cards, request, `quotas/refresh${query.size ? `?${query}` : ""}`, parseCards, "POST");
-			refresh = { target, task };
-			void task.promise.finally(() => { if (refresh?.task === task) refresh = undefined; });
+			state.refresh = { target, task };
+			void task.promise.finally(() => { if (state.refresh?.task === task) state.refresh = undefined; });
 			return wait(task, signal);
 		},
 	};
@@ -161,11 +167,15 @@ function wait<T>(task: Task<T>, signal?: AbortSignal): Promise<MagpieSnapshot<T>
 
 export type MagpieService = ReturnType<typeof createMagpieService>;
 const SHARED = Symbol.for("pi-tsgw:magpie-state");
-/** 用目录服务对象本身作为作用域，沿用其跨工厂和凭据切换失效语义。 */
+const instances = new WeakMap<object, MagpieService>();
+/** 稳定目录状态关联额度数据；服务包装与解析方法使用当前模块的代码。 */
 export function getMagpieService(catalog: GatewayCatalogService): MagpieService {
-	const globals = globalThis as typeof globalThis & { [SHARED]?: WeakMap<GatewayCatalogService, MagpieService> };
-	const services = globals[SHARED] ??= new WeakMap();
-	let service = services.get(catalog);
-	if (!service) services.set(catalog, service = createMagpieService(catalog));
+	const globals = globalThis as typeof globalThis & { [SHARED]?: WeakMap<object, MagpieState> };
+	const states = globals[SHARED] ??= new WeakMap();
+	const identity = catalog.identity;
+	let state = states.get(identity);
+	if (!state) states.set(identity, state = createState());
+	let service = instances.get(identity);
+	if (!service) instances.set(identity, service = createMagpieService(catalog, undefined, undefined, state));
 	return service;
 }

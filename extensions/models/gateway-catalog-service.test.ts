@@ -210,13 +210,13 @@ test("网络已提交但尚未交付时替换配置，旧 waiter 不得收到成
 	await rejected;
 });
 
-test("旧版本共享对象不能被热重载后的新契约直接复用", t => {
+test("旧闭包服务的共享契约不兼容时明确要求首次重启", t => {
 	const f = fixture(t);
 	const symbol = Symbol.for("pi-tsgw:gateway-catalog");
 	const globals = globalThis as Record<symbol, unknown>;
 	const previous = globals[symbol];
 	try {
-		globals[symbol] = { version: 1, slots: new Map([[f.path, { scope: gatewayModelCacheScope(f.root, f.key) }]]) };
+		globals[symbol] = { version: 6, slots: new Map([[f.path, { scope: gatewayModelCacheScope(f.root, f.key) }]]) };
 		assert.throws(() => getGatewayCatalogService(f.root, f.key, f.path), /重启宿主/);
 	} finally { globals[symbol] = previous; }
 });
@@ -322,11 +322,11 @@ test("最后一个恢复实例退出会释放已失去网络 waiter 的 GET", as
 	assert.equal(f.signals[0]?.aborted, true);
 });
 
-test("真实 SDK 在不同 cwd 用 jiti 重导入工厂仍复用同一共享服务，工厂零网络", async t => {
+test("真实 SDK 重导入工厂创建新方法包装并复用稳定数据，工厂零网络", async t => {
 	const f = fixture(t);
 	const sdk = await import("@earendil-works/pi-coding-agent");
 	const symbol = Symbol.for(`tsgw-service-test:${randomUUID()}`);
-	const globals = globalThis as typeof globalThis & { [symbol]: unknown[] };
+	const globals = globalThis as typeof globalThis & { [symbol]: Array<typeof f.service> };
 	globals[symbol] = [];
 	t.after(() => { delete (globals as Record<symbol, unknown>)[symbol]; });
 	// 测试运行在 dist，定位真实 TS 源码，让宿主 jiti 而非 Node 模块缓存负责加载。
@@ -351,7 +351,10 @@ export default function () { globalThis[Symbol.for(${JSON.stringify(Symbol.keyFo
 		assert.deepEqual(loader.getExtensions().errors, []);
 	}
 	assert.equal(globals[symbol].length, 2);
-	assert.equal(globals[symbol][0], f.service);
-	assert.equal(globals[symbol][1], f.service);
+	assert.notEqual(globals[symbol][0], f.service);
+	assert.notEqual(globals[symbol][1], globals[symbol][0]);
+	assert.equal(globals[symbol][0].identity, f.service.identity);
+	assert.equal(globals[symbol][1].identity, f.service.identity);
+	assert.notEqual(globals[symbol][0].request, globals[symbol][1].request);
 	assert.equal(f.signals.length, 0);
 });

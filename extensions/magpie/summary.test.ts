@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { parseCards } from "./data.ts";
 import { quotaSummary } from "./summary.ts";
 
 test("底部仅保留 OpenAI，同账户取最紧窗口再取账户最大值", () => {
@@ -83,4 +84,46 @@ test("没有 OpenAI 时不展示，不按展示名猜测产品", () => {
 		{ provider: "office/acme", name: "OpenAI / Codex", balance: "$3" },
 		{ provider: "minimax", windows: [{ used: 0 }] },
 	]), undefined);
+});
+
+test("坏展示字段、坏卡片与未知窗口不拖累有效读数，也不冒充满额", () => {
+	const cards = parseCards({
+		object: "list",
+		data: [
+			{ provider: "codex", name: 7, windows: [{ name: "week", used: 20, display: 99 }] },
+			{ name: "无来源" },
+			{ provider: "codex", windows: [{ name: "bad", text: "yes", used: 0 }] },
+			{ provider: "minimax", windows: [{ name: "week", used: 80 }] },
+		],
+	});
+	const summary = quotaSummary(cards);
+	assert.ok(summary);
+	assert.match(summary, /OpenAI 80%/);
+	assert.doesNotMatch(summary, /100%|MiniMax/);
+});
+
+test("坏窗口不拿剩余有效窗口冒充完整额度", () => {
+	const [card] = parseCards({
+		object: "list",
+		data: [{ provider: "codex", windows: [{ name: "week", used: 20 }, 7] }],
+	});
+	assert.ok(card);
+	assert.equal(quotaSummary([card]), undefined);
+});
+
+test("账户状态和错误标记异常时保留参考值，并优先使用正常读数", () => {
+	const [held] = parseCards({
+		object: "list",
+		data: [{ provider: "codex", held: "yes", windows: [{ name: "week", used: 20 }] }],
+	});
+	assert.ok(held);
+	assert.match(quotaSummary([held]) ?? "", /80%（旧）/);
+	assert.match(quotaSummary([held, { provider: "codex", windows: [{ used: 70 }] }]) ?? "", /OpenAI 30%$/);
+
+	const [errorCard] = parseCards({
+		object: "list",
+		data: [{ provider: "codex", error: { secret: "sk-synthetic" }, windows: [{ name: "week", used: 0 }] }],
+	});
+	assert.ok(errorCard);
+	assert.match(quotaSummary([errorCard]) ?? "", /100%（旧）/);
 });

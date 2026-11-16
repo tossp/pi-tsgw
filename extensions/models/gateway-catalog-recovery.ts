@@ -20,23 +20,27 @@ interface RecoveryRound {
 	promise: Promise<GatewayCatalogOutcome>;
 }
 
+export interface GatewayCatalogRecoveryState {
+	active?: RecoveryRound;
+}
+
 /** 进程共享服务内的一轮恢复；新加入者不延长截止，手动获取不触发重试。 */
-export function createGatewayCatalogRecovery(options: { onIdle?(): void } = {}) {
-	let active: RecoveryRound | undefined;
+export function createGatewayCatalogRecovery(options: { state?: GatewayCatalogRecoveryState; onIdle?(): void } = {}) {
+	const state = options.state ?? {};
 	return {
-		stop() { active?.controller.abort(); active = undefined; options.onIdle?.(); },
-		hasParticipants: () => !!active && !active.controller.signal.aborted && active.waiters > 0,
+		stop() { state.active?.controller.abort(); state.active = undefined; options.onIdle?.(); },
+		hasParticipants: () => !!state.active && !state.active.controller.signal.aborted && state.active.waiters > 0,
 		join(
 			request: (signal: AbortSignal) => Promise<GatewayCatalogOutcome>,
 			fallback: () => GatewayCatalogOutcome,
 			signal?: AbortSignal,
 		): Promise<GatewayCatalogOutcome> {
 			if (signal?.aborted) return Promise.reject(cancelled());
-			if (active?.controller.signal.aborted) active = undefined;
-			if (!active) {
+			if (state.active?.controller.signal.aborted) state.active = undefined;
+			if (!state.active) {
 				const round: RecoveryRound = { controller: new AbortController(), waiters: 0, participants: new Set(),
 					promise: Promise.resolve({ networkAttempted: false, networkSucceeded: false, failed: true, retryable: true }) };
-				active = round;
+				state.active = round;
 				let deadline: ReturnType<typeof setTimeout> | undefined;
 				let wake: ReturnType<typeof setTimeout> | undefined;
 				let cancelWait: (() => void) | undefined;
@@ -82,10 +86,10 @@ export function createGatewayCatalogRecovery(options: { onIdle?(): void } = {}) 
 					clearTimeout(wake);
 					cancelWait?.();
 					round.controller.signal.removeEventListener("abort", abort);
-					if (active === round) { active = undefined; options.onIdle?.(); }
+					if (state.active === round) { state.active = undefined; options.onIdle?.(); }
 				});
 			}
-			const round = active;
+			const round = state.active;
 			const participant = { request };
 			round.participants.add(participant);
 			round.waiters++;

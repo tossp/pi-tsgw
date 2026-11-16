@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { parseGatewayModelList } from "./gateway-model-list.ts";
+import { getGatewayCatalogRegistry } from "./gateway-catalog-shared.ts";
 
 export const DEFAULT_GATEWAY_MODEL_TIMEOUT_MS = 5_000;
 export const DEFAULT_GATEWAY_MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
@@ -48,6 +49,7 @@ export type FetchGatewayModelIdsResult =
 			detail?: string;
 	  };
 
+/** 网关仅提供可选模型 ID；规格与使用策略由本地目录定义，其余字段只辅助缓存和附加能力。 */
 export interface ModelCacheEntry {
 	ids: string[];
 	storedAt: number;
@@ -301,29 +303,12 @@ export function loadGatewayModelCache(
 	};
 }
 
-const gatewayCaches = new Map<string, ModelCache>();
-interface PendingRequest {
-	promise: Promise<FetchGatewayModelIdsResult>;
-	revision: number;
-	storedAt: number;
-}
-const inFlightRequests = new Map<string, PendingRequest>();
-const latestRequests = new Map<string, number>();
-// 每个规范化路径仅有一个磁盘缓存槽，与内存缓存作用域相互独立。
-const latestDiskRequests = new Map<string, number>();
-let revision = 0;
-
 function memoryCacheKey(scope: string, filePath?: string): string {
 	return filePath ? `${scope}\0${resolve(filePath)}` : scope;
 }
 
-function cacheFor(key: string): ModelCache {
-	let cache = gatewayCaches.get(key);
-	if (!cache) {
-		cache = createModelCache();
-		gatewayCaches.set(key, cache);
-	}
-	return cache;
+function storeMemoryCache(key: string, entry: ModelCacheEntry): void {
+	getGatewayCatalogRegistry().cache.entries.set(key, { ...entry, ids: [...entry.ids] });
 }
 
 function selectLatestGatewayModelCacheEntry(
@@ -332,7 +317,7 @@ function selectLatestGatewayModelCacheEntry(
 	ttlMs: number,
 	now: number,
 ): { entry: ModelCacheEntry; fresh: boolean } | undefined {
-	const memory = gatewayCaches.get(memoryCacheKey(key, cacheFilePath))?.get();
+	const memory = getGatewayCatalogRegistry().cache.entries.get(memoryCacheKey(key, cacheFilePath));
 	const disk = cacheFilePath
 		? readGatewayModelCacheEntry(cacheFilePath, key)
 		: undefined;
@@ -355,7 +340,7 @@ export function getCachedGatewayModelIds(
 ): CachedGatewayModelIds | undefined {
 	const key = gatewayModelCacheScope(baseUrl, apiKey);
 	const cacheKey = memoryCacheKey(key, opts.cacheFilePath);
-	const memory = gatewayCaches.get(cacheKey)?.get();
+	const memory = getGatewayCatalogRegistry().cache.entries.get(cacheKey);
 	const selected = selectLatestGatewayModelCacheEntry(
 		key,
 		opts.cacheFilePath,
@@ -366,7 +351,7 @@ export function getCachedGatewayModelIds(
 	// 选中更新的磁盘快照时同步共享内存，避免磁盘随后损坏或删除时回退旧内存。
 	// 仅预热内存，不写磁盘，也不改变原始获取时间。
 	if (!memory || selected.entry.storedAt > memory.storedAt)
-		cacheFor(cacheKey).set(selected.entry.ids, selected.entry.storedAt, selected.entry.magpie);
+		storeMemoryCache(cacheKey, selected.entry);
 	return {
 		...selected.entry,
 		ids: [...selected.entry.ids],
@@ -391,12 +376,12 @@ export async function getGatewayModelIds(
 	const key = gatewayModelCacheScope(baseUrl, apiKey);
 	const ttlMs = checkedTtl(opts.ttlMs);
 	const cacheKey = memoryCacheKey(key, opts.cacheFilePath);
-	const cache = cacheFor(cacheKey);
+	const cache = getGatewayCatalogRegistry().cache;
 	const local = selectLatestGatewayModelCacheEntry(
 		key, opts.cacheFilePath, ttlMs, now,
 	);
 	if (!opts.force && local?.fresh) {
-		cache.set(local.entry.ids, local.entry.storedAt, local.entry.magpie);
+		storeMemoryCache(cacheKey, local.entry);
 		return {
 			...local.entry,
 			ok: true,
@@ -412,25 +397,25 @@ export async function getGatewayModelIds(
 	// Pi 可能已替换该次刷新。只有不带信号的调用共享进行中的请求；
 	// 可取消的调用独立发起获取请求。
 	const shareRequest = opts.signal === undefined;
-	let request = shareRequest ? inFlightRequests.get(requestKey) : undefined;
+	let request = shareRequest ? cache.inFlight.get(requestKey) : undefined;
 	if (!request) {
-		const requestRevision = ++revision;
+		const requestRevision = ++cache.revision;
 		request = {
 			revision: requestRevision,
 			storedAt: now,
 			promise: fetchGatewayModelIds(baseUrl, apiKey, opts),
 		};
-		if (shareRequest) inFlightRequests.set(requestKey, request);
+		if (shareRequest) cache.inFlight.set(requestKey, request);
 	}
 
 	// 请求可跨路径复用，但内存写入屏障按各自路径独立登记。
-	latestRequests.set(cacheKey, Math.max(latestRequests.get(cacheKey) ?? 0, request.revision));
+	cache.latest.set(cacheKey, Math.max(cache.latest.get(cacheKey) ?? 0, request.revision));
 	const diskPath = opts.cacheFilePath ? resolve(opts.cacheFilePath) : undefined;
 	if (diskPath) {
 		// 登记每个订阅者的路径，包括目标路径不同的共享请求。
 		// 加入较旧请求时，不得回退较新的版本屏障。
-		latestDiskRequests.set(diskPath, Math.max(
-			latestDiskRequests.get(diskPath) ?? 0, request.revision,
+		cache.latestDisk.set(diskPath, Math.max(
+			cache.latestDisk.get(diskPath) ?? 0, request.revision,
 		));
 	}
 
@@ -438,8 +423,8 @@ export async function getGatewayModelIds(
 	try {
 		fetched = await request.promise;
 	} finally {
-		if (shareRequest && inFlightRequests.get(requestKey) === request)
-			inFlightRequests.delete(requestKey);
+		if (shareRequest && cache.inFlight.get(requestKey) === request)
+			cache.inFlight.delete(requestKey);
 	}
 
 	// 取消后绝不回退或写入，即使获取器忽略了取消信号。
@@ -447,9 +432,9 @@ export async function getGatewayModelIds(
 	if (fetched.ok) {
 		// 以后启动的请求为准，即使较新的请求失败或取消。
 		// 被取代的成功请求仍向调用者返回结果，但不写入缓存。
-		if (latestRequests.get(cacheKey) === request.revision) {
-			cache.set(fetched.ids, request.storedAt, fetched.magpie);
-			if (diskPath && latestDiskRequests.get(diskPath) === request.revision)
+		if (cache.latest.get(cacheKey) === request.revision) {
+			storeMemoryCache(cacheKey, { ids: fetched.ids, storedAt: request.storedAt, ...(fetched.magpie ? { magpie: fetched.magpie } : {}) });
+			if (diskPath && cache.latestDisk.get(diskPath) === request.revision)
 				saveGatewayModelCache(diskPath, key, fetched.ids, request.storedAt, fetched.magpie);
 		}
 		return {

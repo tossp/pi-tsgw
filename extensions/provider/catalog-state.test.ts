@@ -34,6 +34,23 @@ function fixture(t: TestContext, age?: number) {
 	};
 }
 
+test("无初始凭据时也在加载入口提示不兼容共享契约，保持零网络", t => {
+	const f = fixture(t);
+	const symbol = Symbol.for("pi-tsgw:gateway-catalog");
+	const globals = globalThis as Record<symbol, unknown>;
+	const previous = globals[symbol];
+	try {
+		for (const incompatible of [{ version: 6, slots: new Map() }, { schema: 2 }]) {
+			globals[symbol] = incompatible;
+			assert.throws(() => createCatalogState({
+				root: f.root, filter: {}, cacheFilePath: f.cacheFilePath,
+				imagesEnabled: true, classifiersEnabled: true, onChange() {},
+			}), /重启宿主/);
+		}
+		assert.equal(f.calls(), 0);
+	} finally { globals[symbol] = previous; }
+});
+
 for (const age of [undefined, 1000, 2 * TTL]) {
 	test(`初始化与会话就绪前只读本地，缓存年龄 ${age}`, async t => {
 		const f = fixture(t, age);
