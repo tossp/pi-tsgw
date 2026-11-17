@@ -39,7 +39,7 @@ export const DELEGATION_KNOWLEDGE: readonly CandidateKnowledge[] = [
 		suitability: "范围明确的资料提取、图文理解、代码修补与工具子任务",
 		effort: "原生 medium 档，较低公开参考价",
 		inputPrice: "0.118", outputPrice: "0.39825",
-		note: "官方定位支持编码与 Agent；需明确验收，尚未验证真实工具往返与长程工程能力。",
+		note: "官方定位支持编码与 Agent；medium 档已通过一次最小文本回复与真实本地工具往返验收，长程工程能力尚未验证，任务仍需明确验收。",
 	},
 	{
 		id: "qwen4-max", level: "high",
