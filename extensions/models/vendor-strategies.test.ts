@@ -75,7 +75,7 @@ const glmCases = {
 const glm53Ids = ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx"];
 coverage([...glm53Ids, ...Object.keys(glmCases)], glmThinking, glmModels(root));
 // 每 ID 保留七档主映射；stream 与遗留 effort 独立取样，不做笛卡尔积。
-for (const id of glm53Ids) {
+for (const id of glm53Ids.filter(id => id !== "glm-5.3-flash")) {
 	for (const level of levels) {
 		const result = apply(glmThinking, id, level, { ...base(), stream: true, thinking: { type: "disabled", retained: true } });
 		deepStrictEqual(result.thinking, { type: "enabled", retained: true, ...(["high", "xhigh", "max"].includes(level) ? { clear_thinking: false } : {}) });

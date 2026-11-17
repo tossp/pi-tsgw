@@ -34,6 +34,21 @@ export const DELEGATION_KNOWLEDGE: readonly CandidateKnowledge[] = [
 		note: "要求约束清楚、结果易验证；步骤清晰不代表问题简单，不用于开放式根因调查。",
 	},
 	{
+		// 国内参考价与参数依据见 vendors/qwen.ts，不代表网关实扣或实测延迟。
+		id: "qwen3.8-flash", level: "medium",
+		suitability: "范围明确的资料提取、图文理解、代码修补与工具子任务",
+		effort: "原生 medium 档，较低公开参考价",
+		inputPrice: "0.118", outputPrice: "0.39825",
+		note: "官方定位支持编码与 Agent；需明确验收，尚未验证真实工具往返与长程工程能力。",
+	},
+	{
+		id: "qwen4-max", level: "high",
+		suitability: "需要工程判断的编程、前端实现与图文结合的多步骤任务",
+		effort: "原生 high 档",
+		inputPrice: "1.475", outputPrice: "4.425",
+		note: "旗舰工程候选，尚未验证真实工具往返；不替代正式设计审阅的固定模型与档位。",
+	},
+	{
 		id: "glm-5.3", level: "low",
 		suitability: "通用工程，范围较清晰的修改",
 		effort: "较低思考档",

@@ -59,7 +59,7 @@ function completionBase(): Payload {
 }
 
 function testCompletionProfiles(): void {
-	for (const modelId of ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx"]) {
+	for (const modelId of ["glm-5.3", "glm-5.3-flashx"]) {
 		for (const level of ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const) {
 			const input = { ...completionBase(), messages: [{ role: "user", content: "keep" }], tools: [{ type: "function", function: { name: "keep" } }], max_tokens: 42 };
 			const result = apply(input, modelId, "openai-completions", level);

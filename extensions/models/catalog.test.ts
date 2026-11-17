@@ -80,8 +80,9 @@ function testModelCapabilities(): void {
 	] as const) {
 		const model = models.find((model) => model.id === id)!;
 		const minimax = id === "MiniMax-M3.1-Flash";
-		equal(model.api, minimax ? "anthropic-messages" : "openai-completions");
-		equal(model.baseUrl, minimax ? ROOT : `${ROOT}/v1`);
+		const anthropic = minimax || id === "glm-5.3-flash";
+		equal(model.api, anthropic ? "anthropic-messages" : "openai-completions");
+		equal(model.baseUrl, anthropic ? ROOT : `${ROOT}/v1`);
 		equal(model.reasoning, true);
 		deepStrictEqual(model.input, input);
 		if (id === "MiniMax-M3.1-Flash") {
@@ -89,7 +90,7 @@ function testModelCapabilities(): void {
 		}
 		equal(model.contextWindow, 1000000);
 		equal(model.maxTokens, id.startsWith("MiniMax-") ? 524288 : 131072);
-		deepStrictEqual(model.compat, minimax ? { forceAdaptiveThinking: true, allowEmptySignature: true } : { supportsDeveloperRole: false });
+		deepStrictEqual(model.compat, anthropic ? { forceAdaptiveThinking: true, allowEmptySignature: true } : { supportsDeveloperRole: false });
 		deepStrictEqual(model.thinkingLevelMap, id.startsWith("MiniMax-")
 			? { off: null, minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" } : glm53Map);
 	}

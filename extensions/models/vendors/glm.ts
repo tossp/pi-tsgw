@@ -1,6 +1,6 @@
 import type { ChatModelConfig as ProviderModelConfig } from "../_tools.ts";
-import { OPENAI_COMPLETIONS_COMPAT } from "./_protocols.ts";
-import { isMaximum, type PayloadWriter, type ThinkingApplier, type ThinkingLevel } from "../_tools.ts";
+import { ANTHROPIC_COMPAT, OPENAI_COMPLETIONS_COMPAT } from "./_protocols.ts";
+import { isMaximum, isPlainObject, type PayloadWriter, type ThinkingApplier, type ThinkingLevel } from "../_tools.ts";
 
 /**
  * 智谱 AI（Zhipu）GLM 系列。
@@ -18,7 +18,7 @@ import { isMaximum, type PayloadWriter, type ThinkingApplier, type ThinkingLevel
 export function glmModels(root: string): ProviderModelConfig[] {
 	const v1 = `${root}/v1`;
 	return [
-		...glm53Models(v1),
+		...glm53Models(root),
 		{
 			id: "glm-5.2",
 			name: "GLM 5.2",
@@ -53,8 +53,8 @@ export function glmModels(root: string): ProviderModelConfig[] {
 	];
 }
 
-/** 5.3 三型号只有模态和价格不同；具体契约由各自官方模型页确认。 */
-function glm53Models(baseUrl: string): ProviderModelConfig[] {
+/** Flash 使用 Coding Plan 的 Anthropic 兼容入口，另外两款保持 Chat Completions。 */
+function glm53Models(root: string): ProviderModelConfig[] {
 	const variants: Pick<ProviderModelConfig, "id" | "name" | "input" | "cost">[] = [
 		{ id: "glm-5.3", name: "GLM 5.3", input: ["text"],
 			cost: { input: 1.18, output: 4.13, cacheRead: 0.295, cacheWrite: 0 } },
@@ -63,26 +63,48 @@ function glm53Models(baseUrl: string): ProviderModelConfig[] {
 		{ id: "glm-5.3-flashx", name: "GLM 5.3 FlashX", input: ["text", "image"],
 			cost: { input: 0.295, output: 1.0325, cacheRead: 0.084075, cacheWrite: 0 } },
 	];
-	return variants.map((model) => ({
-		...model,
-		api: "openai-completions",
-		baseUrl,
-		reasoning: true,
-		thinkingLevelMap: { off: null, minimal: "low", low: "low", medium: "high", high: "high", xhigh: "max", max: "max" },
-		contextWindow: 1000000,
-		maxTokens: 131072,
-		compat: OPENAI_COMPLETIONS_COMPAT,
-	} satisfies ProviderModelConfig));
+	return variants.map((model) => {
+		const anthropic = model.id === "glm-5.3-flash";
+		return {
+			...model,
+			api: anthropic ? "anthropic-messages" : "openai-completions",
+			baseUrl: anthropic ? root : `${root}/v1`,
+			reasoning: true,
+			thinkingLevelMap: { off: null, minimal: "low", low: "low", medium: "high", high: "high", xhigh: "max", max: "max" },
+			contextWindow: 1000000,
+			maxTokens: 131072,
+			compat: anthropic ? { ...ANTHROPIC_COMPAT, allowEmptySignature: true } : OPENAI_COMPLETIONS_COMPAT,
+		} satisfies ProviderModelConfig;
+	});
 }
 
 function applyGlm53(writer: PayloadWriter, level: ThinkingLevel): void {
 	if (writer.get("stream") === true) writer.set("tool_stream", true);
 	writer.setThinking({ type: "enabled" });
 	if (level === "high" || isMaximum(level)) writer.setThinking({ clear_thinking: false });
-	writer.set("reasoning_effort", isMaximum(level) ? "max" : level === "medium" || level === "high" ? "high" : "low");
+	writer.set("reasoning_effort", glm53Effort(level));
 }
 
-// GLM 思维链：`tool_stream=true` 仅在流式请求时附加；高级档位加 `clear_thinking=false`。
+// Coding Plan 的 Claude Code 契约：adaptive + output_config.effort；不套用 Chat 扩展。
+// https://docs.bigmodel.cn/cn/coding-plan/latest-model
+// 兼容服务的无签名思考块交给宿主保留，避免工具续轮时降为普通文本。
+function applyGlm53Flash(writer: PayloadWriter, level: ThinkingLevel): void {
+	writer.remove("reasoning_effort");
+	writer.remove("tool_stream");
+	writer.setThinking({ type: "adaptive" });
+	const current = writer.get("output_config");
+	const output = isPlainObject(current) ? current : {};
+	const effort = glm53Effort(level);
+	if (output.effort !== effort) writer.set("output_config", { ...output, effort });
+}
+
+function glm53Effort(level: ThinkingLevel): "low" | "high" | "max" {
+	if (isMaximum(level)) return "max";
+	if (level === "medium" || level === "high") return "high";
+	return "low";
+}
+
+// GLM Chat 思维链：`tool_stream=true` 仅在流式请求时附加；高级档位加 `clear_thinking=false`。
 function applyGlm(writer: PayloadWriter, level: ThinkingLevel, effort = true, preserve = true): void {
 	if (!effort) writer.remove("reasoning_effort");
 	if (writer.get("stream") === true) writer.set("tool_stream", true);
@@ -101,7 +123,7 @@ function applyGlm(writer: PayloadWriter, level: ThinkingLevel, effort = true, pr
 
 export const glmThinking: Record<string, ThinkingApplier> = {
 	"glm-5.3": (w, c) => applyGlm53(w, c.thinkingLevel),
-	"glm-5.3-flash": (w, c) => applyGlm53(w, c.thinkingLevel),
+	"glm-5.3-flash": (w, c) => applyGlm53Flash(w, c.thinkingLevel),
 	"glm-5.3-flashx": (w, c) => applyGlm53(w, c.thinkingLevel),
 	"glm-5.2": (w, c) => applyGlm(w, c.thinkingLevel),
 	"glm-4.5-air": (w, c) => applyGlm(w, c.thinkingLevel, false, false),
