@@ -16,7 +16,7 @@ const TIMEOUT_MS = 15_000;
 const MAX_CONTEXT_BYTES = 28 * 1024;
 const GUIDANCE = "新建子代理时，直接调用 Agent，写清任务、必要事实、输入与工具条件、关键难点、验收标准和约束。" +
 	"用户指定模型或固定审阅组合时按要求显式传 model；否则省略 model，由 TSGW 自动补入模型与思考档位。" +
-	"resume 沿用原模型，不重新选型。";
+	"resume 沿用原模型与已有选型。";
 
 type Decision = {
 	status: "selected" | "blocked";

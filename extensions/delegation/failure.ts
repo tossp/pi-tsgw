@@ -56,5 +56,5 @@ export function chatFailure(message: string | undefined): SelectionFailure {
 
 export function failureGuidance(kind: DelegationFailureKind | undefined): string {
 	if (kind === "cancelled") return "本次未创建子代理。";
-	return "本次未创建子代理。请按以下选型指导处理，不重试自动选型。";
+	return "本次未创建子代理。请按以下选型指导显式填写 Agent.model 后重新派遣。";
 }

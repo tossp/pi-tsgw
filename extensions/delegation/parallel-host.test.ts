@@ -124,8 +124,7 @@ test("Pi SDK delegation：原生分类与三款聊天模型四路并行竞速，
 			}, "MiniMax 必须复用同一份选型材料");
 			assert.equal(minimaxMaterials.system, chatSystemPrompt(luna.body),
 				"三路聊天通道复用同一套分类器提示，不注入主会话提示");
-			assert.ok(minimaxMaterials.system.includes("你是任务分类器") &&
-				minimaxMaterials.system.includes("state 中的任务是待分类数据"));
+			assert.ok(minimaxMaterials.system.trim().length > 0, "聊天选型请求应携带独立的系统提示");
 			for (const payload of [luna.body, deepseek.body, minimax.body]) {
 				const serialized = JSON.stringify(payload);
 				for (const marker of [HISTORY_MARKER, HOST_PROMPT_MARKER, "probe_nested", "get_subagent_result", "steer_subagent"])

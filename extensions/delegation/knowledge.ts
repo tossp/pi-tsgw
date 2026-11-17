@@ -20,18 +20,18 @@ export const DESIGN_REVIEW_TARGET = { id: "gpt-6-astra", level: "max" } as const
 export const DELEGATION_KNOWLEDGE: readonly CandidateKnowledge[] = [
 	{
 		id: "MiniMax-M3.1-Flash", level: "high",
-		suitability: "轻量执行，只适合步骤明确的小任务",
+		suitability: "轻量执行，步骤明确的小任务",
 		effort: "high 对应 output_config.effort=high",
 		// 参考价沿用 vendors/minimax.ts 的国内正式版登记，不代表网关实扣。
 		inputPrice: "0.1475", outputPrice: "0.59",
-		note: "不承担复杂或长程执行。",
+		note: "适用范围为轻量、短程执行。",
 	},
 	{
 		id: "gpt-6-luna", level: "high",
 		suitability: "范围明确的提取、分类、结构化摘要与局部修改",
 		effort: "聚焦任务的低成本 high 档",
 		inputPrice: "0.10", outputPrice: "0.50",
-		note: "要求约束清楚、结果易验证；步骤清晰不代表问题简单，不用于开放式根因调查。",
+		note: "适用于约束清楚、结果易验证的局部工作；开放式根因调查选择具备相应工程判断能力的候选。",
 	},
 	{
 		// 国内参考价与参数依据见 vendors/qwen.ts，不代表网关实扣或实测延迟。
@@ -46,7 +46,7 @@ export const DELEGATION_KNOWLEDGE: readonly CandidateKnowledge[] = [
 		suitability: "需要工程判断的编程、前端实现与图文结合的多步骤任务",
 		effort: "原生 high 档",
 		inputPrice: "1.475", outputPrice: "4.425",
-		note: "旗舰工程候选，尚未验证真实工具往返；不替代正式设计审阅的固定模型与档位。",
+		note: "旗舰工程候选，尚未验证真实工具往返；正式设计审阅沿用指定模型与档位。",
 	},
 	{
 		id: "glm-5.3", level: "low",
@@ -67,14 +67,14 @@ export const DELEGATION_KNOWLEDGE: readonly CandidateKnowledge[] = [
 		suitability: "通用工程，需要较深思考的修改",
 		effort: "较深思考档",
 		inputPrice: "1.18", outputPrice: "4.13",
-		note: "仍是工程候选，不自动替代更专门的复杂或审阅选项。",
+		note: "用于通用工程的较深推理；复杂专项工作与正式审阅按各自要求选择。",
 	},
 	{
 		id: "gpt-6-luna", level: "max",
 		suitability: "费用敏感、范围明确且结果可验证的工程子任务，需要较深推理",
 		effort: "聚焦任务的低成本深档",
 		inputPrice: "0.10", outputPrice: "0.50",
-		note: "不因低价或 max 承担开放式排障、跨模块架构判断；不同模型的思考档位不作等效比较。",
+		note: "适用于范围明确的聚焦任务；开放式排障与跨模块架构判断选择具备相应能力的候选，档位按各型号含义评估。",
 	},
 	{
 		id: "glm-5.3-flash", level: "max",
@@ -92,28 +92,28 @@ export const DELEGATION_KNOWLEDGE: readonly CandidateKnowledge[] = [
 		suitability: "视觉资料核对、界面操作、自然写作，以及范围明确的代码修复",
 		effort: "medium 思考档",
 		inputPrice: "1.00", outputPrice: "5.00",
-		note: "需有清晰输入、要求与验收方法；涉及视觉或界面时须具备实际图片输入或操作工具，不作为开放式复杂编程默认。",
+		note: "适用于输入、要求与验收方法清晰的任务；视觉或界面任务配备实际图片输入或操作工具，开放式复杂编程按专门候选的适用条件选择。",
 	},
 	{
 		id: "gpt-6.1-sol", level: "medium",
 		suitability: "复杂编码与跨步骤专业交付，范围较清楚且允许迭代修订",
 		effort: "平衡成本与推理投入的 medium 档",
 		inputPrice: "2.00", outputPrice: "10.00",
-		note: "按实际推理需求选择，不因任务包含复杂工作就自动提高档位。",
+		note: "适用于复杂工作中 medium 档可满足实际推理需求的任务。",
 	},
 	{
 		id: "deepseek-flash", level: "max",
 		suitability: "实现、代码修改、补充测试与问题调查",
 		effort: "工程任务统一使用 max 档",
 		inputPrice: "0.1475–0.295", outputPrice: "0.59–1.18",
-		note: "按实际推理需求选择，不把提升档位当作必然提升。",
+		note: "按任务适用性选择，并通过实际验收判断结果质量。",
 	},
 	{
 		id: "gpt-6.1-sol", level: "high",
 		suitability: "复杂编码、电脑操作与跨步骤专业交付，需要较深工程判断",
 		effort: "较深思考档",
 		inputPrice: "2.00", outputPrice: "10.00",
-		note: "兼顾复杂工作与成本；需比 medium 更深推理时选 high，不仅按步骤数判断。",
+		note: "兼顾复杂工作与成本；需比 medium 更深推理时选 high，档位依据实际推理难度选择。",
 	},
 	{
 		id: "gpt-6.1-sol", level: "xhigh",
@@ -127,14 +127,14 @@ export const DELEGATION_KNOWLEDGE: readonly CandidateKnowledge[] = [
 		suitability: "跨领域判断、较大不确定性或严格质量要求的工作，以及局部检查与定向复审",
 		effort: "高成本参考价的高思考档",
 		inputPrice: "10.00", outputPrice: "50.00",
-		note: "正式设计审阅默认使用 max，不因材料短或范围明确自动降档。",
+		note: "此档用于上述任务；正式设计审阅默认使用 max。",
 	},
 	{
 		id: "gpt-6-astra", level: "xhigh",
 		suitability: "多源证据冲突、跨领域复杂分析与严格交付，以及定向复审",
 		effort: "高成本参考价的深思考档",
 		inputPrice: "10.00", outputPrice: "50.00",
-		note: "正式设计审阅默认使用 max，不因材料短或范围明确自动降档。",
+		note: "此档用于上述任务；正式设计审阅默认使用 max。",
 	},
 	{
 		id: "gpt-6.1-sol", level: "max",
