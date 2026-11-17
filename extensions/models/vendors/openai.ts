@@ -5,6 +5,13 @@ import { type PayloadWriter, type ThinkingApplier } from "../_tools.ts";
 /**
  * OpenAI GPT 系列（Responses 协议）。
  * 官方文档：https://platform.openai.com/docs/models
+ * GPT-6.2 Astra / Sol：2026-11-17 核验（记忆系统 1167）。
+ * https://developers.openai.com/api/docs/models/gpt-6.2-astra
+ * https://developers.openai.com/api/docs/models/gpt-6.2-sol
+ * 两款均为 1050000 上下文、128000 最大输出；工具调用要求 Responses，不支持 none/minimal。
+ * 标准档 ≤272K：Astra 输入 $8 / 缓存命中 $0.4 / 30 分钟缓存写入 $10 / 输出 $40；
+ * Sol 输入 $2 / 缓存命中 $0.1 / 30 分钟缓存写入 $2.5 / 输出 $10。
+ * 12 小时缓存写入分别为 $20 / $5；>272K 时整次请求输入与缓存 ×2、输出 ×1.5。
  * GPT-6.1 Sol：https://developers.openai.com/api/docs/models/gpt-6.1-sol
  * 用户确认网关接入 Codex 对应型号，上下文为 500000；最大输出与价格保持原值。
  * 标准档 ≤272K：输入 $2 / 缓存命中 $0.1 / 缓存写入 $2.5 / 输出 $10（2026-09-30）。
@@ -23,6 +30,48 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 	// https://github.com/earendil-works/pi/blob/v1.5.2/packages/ai/catalog/providers/openai.ts
 	const explicitCacheCompat = { supportsExplicitPromptCacheMode: true };
 	return [
+		{
+			id: "gpt-6.2-astra",
+			name: "GPT 6.2 Astra",
+			api: "openai-responses",
+			baseUrl: v1,
+			reasoning: true,
+			thinkingLevelMap: {
+				off: null,
+				minimal: null,
+				low: "low",
+				medium: "medium",
+				high: "high",
+				xhigh: "xhigh",
+				max: "max",
+			},
+			input: ["text", "image"],
+			cost: { input: 8, output: 40, cacheRead: 0.4, cacheWrite: 10 },
+			contextWindow: 1050000,
+			maxTokens: 128000,
+			compat: explicitCacheCompat,
+		},
+		{
+			id: "gpt-6.2-sol",
+			name: "GPT 6.2 Sol",
+			api: "openai-responses",
+			baseUrl: v1,
+			reasoning: true,
+			thinkingLevelMap: {
+				off: null,
+				minimal: null,
+				low: "low",
+				medium: "medium",
+				high: "high",
+				xhigh: "xhigh",
+				max: "max",
+			},
+			input: ["text", "image"],
+			cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
+			contextWindow: 1050000,
+			maxTokens: 128000,
+			compat: explicitCacheCompat,
+		},
 		{
 			id: "gpt-6-astra",
 			name: "GPT-6 Astra",
@@ -142,6 +191,8 @@ function applyOpenAIResponses(writer: PayloadWriter): void {
 }
 
 export const openaiThinking = {
+	"gpt-6.2-astra": (w, _c) => applyOpenAIResponses(w),
+	"gpt-6.2-sol": (w, _c) => applyOpenAIResponses(w),
 	"gpt-6-astra": (w, _c) => applyOpenAIResponses(w),
 	"gpt-6.1-sol": (w, _c) => applyOpenAIResponses(w),
 	"gpt-6.1-terra": (w, _c) => applyOpenAIResponses(w),

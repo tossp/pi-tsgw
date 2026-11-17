@@ -166,7 +166,8 @@ const cacheCases = [
 	{ retention: "long", options: { ttl: "30m" }, key: "openai-cache-fixture" },
 	{ retention: "none", options: { mode: "explicit" }, key: undefined },
 ] as const;
-for (const cacheId of ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol"]) {
+const cacheIds = ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6.2-astra", "gpt-6.2-sol"];
+for (const cacheId of cacheIds) {
 	const cacheModel = runtime.getModel("tsgw", cacheId)!;
 	equal(cacheModel.promptCache, undefined, "显式缓存开关不得额外登记后台保温 TTL");
 	for (const entry of cacheCases) {
@@ -182,5 +183,54 @@ for (const cacheId of ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-terra"
 		equal(body.prompt_cache_key, entry.key);
 	}
 }
-equal(requests.length, levels.length + 2 + 15);
-console.log("openai-terra.test.ts：目录过滤、七档请求、工具回放与逐型号缓存字段夹具通过（非真实网关验收）");
+equal(requests.length, levels.length + 2 + cacheIds.length * cacheCases.length);
+
+// 新型号复用真实宿主适配器，验证低档约束、目录交集及工具结果回传。
+for (const newId of ["gpt-6.2-astra", "gpt-6.2-sol"]) {
+	const newConfig = openaiModels(root).find(entry => entry.id === newId)!;
+	const newModel = runtime.getModel("tsgw", newId)!;
+	deepStrictEqual(getSupportedThinkingLevels(newModel), ["low", "medium", "high", "xhigh", "max"]);
+	equal(newConfig.contextWindow, 1050000);
+	equal(newConfig.maxTokens, 128000);
+	deepStrictEqual(newConfig.input, ["text", "image"]);
+	for (const gatewayIds of [undefined, new Set<string>(), new Set([`${newId}-extra`])]) {
+		equal(effectiveModelsForGateway(root, undefined, gatewayIds, false, false).some(entry => entry.id === newId), false);
+	}
+	for (const gatewayId of [newId, `openai/${newId}`]) {
+		deepStrictEqual(effectiveModelsForGateway(root, undefined, new Set([gatewayId]), false, false), [newConfig]);
+	}
+	deepStrictEqual(effectiveModelsForGateway(root, { exclude: [newId] }, new Set([newId]), false, false), []);
+	deepStrictEqual(effectiveModelsForGateway(root, { include: [newId] }, new Set(), false, false), []);
+	const newOptions = {
+		maxTokens: 512, maxRetries: 0, fetch: fakeFetch,
+		onPayload: (payload: unknown) => applyModelOperations(payload, {
+			provider: "tsgw", modelId: newId, api: "openai-responses", thinkingLevel: "medium", tsSearchMode: "live",
+		}),
+	};
+	for (const level of ["minimal", "low", "medium", "high", "xhigh", "max", undefined] as const) {
+		const result = await runtime.streamSimple(newModel, context, { ...newOptions, reasoning: level }).result();
+		equal(result.stopReason, "stop", result.errorMessage ?? newId);
+		const body = requests.at(-1)!;
+		equal(body.model, newId);
+		equal((body.reasoning as Payload | undefined)?.effort,
+			level === undefined ? undefined : level === "minimal" ? "low" : level);
+		equal((body.text as Payload).verbosity, "low");
+		equal(Object.hasOwn(body, "service_tier"), false);
+	}
+	returnTool = true;
+	const first = await runtime.streamSimple(newModel, context, { ...newOptions, reasoning: "medium" }).result();
+	equal(first.stopReason, "toolUse", first.errorMessage ?? newId);
+	const call = first.content.find(part => part.type === "toolCall")!;
+	equal(call.name, "probe");
+	deepStrictEqual(call.arguments, { value: "PING" });
+	returnTool = false;
+	const second = await runtime.streamSimple(newModel, { ...context, messages: [...context.messages, first, {
+		role: "toolResult", toolCallId: call.id, toolName: call.name, content: [{ type: "text", text: "OK" }], isError: false, timestamp: 1,
+	}] }, { ...newOptions, reasoning: "medium" }).result();
+	equal(second.stopReason, "stop", second.errorMessage ?? newId);
+	deepStrictEqual(second.content.filter(part => part.type === "text").map(part => part.text), ["OK"]);
+	const replay = requests.at(-1)!.input as Record<string, unknown>[];
+	equal(replay.some(item => item.type === "reasoning" && item.encrypted_content === "fixture-encrypted"), true);
+	equal(replay.some(item => item.type === "function_call_output" && item.output === "OK"), true);
+}
+console.log("openai-terra.test.ts：目录过滤、档位请求、工具回放与逐型号缓存字段夹具通过（非真实网关验收）");
