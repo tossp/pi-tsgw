@@ -13,6 +13,7 @@ import { deepseekModels } from "./vendors/deepseek.ts";
 import { geminiModels } from "./vendors/gemini.ts";
 import { glmModels } from "./vendors/glm.ts";
 import { grokModels } from "./vendors/grok.ts";
+import { hunyuanModels } from "./vendors/hunyuan.ts";
 import { kimiModels } from "./vendors/kimi.ts";
 import { longcatModels } from "./vendors/longcat.ts";
 import { mimoModels } from "./vendors/mimo.ts";
@@ -28,7 +29,7 @@ function testCatalogConcatenation(): void {
 	const ids = models.map(({ id }) => id);
 
 	const vendors = [deepseekModels, glmModels, mimoModels, minimaxModels, kimiModels,
-		longcatModels, qwenModels, openaiModels, geminiModels, anthropicModels, grokModels];
+		longcatModels, qwenModels, hunyuanModels, openaiModels, geminiModels, anthropicModels, grokModels];
 	deepStrictEqual(models, vendors.flatMap(build => build(ROOT)));
 	equal(new Set(ids).size, ids.length, "vendor 拼接后的 ID 全局唯一");
 	const endpoints = {

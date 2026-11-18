@@ -5,6 +5,7 @@ import { deepseekModels } from "./vendors/deepseek.ts";
 import { geminiModels } from "./vendors/gemini.ts";
 import { glmModels } from "./vendors/glm.ts";
 import { grokModels } from "./vendors/grok.ts";
+import { hunyuanModels } from "./vendors/hunyuan.ts";
 import { kimiModels } from "./vendors/kimi.ts";
 import { longcatModels } from "./vendors/longcat.ts";
 import { mimoModels } from "./vendors/mimo.ts";
@@ -99,6 +100,7 @@ export function modelsForRoot(
 		...kimiModels(root),
 		...longcatModels(root),
 		...qwenModels(root),
+		...hunyuanModels(root),
 		...openaiModels(root),
 		...geminiModels(root),
 		...anthropicModels(root),
