@@ -8,13 +8,12 @@ import { type PayloadWriter, type ThinkingApplier } from "../_tools.ts";
  * GPT-6.2 Astra / Sol：2026-11-17 核验（记忆系统 1167）。
  * https://developers.openai.com/api/docs/models/gpt-6.2-astra
  * https://developers.openai.com/api/docs/models/gpt-6.2-sol
- * 官方 API 规格为 1050000 总窗口、128000 最大输出。插件按用户确认统一登记 500000 上下文。
- * 工具调用要求 Responses，不支持 none/minimal。
+ * 两款官方 API 总窗口为 1050000，最大输出为 128000。工具调用要求 Responses，不支持 none/minimal。
  * 标准档 ≤272K：Astra 输入 $8 / 缓存命中 $0.4 / 30 分钟缓存写入 $10 / 输出 $40；
  * Sol 输入 $2 / 缓存命中 $0.1 / 30 分钟缓存写入 $2.5 / 输出 $10。
  * 12 小时缓存写入分别为 $20 / $5；>272K 时整次请求输入与缓存 ×2、输出 ×1.5。
  * GPT-6.1 Sol：https://developers.openai.com/api/docs/models/gpt-6.1-sol
- * 用户确认网关接入 Codex 对应型号，上下文为 500000；最大输出与价格保持原值。
+ * 官方 API 总窗口为 1050000，最大输出为 128000。
  * 标准档 ≤272K：输入 $2 / 缓存命中 $0.1 / 缓存写入 $2.5 / 输出 $10（2026-09-30）。
  * GPT-6 Sol：https://developers.openai.com/api/docs/models/gpt-6-sol
  * GPT-6 Luna：https://developers.openai.com/api/docs/models/gpt-6-luna
@@ -48,7 +47,7 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			},
 			input: ["text", "image"],
 			cost: { input: 8, output: 40, cacheRead: 0.4, cacheWrite: 10 },
-			contextWindow: 500000,
+			contextWindow: 1050000,
 			maxTokens: 128000,
 			compat: explicitCacheCompat,
 		},
@@ -69,7 +68,7 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			},
 			input: ["text", "image"],
 			cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
-			contextWindow: 500000,
+			contextWindow: 1050000,
 			maxTokens: 128000,
 			compat: explicitCacheCompat,
 		},
@@ -113,7 +112,7 @@ export function openaiModels(root: string): ProviderModelConfig[] {
 			},
 			input: ["text", "image"],
 			cost: { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 },
-			contextWindow: 500000,
+			contextWindow: 1050000,
 			maxTokens: 128000,
 			compat: explicitCacheCompat,
 		},

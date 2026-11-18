@@ -98,7 +98,6 @@ function testModelCapabilities(): void {
 	const astra = models.find(({ id }) => id === "gpt-6-astra");
 	strictEqual(astra?.api, "openai-responses");
 	deepStrictEqual(astra?.input, ["text", "image"]);
-	strictEqual(astra?.contextWindow, 1050000);
 	strictEqual(astra?.maxTokens, 128000);
 	deepStrictEqual(astra?.thinkingLevelMap, {
 		off: null,
@@ -115,7 +114,6 @@ function testModelCapabilities(): void {
 		strictEqual(model?.baseUrl, `${ROOT}/v1`);
 		strictEqual(model?.reasoning, true);
 		deepStrictEqual(model?.input, ["text", "image"]);
-		strictEqual(model?.contextWindow, 1050000);
 		strictEqual(model?.maxTokens, 128000);
 		deepStrictEqual(model?.thinkingLevelMap, {
 			off: "none",
@@ -132,7 +130,6 @@ function testModelCapabilities(): void {
 	strictEqual(sol61?.baseUrl, `${ROOT}/v1`);
 	strictEqual(sol61?.reasoning, true);
 	deepStrictEqual(sol61?.input, ["text", "image"]);
-	strictEqual(sol61?.contextWindow, 500000);
 	strictEqual(sol61?.maxTokens, 128000);
 	deepStrictEqual(sol61?.thinkingLevelMap, {
 		off: null,

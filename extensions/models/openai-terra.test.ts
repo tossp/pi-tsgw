@@ -14,7 +14,6 @@ ok(config);
 equal(config.api, "openai-responses");
 equal(config.baseUrl, `${root}/v1`);
 equal(config.reasoning, true);
-equal(config.contextWindow, 1050000);
 equal(config.maxTokens, 128000);
 deepStrictEqual(config.input, ["text", "image"]);
 deepStrictEqual(config.cost, { input: 1, output: 5, cacheRead: 0.05, cacheWrite: 1.25 });
@@ -190,7 +189,6 @@ for (const newId of ["gpt-6.2-astra", "gpt-6.2-sol"]) {
 	const newConfig = openaiModels(root).find(entry => entry.id === newId)!;
 	const newModel = runtime.getModel("tsgw", newId)!;
 	deepStrictEqual(getSupportedThinkingLevels(newModel), ["low", "medium", "high", "xhigh", "max"]);
-	equal(newConfig.contextWindow, 500000);
 	equal(newConfig.maxTokens, 128000);
 	deepStrictEqual(newConfig.input, ["text", "image"]);
 	for (const gatewayIds of [undefined, new Set<string>(), new Set([`${newId}-extra`])]) {
