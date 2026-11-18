@@ -11,11 +11,12 @@ export interface CandidateKnowledge {
 	readonly note: string;
 }
 
-export const DESIGN_REVIEW_TARGET = { id: "gpt-6-astra", level: "max" } as const;
+export const DESIGN_REVIEW_TARGET = { id: "gpt-6.2-astra", level: "max" } as const;
 
 // GPT-6 定位与选型依据（2026-10-27）：https://developers.openai.com/api/docs/guides/model-selection
 // https://developers.openai.com/api/docs/guides/latest-model
-// 官方建议用于任务匹配；保留本项目已选档位，不据此推断网关表现或跨厂商排名。
+// GPT-6.2 Astra/Sol 接替同系列旧候选，档位与标准参考价依据 vendors/openai.ts 的登记。
+// 任务定位沿用同系列分工，不据此推断网关表现或跨厂商排名。
 // 仅登记候选知识与档位；排列顺序不代表能力、推荐或派遣优先级。
 export const DELEGATION_KNOWLEDGE: readonly CandidateKnowledge[] = [
 	{
@@ -95,7 +96,7 @@ export const DELEGATION_KNOWLEDGE: readonly CandidateKnowledge[] = [
 		note: "适用于输入、要求与验收方法清晰的任务；视觉或界面任务配备实际图片输入或操作工具，开放式复杂编程按专门候选的适用条件选择。",
 	},
 	{
-		id: "gpt-6.1-sol", level: "medium",
+		id: "gpt-6.2-sol", level: "medium",
 		suitability: "复杂编码与跨步骤专业交付，范围较清楚且允许迭代修订",
 		effort: "平衡成本与推理投入的 medium 档",
 		inputPrice: "2.00", outputPrice: "10.00",
@@ -109,45 +110,45 @@ export const DELEGATION_KNOWLEDGE: readonly CandidateKnowledge[] = [
 		note: "按任务适用性选择，并通过实际验收判断结果质量。",
 	},
 	{
-		id: "gpt-6.1-sol", level: "high",
+		id: "gpt-6.2-sol", level: "high",
 		suitability: "复杂编码、电脑操作与跨步骤专业交付，需要较深工程判断",
 		effort: "较深思考档",
 		inputPrice: "2.00", outputPrice: "10.00",
 		note: "兼顾复杂工作与成本；需比 medium 更深推理时选 high，档位依据实际推理难度选择。",
 	},
 	{
-		id: "gpt-6.1-sol", level: "xhigh",
+		id: "gpt-6.2-sol", level: "xhigh",
 		suitability: "复杂项目中需综合冲突证据、协调关联交付物的高难工作",
 		effort: "更深思考档",
 		inputPrice: "2.00", outputPrice: "10.00",
 		note: "仅在高难任务确需更深推理时使用。",
 	},
 	{
-		id: "gpt-6-astra", level: "high",
+		id: "gpt-6.2-astra", level: "high",
 		suitability: "跨领域判断、较大不确定性或严格质量要求的工作，以及局部检查与定向复审",
 		effort: "高成本参考价的高思考档",
-		inputPrice: "10.00", outputPrice: "50.00",
+		inputPrice: "8.00", outputPrice: "40.00",
 		note: "此档用于上述任务；正式设计审阅默认使用 max。",
 	},
 	{
-		id: "gpt-6-astra", level: "xhigh",
+		id: "gpt-6.2-astra", level: "xhigh",
 		suitability: "多源证据冲突、跨领域复杂分析与严格交付，以及定向复审",
 		effort: "高成本参考价的深思考档",
-		inputPrice: "10.00", outputPrice: "50.00",
+		inputPrice: "8.00", outputPrice: "40.00",
 		note: "此档用于上述任务；正式设计审阅默认使用 max。",
 	},
 	{
-		id: "gpt-6.1-sol", level: "max",
+		id: "gpt-6.2-sol", level: "max",
 		suitability: "复杂编码与专业项目中确需最深推理的高难交付",
 		effort: "最高思考档",
 		inputPrice: "2.00", outputPrice: "10.00",
 		note: "仅在极难任务确需最深推理时使用。",
 	},
 	{
-		id: "gpt-6-astra", level: "max",
+		id: "gpt-6.2-astra", level: "max",
 		suitability: "高不确定性、跨领域且确需最深推理的严格交付，以及正式架构方案或设计文档的独立审阅",
 		effort: "最高思考档、最高参考成本档",
-		inputPrice: "10.00", outputPrice: "50.00",
-		note: "formal design review 的默认档位。",
+		inputPrice: "8.00", outputPrice: "40.00",
+		note: "正式架构或设计文档独立审阅的指定档位。",
 	},
 ];

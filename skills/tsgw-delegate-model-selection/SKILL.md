@@ -13,7 +13,7 @@ compatibility: 自动选型需要 Pi 1.2+ 及参数兼容的 Agent 工具。
 
 - 由主模型直接调用 `Agent`、`get_subagent_result`、`steer_subagent`。独立派遣可在同一回复中发起多个 `Agent` 调用。
 - 新建子代理：填写 `prompt`、`description`、适合的 `subagent_type` 和执行选项；自动选型时省略 `model`，插件补入模型与思考档位，原 `Agent` 随即执行。
-- 用户或项目指定模型、档位及固定审阅组合时，显式传入 `model`（`provider/modelId:level`）。正式架构／设计文档独立审阅默认 `tsgw/gpt-6-astra:max`；双审由主代理按本次要求分别显式安排两次独立复核。
+- 用户或项目指定模型、档位及固定审阅组合时，显式传入 `model`（`provider/modelId:level`）。正式架构／设计文档独立审阅默认 `tsgw/gpt-6.2-astra:max`；双审由主代理按本次要求分别显式安排两次独立复核。
 - 续接已有会话时传 `resume`，沿用原模型；直接调用 `get_subagent_result` 查询结果、`steer_subagent` 补充指令。
 
 ## 子代理运行失败时

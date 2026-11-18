@@ -13,7 +13,7 @@ import {
 type CapturedClassifierRequest = { body: AnyRecord; headers: Headers };
 
 const CLASSIFIER_IDS = ["jev-latest", "jev-preview"] as const;
-const BASE_CATALOG = ["gpt-6-sol", "jev-latest", "jev-preview", "deepseek-flash", "gpt-6-astra"];
+const BASE_CATALOG = ["gpt-6-sol", "jev-latest", "jev-preview", "deepseek-flash", "gpt-6-astra", "gpt-6.2-astra", "gpt-6.2-sol"];
 const FIXTURE_TOOLS = ["Agent", "probe_nested", "get_subagent_result", "steer_subagent"];
 
 function sourceEntry(): string {

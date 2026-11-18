@@ -310,7 +310,7 @@ test("各聊天执行器独立尊重可用目录和用户过滤；不补入其�
 			assert.deepEqual(registry.requests.map(request => request.model.id), CHAT_SELECTION_IDS.filter(model => model !== id));
 		}
 		const registry = new Registry();
-		registry.models = [chat(id), chat("gpt-6-astra")];
+		registry.models = [chat(id), chat(DESIGN_REVIEW_TARGET.id)];
 		registry.classifiers = [];
 		const h = await harness(registry);
 		assert.equal(await h.emit("tool_call", h.event), undefined);
