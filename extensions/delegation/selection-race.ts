@@ -36,6 +36,11 @@ export async function raceSelection(
 	const finished = new AbortController();
 	const signal = AbortSignal.any([options.signal, finished.signal]);
 	let nativeFailure: SelectionFailure | undefined;
+	const failures: SelectionFailure[] = [];
+	const reportError = (source: SelectionSource, failure: SelectionFailure) => {
+		failures.push(failure);
+		options.onError({ source, ...failure });
+	};
 	const invalid: SelectionFailure = {
 		reason: "选型结果无效、未决或不符合固定审阅规则。", failureKind: "invalid_result",
 	};
@@ -78,7 +83,7 @@ export async function raceSelection(
 			return { selected, kind: answer?.type === "choice" ? answer.choice : undefined, source };
 		} catch {
 			nativeFailure ??= { reason: "分类请求失败（原因未明）。", failureKind: "unknown" };
-			if (source && !signal.aborted) options.onError({ source, ...nativeFailure });
+			if (source && !signal.aborted) reportError(source, nativeFailure);
 			throw new Error("原生选型通道未提供有效结果。");
 		}
 	};
@@ -99,7 +104,7 @@ export async function raceSelection(
 			failure = chatFailure(error instanceof Error ? error.message : undefined);
 		}
 		// 未发起的通道和获胜/整体取消导致的中止不作为通道报错。
-		if (source && !signal.aborted) options.onError({ source, ...(failure ?? invalid) });
+		if (source && !signal.aborted) reportError(source, failure ?? invalid);
 		throw new Error("聊天选型通道未提供有效结果。");
 	};
 	try {
@@ -108,7 +113,10 @@ export async function raceSelection(
 		return { winner };
 	} catch {
 		options.signal.throwIfAborted();
-		return { failure: nativeFailure ?? invalid };
+		if (failures.length > 1) {
+			return { failure: { reason: "所有选型通道均未返回有效结果。", failureKind: "selection_failed" } };
+		}
+		return { failure: failures[0] ?? nativeFailure ?? invalid };
 	} finally {
 		// 只取消选型请求，不中断获胜后的目录复核；不保证远端停止处理或计费。
 		finished.abort();

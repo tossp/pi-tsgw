@@ -85,7 +85,7 @@ function assertCandidateGuide(
 /** 早期失败没有已核验候选：仍说明状态，但不得补入或沿用候选表。 */
 function assertNoCandidateTable(delegation: AnyRecord, label: string): void {
 	assert.equal(typeof delegation.selectionGuide, "string", `${label}应说明未提供候选表`);
-	assert.equal((delegation.selectionGuide as string).includes("| tsgw/"), false, `${label}不得补入未核验候选`);
+	assert.doesNotMatch(delegation.selectionGuide as string, /\| tsgw\/|Agent\.model/, `${label}不得提供未核验候选或改派指令`);
 }
 class Registry {
 	/** 最小宿主目录：只保留真实选型所需的一个型号，不复制推荐型号/档位清单。 */
@@ -370,7 +370,7 @@ test("本地失败：invalid_input、unavailable、invalid_result、model_unavai
 	assert.equal(empty.delegation.failureKind, "invalid_input");
 	assert.equal(invalidInput.chatCalls, 0);
 	assertNoCandidateTable(empty.delegation, "invalid_input");
-	assert.equal(empty.text.includes("| tsgw/"), false);
+	assert.doesNotMatch(empty.text, /\| tsgw\/|Agent\.model/);
 	await invalidInputPi.emit("session_shutdown", { type: "session_shutdown" });
 
 	const unavailable = new Registry();
@@ -380,6 +380,7 @@ test("本地失败：invalid_input、unavailable、invalid_result、model_unavai
 	assert.equal(noCandidate.delegation.failureKind, "unavailable");
 	assert.equal(unavailable.classifyCalls, 0);
 	assertNoCandidateTable(noCandidate.delegation, "unavailable");
+	assert.doesNotMatch(noCandidate.text, /Agent\.model/);
 	await unavailablePi.emit("session_shutdown", { type: "session_shutdown" });
 
 	const invalidResult = new Registry();

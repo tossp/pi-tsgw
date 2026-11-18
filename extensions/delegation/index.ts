@@ -8,9 +8,9 @@ import {
 	buildDelegationCandidates, buildDelegationContext, buildDelegationGuide,
 	type DelegationCandidate,
 } from "./policy.ts";
-import { failureGuidance, type DelegationFailureKind } from "./failure.ts";
+import type { DelegationFailureKind } from "./failure.ts";
 import { raceSelection, type SelectionError } from "./selection-race.ts";
-import { DELEGATION_KNOWLEDGE } from "./knowledge.ts";
+import { DELEGATION_KNOWLEDGE, DELEGATION_MODEL_REFERENCES } from "./knowledge.ts";
 
 const TIMEOUT_MS = 15_000;
 const MAX_CONTEXT_BYTES = 28 * 1024;
@@ -46,7 +46,7 @@ function selectionErrorsText(decision: Decision): string {
 }
 
 function failureText(decision: Decision): string {
-	return `TSGW ${decision.reason ?? "分类选型未完成。"}${failureGuidance(decision.failureKind)}` +
+	return `TSGW ${decision.reason ?? "分类选型未完成。"}本次未创建子代理。` +
 		`\n选型来源：无（未完成有效选型${decision.classifier ? `；已尝试分类模型 ${decision.classifier}` : ""}` +
 		`${decision.chatModels?.length ? `；已尝试聊天模型 ${decision.chatModels.join("、")}` : ""}）。` +
 		selectionErrorsText(decision) +
@@ -146,22 +146,23 @@ export function registerDelegation(pi: ExtensionAPI): void {
 		let classifierId: string | undefined;
 		const chatModelIds: string[] = [];
 		const selectionErrors: SelectionError[] = [];
-		const failure = (reason: string, kind: DelegationFailureKind): Decision => {
+		const failure = (reason: string, kind: DelegationFailureKind, guidance?: string): Decision => {
 			return { ...blocked(reason, kind), ...(classifierId ? { classifier: classifierId } : {}),
 				...(chatModelIds.length ? { chatModel: chatModelIds[0], chatModels: [...chatModelIds] } : {}),
 				...(selectionErrors.length ? { selectionErrors: [...selectionErrors] } : {}),
-				...(kind === "cancelled" ? {} : { selectionGuide: buildDelegationGuide(attempt.candidates) }) };
+				...(kind === "cancelled" ? {} : { selectionGuide: guidance ?? buildDelegationGuide(attempt.candidates) }) };
 		};
 		try {
 			signal.throwIfAborted();
-			if (!task.prompt.trim()) return failure("任务提示词为空。", "invalid_input");
+			if (!task.prompt.trim()) return failure("任务提示词为空。", "invalid_input", "请补充任务正文后再派遣。");
 			if (typeof registry.getAvailableOfType !== "function")
 				return failure("当前宿主不支持原生分类选型。", "unsupported");
 			let models: readonly Model<Api>[] = [];
 			const candidates = async (): Promise<DelegationCandidate[]> => {
 				attempt.candidates = undefined;
 				models = await abortable(registry.getAvailableOfType("chat", "tsgw", { signal }), signal);
-				const available = buildDelegationCandidates(DELEGATION_KNOWLEDGE, models, getSupportedThinkingLevels, ctx.scopedModels);
+				const available = buildDelegationCandidates(DELEGATION_KNOWLEDGE, models, getSupportedThinkingLevels,
+					ctx.scopedModels, DELEGATION_MODEL_REFERENCES);
 				attempt.candidates = available;
 				return available;
 			};

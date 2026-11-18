@@ -267,7 +267,7 @@ test("Pi SDK delegation：原生分类与三款聊天模型四路并行竞速，
 			assert.equal(decision.status, "blocked");
 			assert.equal(decision.selectionSource, undefined);
 			assert.ok(text.includes("选型来源：无"), "四路都没有有效选型时不声称胜出通道");
-			assert.equal(decision.failureKind, "http");
+			assert.equal(decision.failureKind, "selection_failed");
 			assert.equal(decision.classifier, classifierModel());
 			assertChatModels(decision, CHAT_LANE_IDS);
 			const errors = selectionErrors(decision);

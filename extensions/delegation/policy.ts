@@ -7,7 +7,7 @@ import type {
 	Model,
 	ModelThinkingLevel,
 } from "@earendil-works/pi-ai";
-import { DESIGN_REVIEW_TARGET, type CandidateKnowledge } from "./knowledge.ts";
+import { DESIGN_REVIEW_TARGET, type CandidateKnowledge, type ModelReference } from "./knowledge.ts";
 
 const TSGW_PROVIDER = "tsgw";
 
@@ -37,13 +37,24 @@ export interface DelegationCandidate {
 	id: string;
 	level: ModelThinkingLevel;
 	instructions: string;
+	reference?: ModelReference;
 }
 
-function candidateInstructions(row: CandidateKnowledge): string {
-	return `模型：${row.id}，思考档位：${row.level}。` +
-		`任务适用性：${row.suitability}。思考投入与成本特征：${row.effort}。` +
-		`参考成本：输入 ${row.inputPrice} 美元／百万 tokens，输出 ${row.outputPrice} 美元／百万 tokens。` +
-		row.note;
+function modelReferenceTable(candidates: readonly DelegationCandidate[]): string[] {
+	const references = new Map<string, ModelReference>();
+	for (const { id, reference } of candidates) {
+		if (reference) references.set(id, reference);
+	}
+	if (!references.size) return [];
+	return [
+		"按型号查阅参考单价与 AIHOT 分项，单价单位为美元／百万 tokens，分数适用于型号层面。",
+		"| 型号 | 输入 | 输出 | 编程 | 科研 | 专业办公 | 知识问答 | 真人盲选 |",
+		"| --- | --- | --- | --- | --- | --- | --- | --- |",
+		...Array.from(references, ([id, { prices, scores }]) => {
+			const domains = Array.from({ length: 5 }, (_, index) => scores?.[index]?.toFixed(1) ?? "—");
+			return `| ${[id, ...prices, ...domains].join(" | ")} |`;
+		}),
+	];
 }
 
 /**
@@ -55,6 +66,7 @@ export function buildDelegationCandidates(
 	models: readonly Model<Api>[],
 	supportedLevels: (model: Model<Api>) => readonly ModelThinkingLevel[],
 	scope: readonly { model: Pick<Model<Api>, "provider" | "id">; thinkingLevel?: ModelThinkingLevel }[] = [],
+	references: Readonly<Partial<Record<string, ModelReference>>> = {},
 ): DelegationCandidate[] {
 	const available = new Map<string, Model<Api>>();
 	for (const model of models) {
@@ -77,7 +89,8 @@ export function buildDelegationCandidates(
 			provider: model.provider,
 			id: row.id,
 			level: row.level,
-			instructions: candidateInstructions(row),
+			instructions: `模型：${row.id}，思考档位：${row.level}。任务适用性：${row.suitability}。思考投入与成本特征：${row.effort}。${row.note}`,
+			reference: references[row.id],
 		});
 	}
 	return candidates;
@@ -90,6 +103,7 @@ const KIND_INSTRUCTIONS = [
 
 const SELECTION_GUIDELINES = [
 	"逐项评估候选的任务适用性；候选按任务匹配程度选择，排列顺序仅用于组织选项。",
+	"AIHOT 分项来自各评测来源的代表配置，只辅助判断任务相关的型号能力。分差很小时优先看实际任务条件，思考档位独立判断，未列分数视为未知。",
 	"依据交付物、任务类型与实际输入/工具条件，综合推理难度、证据冲突、跨模块影响和质量要求，再权衡时间与参考成本。",
 	"模型与思考档位共同构成候选，分别依据各型号的档位含义和实际推理需求选择。参考单价用于估计成本，任务总费用还取决于用量与执行过程。",
 ].join("");
@@ -105,14 +119,16 @@ const SELECTION_INSTRUCTIONS =
 
 /** 只呈现本次有效候选，说明直接复用提交分类器的材料，不回查静态知识补行。 */
 export function buildDelegationGuide(candidates: readonly DelegationCandidate[] | undefined): string {
-	if (candidates === undefined) return "本次未完成有效候选核验，无法提供可选模型表。";
-	if (!candidates.length) return "当前目录和会话范围内没有符合策略及档位要求的可选模型。";
+	if (candidates === undefined) return "本次未完成有效候选核验，请先检查目录读取和宿主状态。";
+	if (!candidates.length) return "当前没有符合策略的可选模型，请先检查模型目录、会话范围和已登记档位。";
+	const references = modelReferenceTable(candidates);
 	return [
 		"选型指导（本次已核验的有效候选）",
 		SELECTION_GUIDELINES,
 		SELECTION_CONSTRAINTS,
-		"从下表选择符合任务与约束的候选，将首列完整值（provider/modelId:level）填入 Agent.model，保留原任务参数并在既有授权内直接调用 Agent；无匹配项或约束不清时先查证。",
-		"| 模型与思考档位（Agent.model） | 适用条件、思考投入与参考成本 |",
+		...(references.length ? ["", ...references, ""] : []),
+		"从下方候选表选择符合任务与约束的档位，将首列完整值（provider/modelId:level）填入 Agent.model，保留原任务参数并在既有授权内直接调用 Agent。无匹配项或约束不清时先查证。",
+		"| 模型与思考档位（Agent.model） | 适用条件与思考投入 |",
 		"| --- | --- |",
 		...candidates.map(candidate => `| ${candidate.model} | ${candidate.instructions} |`),
 	].join("\n");
@@ -152,7 +168,7 @@ export function buildDelegationContext(
 			},
 			selection: {
 				type: "choice",
-				instructions: SELECTION_INSTRUCTIONS,
+				instructions: [SELECTION_INSTRUCTIONS, ...modelReferenceTable(candidates)].join("\n"),
 				criteria: selectionCriteria,
 			},
 		},

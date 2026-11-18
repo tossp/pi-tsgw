@@ -2,7 +2,7 @@
 export type DelegationFailureKind =
 	| "timeout" | "cancelled" | "authentication" | "rate_limit" | "http" | "network"
 	| "invalid_response" | "unsupported" | "unknown" | "invalid_input" | "unavailable"
-	| "invalid_result" | "model_unavailable";
+	| "invalid_result" | "model_unavailable" | "selection_failed";
 
 export interface SelectionFailure {
 	failureKind: DelegationFailureKind;
@@ -52,9 +52,4 @@ export function chatFailure(message: string | undefined): SelectionFailure {
 	if (/^connection error\.?$/i.test(message ?? ""))
 		return { failureKind: "network", reason: "聊天选型连接失败。" };
 	return { failureKind: "unknown", reason: "聊天选型请求失败（原因未明）。" };
-}
-
-export function failureGuidance(kind: DelegationFailureKind | undefined): string {
-	if (kind === "cancelled") return "本次未创建子代理。";
-	return "本次未创建子代理。请按以下选型指导显式填写 Agent.model 后重新派遣。";
 }

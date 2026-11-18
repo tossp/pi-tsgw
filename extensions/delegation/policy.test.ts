@@ -96,9 +96,9 @@ function answers(
 }
 
 const KNOWLEDGE: readonly CandidateKnowledge[] = [
-	{ id: "alpha", level: "low", suitability: "样本 A", effort: "低档", inputPrice: "1", outputPrice: "2", note: "样本说明 A" },
-	{ id: "alpha", level: "high", suitability: "样本 A", effort: "高档", inputPrice: "1", outputPrice: "2", note: "样本说明 A" },
-	{ id: "beta", level: "max", suitability: "样本 B", effort: "深档", inputPrice: "3", outputPrice: "4", note: "样本说明 B" },
+	{ id: "alpha", level: "low", suitability: "样本 A", effort: "低档", note: "样本说明 A" },
+	{ id: "alpha", level: "high", suitability: "样本 A", effort: "高档", note: "样本说明 A" },
+	{ id: "beta", level: "max", suitability: "样本 B", effort: "深档", note: "样本说明 B" },
 ];
 const REVIEW_TARGET = { id: "review-model", level: "medium" } as const;
 
@@ -144,6 +144,29 @@ test("接管指导：只呈现传入候选及其说明，不回查推荐表", ()
 		assert.equal(output.includes(sample.model), false);
 		assert.equal(output.includes("|"), false);
 	}
+});
+
+test("型号参考表只列本次候选，同一型号的分数和费用只出现一次", () => {
+	const models = [chatModel("alpha"), chatModel("beta")];
+	const references = frozen({
+		alpha: { prices: ["1.10", "2.20"], scores: [60, 61, 62, 63] },
+		beta: { prices: ["3.30", "4.40"] },
+	} as const);
+	const candidates = buildDelegationCandidates(KNOWLEDGE, models, () => ALL_LEVELS, [{ model: models[0]! }], references);
+	const question = buildDelegationContext({ prompt: "任务正文" }, candidates).questions.selection;
+	assert.equal(question.type, "choice");
+	if (question.type !== "choice") return assert.fail("selection 必须是 choice");
+	const guide = buildDelegationGuide(candidates);
+	for (const material of [question.instructions, guide]) {
+		assert.equal(material.match(/\| alpha \|/g)?.length, 1);
+		assert.match(material, /\| alpha \| 1\.10 \| 2\.20 \| 60\.0 \| 61\.0 \| 62\.0 \| 63\.0 \| — \|/);
+		assert.ok(!material.includes("beta"));
+	}
+	assert.match(question.criteria.option_0, /alpha.*low/);
+	assert.match(question.criteria.option_1, /alpha.*high/);
+	assert.doesNotMatch(JSON.stringify(question.criteria), /1\.10|60\.0/);
+	assert.match(guide, /tsgw\/alpha:low/);
+	assert.match(guide, /tsgw\/alpha:high/);
 });
 
 test("上下文：state 只含任务与元数据，kind/selection 结构固定且候选作为 options", () => {

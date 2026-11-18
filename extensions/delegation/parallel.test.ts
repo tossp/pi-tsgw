@@ -270,6 +270,7 @@ test("四路都失败才阻止；所有聊天通道拒绝非法输出，不重�
 		h.registry.replyImpl = () => response(h.registry);
 		const block = await h.emit("tool_call", h.event);
 		assert.equal(block.block, true);
+		assert.doesNotMatch(block.reason.split("\n")[0], /HTTP 402/);
 		assert.match(block.reason, /HTTP 402/);
 		assert.equal(h.event.input.model, undefined);
 		assert.equal(h.registry.classifyCalls, 1);
@@ -277,7 +278,7 @@ test("四路都失败才阻止；所有聊天通道拒绝非法输出，不重�
 		for (const id of CHAT_SELECTION_IDS) assert.ok(block.reason.includes(`tsgw/${id}`));
 		const final = await h.final();
 		assert.equal(final.message.details.tsgwDelegation.selectionSource, undefined);
-		assert.equal(final.message.details.tsgwDelegation.failureKind, "http");
+		assert.equal(final.message.details.tsgwDelegation.failureKind, "selection_failed");
 		assert.equal(final.message.details.tsgwDelegation.selectionErrors.length, 4);
 		assert.doesNotMatch(JSON.stringify(final), /secret-chat/);
 		assert.equal(final.message.usage.totalTokens, usage.totalTokens * (name === "抛异常" ? 1 : 4));
@@ -292,7 +293,9 @@ test("单通道 aborted 保留已清洗的网络或超时原因，不冒充用�
 		h.registry.replyImpl = async () => reply("invalid");
 		assert.equal((await h.emit("tool_call", h.event)).block, true);
 		const final = await h.final();
-		assert.equal(final.message.details.tsgwDelegation.failureKind, expected);
+		const decision = final.message.details.tsgwDelegation;
+		assert.equal(decision.failureKind, "selection_failed");
+		assert.equal(decision.selectionErrors.find((error: any) => error.source.type === "classifier")?.failureKind, expected);
 		assert.match(final.message.content[0].text, /选型来源：无/);
 	}
 });
