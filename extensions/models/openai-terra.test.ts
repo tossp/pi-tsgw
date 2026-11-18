@@ -190,7 +190,7 @@ for (const newId of ["gpt-6.2-astra", "gpt-6.2-sol"]) {
 	const newConfig = openaiModels(root).find(entry => entry.id === newId)!;
 	const newModel = runtime.getModel("tsgw", newId)!;
 	deepStrictEqual(getSupportedThinkingLevels(newModel), ["low", "medium", "high", "xhigh", "max"]);
-	equal(newConfig.contextWindow, 1050000);
+	equal(newConfig.contextWindow, 500000);
 	equal(newConfig.maxTokens, 128000);
 	deepStrictEqual(newConfig.input, ["text", "image"]);
 	for (const gatewayIds of [undefined, new Set<string>(), new Set([`${newId}-extra`])]) {
