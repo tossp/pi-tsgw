@@ -25,12 +25,11 @@ export interface ModelReference {
 // https://aihot.news/leaderboard.md · https://aihot.news/leaderboard/rules
 // 分数取各来源的代表配置。价格为参考价，单位是美元／百万 tokens。
 export const DELEGATION_MODEL_REFERENCES: Readonly<Partial<Record<string, ModelReference>>> = {
-	// MiniMax 与 Qwen 的国内参考价取自对应 vendors 源码。
+	// MiniMax 的国内参考价取自 vendors/minimax.ts。
 	"MiniMax-M3.1-Flash": { prices: ["0.1475", "0.59"], scores: [59.8, 60.5, 64.1, 53.0, 59.7] },
 	"gpt-6-luna": { prices: ["0.10", "0.50"], scores: [59.0, 58.9, 60.7, 55.9, 55.6] },
-	// qwen3.8-flash 是托管版，榜单 Flash Next 的成绩归属于榜单所列型号。
-	"qwen3.8-flash": { prices: ["0.118", "0.39825"] },
-	"qwen4-max": { prices: ["1.475", "4.425"], scores: [68.3, 66.8, 71.1, 67.0, 71.7] },
+	// 混元国内参考价取自 vendors/hunyuan.ts。
+	"hy4-flash": { prices: ["0.07375", "0.295"] },
 	"glm-5.3": { prices: ["1.18", "4.13"], scores: [62.9, 61.5, 66.5, 61.5, 63.3] },
 	"glm-5.3-flash": { prices: ["0.118", "0.413"], scores: [58.7, 56.5, 63.3, 54.1, 60.2] },
 	"gpt-6.1-terra": { prices: ["1.00", "5.00"], scores: [70.3, 73.2, 64.1, 66.5, 69.1] },
@@ -59,16 +58,10 @@ export const DELEGATION_KNOWLEDGE: readonly CandidateKnowledge[] = [
 		note: "适用于约束清楚、结果易验证的局部工作；开放式根因调查选择具备相应工程判断能力的候选。",
 	},
 	{
-		id: "qwen3.8-flash", level: "medium",
-		suitability: "范围明确的资料提取、图文理解、代码修补与工具子任务",
-		effort: "原生 medium 档，较低公开参考价",
-		note: "官方定位支持编码与 Agent；medium 档已通过一次最小文本回复与真实本地工具往返验收，长程工程能力尚未验证，任务仍需明确验收。",
-	},
-	{
-		id: "qwen4-max", level: "high",
-		suitability: "需要工程判断的编程、前端实现与图文结合的多步骤任务",
-		effort: "原生 high 档",
-		note: "旗舰工程候选，尚未验证真实工具往返；正式设计审阅沿用指定模型与档位。",
+		id: "hy4-flash", level: "high",
+		suitability: "范围明确的文本或图文资料提取、整理与核对",
+		effort: "原生 high 档，较低公开参考价",
+		note: "支持文本与图片输入；按实际输入和可核对的交付要求选用。",
 	},
 	{
 		id: "glm-5.3", level: "low",

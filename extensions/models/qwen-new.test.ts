@@ -2,8 +2,6 @@ import { deepStrictEqual, equal, ok, strictEqual } from "node:assert/strict";
 import { test } from "node:test";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { DELEGATION_KNOWLEDGE } from "../delegation/knowledge.ts";
-import { buildDelegationCandidates } from "../delegation/policy.ts";
 import { effectiveModelsForGateway } from "./catalog.ts";
 import { applyModelOperations } from "./operations.ts";
 import { builtinSearchSupport, resolveSearchDelegate } from "./web-search.ts";
@@ -27,7 +25,7 @@ function apply(payload: Payload, id: string, api: string, thinkingLevel: Thinkin
 }
 
 for (const entry of cases) {
-	test(`${entry.id}：精确／渠道前缀交集与真实候选装配`, async () => {
+	test(`${entry.id}：精确／渠道前缀交集与宿主思考档位`, async () => {
 		const config = qwenModels(root).find(model => model.id === entry.id)!;
 		ok(config);
 		for (const gatewayId of [entry.id, `auto/${entry.id}`]) {
@@ -39,8 +37,6 @@ for (const entry of cases) {
 		const runtime = await fixtureRuntime();
 		const model = runtime.getModel("tsgw", entry.id)!;
 		deepStrictEqual(getSupportedThinkingLevels(model), levels);
-		const candidates = buildDelegationCandidates(DELEGATION_KNOWLEDGE, [model], getSupportedThinkingLevels);
-		ok(candidates.some(candidate => candidate.id === entry.id));
 	});
 
 	test(`${entry.id}：请求改写不继承旧搜索与预算策略`, () => {
