@@ -7,12 +7,12 @@ import { isMaximum, isPlainObject, type PayloadWriter, type ThinkingApplier, typ
  * 国内官方依据：
  * https://docs.bigmodel.cn/cn/guide/capabilities/thinking （思考深度设置仅支持 5.2+）
  * https://docs.bigmodel.cn/cn/guide/capabilities/thinking-mode （保留式思考）
- * 2026-10-16 5.3 / Flash / FlashX：始终思考，仅 low/high/max。
+ * 2026-10-16 5.3 / Flash：始终思考，仅 low/high/max。
  * https://docs.bigmodel.cn/cn/guide/models/text/glm-5.3
  * https://docs.bigmodel.cn/cn/guide/models/vlm/glm-5.3-flash
  * https://docs.bigmodel.cn/cn/guide/start/pricing
  * 国内 CNY/百万词元按既有固定 0.1475 USD/CNY 估算（非实时汇率）；
- * 三型号输入/输出/缓存命中为 8/28/2、0.8/2.8/0.23、2/7/0.57，
+ * 两款输入/输出/缓存命中分别为 8/28/2 和 0.8/2.8/0.23，
  * 缓存存储限时免费。1M 上下文与 128K 最大输出分别登记。
  */
 export function glmModels(root: string): ProviderModelConfig[] {
@@ -53,15 +53,13 @@ export function glmModels(root: string): ProviderModelConfig[] {
 	];
 }
 
-/** Flash 使用 Coding Plan 的 Anthropic 兼容入口，另外两款保持 Chat Completions。 */
+/** Flash 使用 Coding Plan 的 Anthropic 兼容入口，GLM-5.3 使用 Chat Completions。 */
 function glm53Models(root: string): ProviderModelConfig[] {
 	const variants: Pick<ProviderModelConfig, "id" | "name" | "input" | "cost">[] = [
 		{ id: "glm-5.3", name: "GLM 5.3", input: ["text"],
 			cost: { input: 1.18, output: 4.13, cacheRead: 0.295, cacheWrite: 0 } },
 		{ id: "glm-5.3-flash", name: "GLM 5.3 Flash", input: ["text", "image"],
 			cost: { input: 0.118, output: 0.413, cacheRead: 0.033925, cacheWrite: 0 } },
-		{ id: "glm-5.3-flashx", name: "GLM 5.3 FlashX", input: ["text", "image"],
-			cost: { input: 0.295, output: 1.0325, cacheRead: 0.084075, cacheWrite: 0 } },
 	];
 	return variants.map((model) => {
 		const anthropic = model.id === "glm-5.3-flash";
@@ -124,7 +122,6 @@ function applyGlm(writer: PayloadWriter, level: ThinkingLevel, effort = true, pr
 export const glmThinking: Record<string, ThinkingApplier> = {
 	"glm-5.3": (w, c) => applyGlm53(w, c.thinkingLevel),
 	"glm-5.3-flash": (w, c) => applyGlm53Flash(w, c.thinkingLevel),
-	"glm-5.3-flashx": (w, c) => applyGlm53(w, c.thinkingLevel),
 	"glm-5.2": (w, c) => applyGlm(w, c.thinkingLevel),
 	"glm-4.5-air": (w, c) => applyGlm(w, c.thinkingLevel, false, false),
 };

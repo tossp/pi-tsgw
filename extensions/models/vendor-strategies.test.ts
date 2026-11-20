@@ -72,26 +72,24 @@ const glmCases = {
 	"glm-5.2": { effort: true, preserve: true },
 	"glm-4.5-air": { effort: false, preserve: false },
 };
-const glm53Ids = ["glm-5.3", "glm-5.3-flash", "glm-5.3-flashx"];
-coverage([...glm53Ids, ...Object.keys(glmCases)], glmThinking, glmModels(root));
-// 每 ID 保留七档主映射；stream 与遗留 effort 独立取样，不做笛卡尔积。
-for (const id of glm53Ids.filter(id => id !== "glm-5.3-flash")) {
-	for (const level of levels) {
-		const result = apply(glmThinking, id, level, { ...base(), stream: true, thinking: { type: "disabled", retained: true } });
-		deepStrictEqual(result.thinking, { type: "enabled", retained: true, ...(["high", "xhigh", "max"].includes(level) ? { clear_thinking: false } : {}) });
-		equal(result.reasoning_effort, ["off", "minimal", "low"].includes(level) ? "low" : ["medium", "high"].includes(level) ? "high" : "max", `${id}/${level}`);
-		equal(result.tool_stream, true);
-		strictEqual(apply(glmThinking, id, level, result), result);
-	}
-	for (const stream of [false, undefined]) {
-		const result = apply(glmThinking, id, "high", { ...base(), stream });
-		equal(result.tool_stream, undefined);
-		equal(result.stream, stream);
-	}
-	for (const staleEffort of [undefined, "none", "max"]) {
-		const result = apply(glmThinking, id, "off", { ...base(), reasoning_effort: staleEffort });
-		equal(result.reasoning_effort, "low");
-	}
+coverage(["glm-5.3", "glm-5.3-flash", ...Object.keys(glmCases)], glmThinking, glmModels(root));
+// 七档思考、流式输出和遗留 effort 分开验证。
+const glm53Efforts = { off: "low", minimal: "low", low: "low", medium: "high", high: "high", xhigh: "max", max: "max" };
+for (const level of levels) {
+	const result = apply(glmThinking, "glm-5.3", level, { ...base(), stream: true, thinking: { type: "disabled", retained: true } });
+	deepStrictEqual(result.thinking, { type: "enabled", retained: true, ...(["high", "xhigh", "max"].includes(level) ? { clear_thinking: false } : {}) });
+	equal(result.reasoning_effort, glm53Efforts[level], `glm-5.3/${level}`);
+	equal(result.tool_stream, true);
+	strictEqual(apply(glmThinking, "glm-5.3", level, result), result);
+}
+for (const stream of [false, undefined]) {
+	const result = apply(glmThinking, "glm-5.3", "high", { ...base(), stream });
+	equal(result.tool_stream, undefined);
+	equal(result.stream, stream);
+}
+for (const staleEffort of [undefined, "none", "max"]) {
+	const result = apply(glmThinking, "glm-5.3", "off", { ...base(), reasoning_effort: staleEffort });
+	equal(result.reasoning_effort, "low");
 }
 for (const [id, support] of Object.entries(glmCases)) {
 	for (const level of levels) {

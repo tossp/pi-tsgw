@@ -76,7 +76,6 @@ function testModelCapabilities(): void {
 	for (const [id, input] of [
 		["glm-5.3", ["text"]],
 		["glm-5.3-flash", ["text", "image"]],
-		["glm-5.3-flashx", ["text", "image"]],
 		["MiniMax-M3.1-Flash", ["text", "image"]],
 	] as const) {
 		const model = models.find((model) => model.id === id)!;
