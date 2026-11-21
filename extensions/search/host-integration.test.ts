@@ -188,7 +188,9 @@ test("Pi SDK 源码宿主：tsgw_search 委托使用运行时认证与真实 Res
 			});
 			const request = requests[1]!;
 			assert.equal(request.body.model, luna.id, "即使注册了 Sol/Astra/Grok，也优先选 Luna");
-			assert.equal((request.body.reasoning as Record<string, unknown>).effort, "low");
+			assert.equal((request.body.reasoning as Record<string, unknown>).effort, "medium");
+			assert.deepEqual((request.body.input as { type?: string }[]).filter(item => item.type === "configuration_update"),
+				[{ type: "configuration_update", reasoning: { effort: "low" } }]);
 			assert.equal((request.body.text as Record<string, unknown>).verbosity, "low", "已执行委托模型专属的 onPayload 操作");
 			assert.equal(request.body.max_output_tokens, 4096);
 			assert.deepEqual(request.body.tools, [{ type: "web_search", search_context_size: "medium", external_web_access: true }]);

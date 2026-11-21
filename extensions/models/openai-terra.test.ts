@@ -86,6 +86,10 @@ runtime.registerProvider("tsgw", { models: openaiModels(root) });
 const model = runtime.getModel("tsgw", id)!;
 deepStrictEqual(getSupportedThinkingLevels(model), levels);
 const requests: Record<string, unknown>[] = [];
+function configurationEfforts(body: Payload): unknown[] {
+	return (body.input as Payload[]).filter(item => item.type === "configuration_update")
+		.map(item => (item.reasoning as Payload).effort);
+}
 function events(output: Record<string, unknown>[], completed: unknown[]): Response {
 	const all = [
 		{ type: "response.created", response: { id: "resp_fixture", status: "in_progress" } },
@@ -134,16 +138,19 @@ for (const level of levels) {
 	deepStrictEqual(result.content.filter(part => part.type === "text").map(part => part.text), ["OK"]);
 	const body = requests.at(-1)!;
 	equal(body.model, id);
-	equal((body.reasoning as Payload).effort, config.thinkingLevelMap![level]);
+	equal((body.reasoning as Payload).effort, level === "off" ? "none" : "medium");
+	deepStrictEqual(configurationEfforts(body), level === "off" ? [] : [config.thinkingLevelMap![level]]);
 	equal((body.text as Payload).verbosity, "low");
 	equal(body.max_output_tokens, 512);
 	equal((body.tools as unknown[]).length, 1);
 	equal(Object.hasOwn(body, "service_tier"), false);
 }
 returnTool = true;
-const options = { reasoning: "medium" as const, maxTokens: 512, maxRetries: 0, fetch: fakeFetch,
-	onPayload: (payload: unknown) => apply(payload as Payload, "medium") };
-const first = await runtime.streamSimple(model, context, options).result();
+const options = { maxTokens: 512, maxRetries: 0, fetch: fakeFetch, sessionId: "openai-switch-effort-fixture" };
+const first = await runtime.streamSimple(model, context, { ...options, reasoning: "low",
+	onPayload: payload => apply(payload as Payload, "low"),
+}).result();
+const firstBody = requests.at(-1)!;
 equal(first.stopReason, "toolUse", first.errorMessage ?? id);
 const call = first.content.find(part => part.type === "toolCall")!;
 equal(call.name, "probe");
@@ -151,10 +158,16 @@ deepStrictEqual(call.arguments, { value: "PING" });
 returnTool = false;
 const second = await runtime.streamSimple(model, { ...context, messages: [...context.messages, first, {
 	role: "toolResult", toolCallId: call.id, toolName: call.name, content: [{ type: "text", text: "OK" }], isError: false, timestamp: 1,
-}] }, options).result();
+}] }, { ...options, reasoning: "high", onPayload: payload => apply(payload as Payload, "high") }).result();
 equal(second.stopReason, "stop", second.errorMessage ?? id);
 deepStrictEqual(second.content.filter(part => part.type === "text").map(part => part.text), ["OK"]);
-const replay = requests.at(-1)!.input as Record<string, unknown>[];
+const secondBody = requests.at(-1)!;
+equal((secondBody.reasoning as Payload).effort, (firstBody.reasoning as Payload).effort);
+equal(secondBody.prompt_cache_key, "openai-switch-effort-fixture");
+equal(secondBody.prompt_cache_key, firstBody.prompt_cache_key);
+deepStrictEqual(configurationEfforts(secondBody), ["low", "high"]);
+const replay = secondBody.input as Payload[];
+deepStrictEqual(replay.slice(0, (firstBody.input as Payload[]).length), firstBody.input);
 equal(replay.some(item => item.type === "reasoning" && item.encrypted_content === "fixture-encrypted"), true);
 equal(replay.some(item => item.type === "function_call_output" && item.output === "OK"), true);
 equal(requests.length, levels.length + 2);
@@ -180,6 +193,7 @@ for (const cacheId of cacheIds) {
 		deepStrictEqual(body.prompt_cache_options, entry.options);
 		equal(Object.hasOwn(body, "prompt_cache_retention"), false);
 		equal(body.prompt_cache_key, entry.key);
+		deepStrictEqual(configurationEfforts(body), ["low"], cacheId);
 	}
 }
 equal(requests.length, levels.length + 2 + cacheIds.length * cacheCases.length);
@@ -210,8 +224,8 @@ for (const newId of ["gpt-6.2-astra", "gpt-6.2-sol"]) {
 		equal(result.stopReason, "stop", result.errorMessage ?? newId);
 		const body = requests.at(-1)!;
 		equal(body.model, newId);
-		equal((body.reasoning as Payload | undefined)?.effort,
-			level === undefined ? undefined : level === "minimal" ? "low" : level);
+		equal((body.reasoning as Payload | undefined)?.effort, level === undefined ? undefined : "medium");
+		deepStrictEqual(configurationEfforts(body), level === undefined ? [] : [level === "minimal" ? "low" : level]);
 		equal((body.text as Payload).verbosity, "low");
 		equal(Object.hasOwn(body, "service_tier"), false);
 	}

@@ -130,9 +130,10 @@ async function drainTurns(turns = 3): Promise<void> {
 export function chatMessage(body: AnyRecord, instructionRole: "developer" | "system"): string {
 	const input = body.input;
 	assert.ok(Array.isArray(input), "Responses 请求必须带 input 数组");
-	assert.deepEqual(input.map(item => (item as AnyRecord).role), [instructionRole, "user"],
+	const messages = (input as AnyRecord[]).filter(item => item.type !== "configuration_update");
+	assert.deepEqual(messages.map(item => item.role), [instructionRole, "user"],
 		"聊天通道只允许分类器系统提示与原分类材料，不携带会话历史或工具结果");
-	const message = input[1] as AnyRecord;
+	const message = messages[1] as AnyRecord;
 	if (typeof message.content === "string") return message.content;
 	assert.ok(Array.isArray(message.content));
 	return message.content.map(part => String((part as AnyRecord).text ?? "")).join("");
@@ -190,8 +191,12 @@ function selectionFormat(questions: ChatQuestions): AnyRecord {
 /** Responses 聊天通道（Luna/DeepSeek）：低思考档、1024 上限、严格 schema，不带工具。 */
 export function assertResponsesLane(body: AnyRecord, lane: ChatLane, questions: ChatQuestions): void {
 	assert.equal(body.model, lane, `固定使用 ${lane}，不因候选排序改用其它模型`);
+	const configurationUpdates = (body.input as AnyRecord[]).filter(item => item.type === "configuration_update");
+	assert.deepEqual(configurationUpdates, lane === LUNA_ID
+		? [{ type: "configuration_update", reasoning: { effort: "low" } }] : []);
 	assert.deepEqual([(body.reasoning as AnyRecord).effort, body.max_output_tokens, body.stream, body.tools ?? []],
-		["low", 1024, true, []], `${lane} 固定低思考档与 1024 上限，不带本地工具或内置搜索`);
+		[lane === LUNA_ID ? "medium" : "low", 1024, true, []],
+		`${lane} 固定低思考档与 1024 上限，不带本地工具或内置搜索`);
 	const text = body.text as AnyRecord;
 	if (lane === LUNA_ID) assert.equal(text.verbosity, "low", "Luna 保留 Responses 的 verbosity low");
 	assert.deepEqual(text.format, selectionFormat(questions),
