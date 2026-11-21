@@ -9,12 +9,17 @@ import {
 	fixtureExtension, lastAgentResult, resultText, textSse, toolCallSse,
 	type AnyRecord, type FixtureState,
 } from "./host.test-support.ts";
+import {
+	CHAT_TOKENS, GLM_ID, HUNYUAN_ID, MAIN_MODEL_ID, assertHunyuanLane, chatCompletionMessage,
+	chatCompletionSse, laneCost, laneModel, type ChatQuestions,
+} from "./parallel-host.test-support.ts";
 
-type CapturedClassifierRequest = { body: AnyRecord; headers: Headers };
-
-const CLASSIFIER_IDS = ["jev-latest", "jev-preview"] as const;
-const BASE_CATALOG = ["gpt-6-sol", "jev-latest", "jev-preview", "deepseek-flash", "gpt-6-astra", "gpt-6.2-astra", "gpt-6.2-sol"];
+const DEEPSEEK_ID = "deepseek-flash";
+const BASE_CATALOG = [MAIN_MODEL_ID, HUNYUAN_ID, "jev-latest", "jev-preview", DEEPSEEK_ID, GLM_ID,
+	"glm-5.3", "gpt-6-astra", "gpt-6.2-astra", "gpt-6.2-sol"];
 const FIXTURE_TOOLS = ["Agent", "probe_nested", "get_subagent_result", "steer_subagent"];
+
+type CapturedLaneRequest = { body: AnyRecord; headers: Headers };
 
 function sourceEntry(): string {
 	let dir = dirname(fileURLToPath(import.meta.url));
@@ -29,7 +34,7 @@ function sourceEntry(): string {
 }
 
 // 独立进程；HostSandbox 先隔离 env/网络，之后才动态 import SDK 与 pi-ai。
-test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { timeout: 90_000 }, async t => {
+test("Pi SDK delegation：混元选型、阻止与结果增强", { timeout: 90_000 }, async t => {
 	const sandbox = new HostSandbox();
 	const entry = sourceEntry();
 	const fixture: FixtureState = {
@@ -44,19 +49,18 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			SettingsManager, VERSION,
 		} = await import("@earendil-works/pi-coding-agent");
 		assert.ok(["1.2.0", "1.4.0", "1.5.2"].includes(VERSION), `未验证的宿主 SDK 版本：${VERSION}`);
-		const configure = (extra: AnyRecord = {}) => writeFileSync(join(sandbox.agentDir, "settings.json"),
-			JSON.stringify({ tsgw: { baseUrl: TEST_ROOT, ...extra } }));
-		configure();
+		writeFileSync(join(sandbox.agentDir, "settings.json"),
+			JSON.stringify({ tsgw: { baseUrl: TEST_ROOT } }));
 		const guardedFetch = globalThis.fetch;
-		const classifierRequests: CapturedClassifierRequest[] = [];
 		const mainRequests: AnyRecord[] = [];
+		const hunyuanRequests: CapturedLaneRequest[] = [];
+		const fallbackRequests: { model: string; path: string }[] = [];
+		const systemoneRequests: AnyRecord[] = [];
 		const plan: { next?: { name: string; args: AnyRecord; callId: string; itemId: string } } = {};
 		let callSequence = 0;
 		let classificationMode: "select" | "invalid" | "scope-during" = "select";
-		const expectedKey = "option_0";
 		let selectedModel = "";
 		let scopedModelId = "";
-		const expectedKind = "implement";
 		const queueTool = (name: string, args: AnyRecord) => {
 			const id = ++callSequence;
 			plan.next = { name, args, callId: `call_fixture_${id}`, itemId: `fc_fixture_${id}` };
@@ -64,11 +68,12 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 		globalThis.fetch = async (input, init) => {
 			const request = new Request(input, init);
 			const url = new URL(request.url);
-			if (url.origin === TEST_ROOT && url.pathname === "/v1/systemone") {
+			if (url.origin === TEST_ROOT && url.pathname === "/v1/chat/completions") {
 				assert.equal(request.method, "POST");
 				assert.equal(request.headers.get("authorization"), `Bearer ${TEST_KEY}`);
 				const body = await request.clone().json() as AnyRecord;
-				classifierRequests.push({ body, headers: request.headers });
+				hunyuanRequests.push({ body, headers: request.headers });
+				assert.equal(body.model, HUNYUAN_ID);
 				if (classificationMode === "scope-during") {
 					const other = (await runtime!.getAvailableOfType("chat", "tsgw"))
 						.find(model => !selectedModel.startsWith(`tsgw/${model.id}:`));
@@ -76,34 +81,30 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 					scopedModelId = other.id;
 					session!.setScopedModels([{ model: other }]);
 				}
-				const selectionKey = classificationMode === "invalid" ? "option_not_a_candidate" : expectedKey;
-				const answers = {
-					kind: {
-						type: "choice", choice: expectedKind,
-						probabilities: { [expectedKind]: 0.9 }, confidence: 0.9,
-					},
-					selection: {
-						type: "choice", choice: selectionKey,
-						probabilities: { [selectionKey]: 0.9 }, confidence: 0.9,
-					},
-				};
-				return Response.json({
-					model: body.model,
-					answers,
-					usage: { input_tokens: 417, output_tokens: 68, total_tokens: 485 },
-				});
+				const selectionKey = classificationMode === "invalid" ? "option_not_a_candidate" : "option_0";
+				return chatCompletionSse(JSON.stringify({ kind: "implement", selection: selectionKey }));
 			}
 			if (url.origin === TEST_ROOT && url.pathname === "/v1/responses") {
 				const body = await request.clone().json() as AnyRecord;
-				// 此入口聚焦原生分类；并发聊天选型不能消费主模型的工具计划。
-				// 四路成功与首个有效结果的协议验收由 parallel-host.test.ts 覆盖。
-				if (body.model === "deepseek-flash")
-					return Response.json({ error: { message: "synthetic chat failure" } }, { status: 500 });
-				assert.equal(body.model, "gpt-6-sol");
-				mainRequests.push(body);
-				const call = plan.next;
-				plan.next = undefined;
-				return call ? toolCallSse(call) : textSse("fixture main reply");
+				if (body.model === MAIN_MODEL_ID) {
+					mainRequests.push(body);
+					const call = plan.next;
+					plan.next = undefined;
+					return call ? toolCallSse(call) : textSse("fixture main reply");
+				}
+				fallbackRequests.push({ model: String(body.model), path: url.pathname });
+				assert.equal(body.model, DEEPSEEK_ID, "除主模型与 DeepSeek 后备外不应有其它 Responses 请求");
+				return Response.json({ error: { message: "synthetic fallback failure" } }, { status: 500 });
+			}
+			if (url.origin === TEST_ROOT && url.pathname === "/v1/messages") {
+				const body = await request.clone().json() as AnyRecord;
+				fallbackRequests.push({ model: String(body.model), path: url.pathname });
+				assert.equal(body.model, GLM_ID, "Anthropic Messages 只允许 GLM 后备");
+				return Response.json({ error: { message: "synthetic fallback failure" } }, { status: 500 });
+			}
+			if (url.origin === TEST_ROOT && url.pathname === "/v1/systemone") {
+				systemoneRequests.push(await request.clone().json() as AnyRecord);
+				throw new Error("委派选型不应再请求原生分类通道");
 			}
 			return guardedFetch(request);
 		};
@@ -131,49 +132,37 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			assert.equal(result.aborted, false);
 		};
 		await refresh();
-		const mainModel = runtime.getModel("tsgw", "gpt-6-sol");
+		const mainModel = runtime.getModel("tsgw", MAIN_MODEL_ID);
 		assert.ok(mainModel);
 		await session.bindExtensions({ mode: "print", onError: error => { errors.push(error); } });
 		session.setActiveToolsByName([...FIXTURE_TOOLS]);
 		await session.setModel(mainModel);
 		for (const name of FIXTURE_TOOLS) assert.ok(session.getActiveToolNames().includes(name), `${name} 应处于激活状态`);
 
-		await t.test("新建 Agent：只分类一次，补 model 并保留原调用参数，结果合并 usage/摘要", async () => {
-			const classifiersBefore = classifierRequests.length;
+		await t.test("新建 Agent：只请求一次混元，补 model 并保留原调用参数，结果合并 usage/摘要", async () => {
+			const hunyuanBefore = hunyuanRequests.length;
 			const callsBefore = fixture.agentCalls.length;
-			queueTool("Agent", {
+			const original = {
 				subagent_type: "general-purpose", prompt: "实现 fixture 功能", description: "fixture 实现",
 				run_in_background: true,
-			});
+			};
+			queueTool("Agent", original);
 			await session!.prompt("执行一次待选型的 Agent 任务");
 			assert.equal(fixture.delegationGuidancePresent, true, "主会话应有简短派遣用法分区");
-			assert.equal(classifierRequests.length, classifiersBefore + 1, "只允许一次分类请求");
-			const classifierRequest = classifierRequests.at(-1)!;
-			const body = classifierRequest.body;
-			assert.ok(CLASSIFIER_IDS.includes(body.model as typeof CLASSIFIER_IDS[number]));
-			const questions = body.questions as AnyRecord;
-			assert.deepEqual(Object.keys(questions).sort(), ["kind", "selection"]);
-			const kind = questions.kind as AnyRecord;
-			const selection = questions.selection as AnyRecord;
-			assert.equal(kind.type, "choice");
-			assert.equal(selection.type, "choice");
-			assert.deepEqual(Object.keys(kind.criteria as AnyRecord).sort(),
-				["debug", "design_review", "dual_review", "implement", "inspect"]);
-			const criteria = selection.criteria as AnyRecord;
-			assert.ok(expectedKey in criteria, "分类问题必须包含当前有效候选 key");
-			assert.ok("unresolved" in criteria);
-			const state = body.state as AnyRecord;
-			assert.deepEqual(state.task, {
-				prompt: "实现 fixture 功能", description: "fixture 实现",
-				subagent_type: "general-purpose", run_in_background: true,
-			});
+			assert.equal(hunyuanRequests.length, hunyuanBefore + 1, "只允许一次混元选型请求");
+			assert.equal(fallbackRequests.length, 0, "混元成功时两条后备都不发起");
+			assert.equal(systemoneRequests.length, 0, "委派选型不再调用原生分类");
+			const body = hunyuanRequests.at(-1)!.body;
+			const material = chatCompletionMessage(body);
+			const context = JSON.parse(material.user) as AnyRecord;
+			assertHunyuanLane(body, context.questions as ChatQuestions);
+			assert.deepEqual(context.state, { task: original });
 			assert.equal(fixture.agentCalls.length, callsBefore + 1);
 			const call = fixture.agentCalls.at(-1)!;
 			assert.equal(typeof call.params.model, "string");
 			selectedModel = call.params.model as string;
 			assert.match(selectedModel, /^tsgw\/[^:]+:[^:]+$/);
-			assert.equal(call.params.run_in_background, true, "不得改写原后台标志");
-			assert.equal(call.params.prompt, "实现 fixture 功能");
+			assert.deepEqual(call.params, { ...original, model: selectedModel }, "只补 model，原参数不得改变");
 			const result = lastAgentResult(session!);
 			assert.ok(result);
 			assert.equal(result.isError, false);
@@ -182,9 +171,8 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 				"Responses 的 call_id 会附加 item.id，不能假定二者完全相等");
 			const text = resultText(result);
 			assert.match(text, /fixture agent executed/);
-			const classifierId = `tsgw/${String(body.model)}`;
-			assert.match(text, new RegExp(selectedModel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-			assert.match(text, new RegExp(classifierId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+			assert.ok(text.includes(selectedModel));
+			assert.ok(text.includes(`选型来源：聊天模型 ${laneModel(HUNYUAN_ID)}`));
 			const details = result.details as AnyRecord;
 			assert.equal(details.kind, "host-agent-result");
 			assert.deepEqual(details.host, { profile: "general-purpose", marker: "keep-me" });
@@ -192,35 +180,42 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			assert.equal(delegation.status, "selected");
 			assert.equal(delegation.model, selectedModel);
 			assert.equal(delegation.kind, "implement");
-			assert.equal(delegation.classifier, classifierId);
-			assert.deepEqual(delegation.selectionSource, { type: "classifier", model: classifierId });
-			assert.ok(text.includes(`选型来源：分类模型 ${classifierId}`));
+			assert.equal(delegation.classifier, undefined, "不再记录已移除的原生分类通道");
+			assert.deepEqual(delegation.selectionSource, { type: "chat", model: laneModel(HUNYUAN_ID) });
+			assert.deepEqual(delegation.chatModels, [laneModel(HUNYUAN_ID)]);
 			assert.equal(typeof delegation.durationMs, "number");
 			const usage = result.usage!;
-			assert.equal(usage.input, 10 + 417);
-			assert.equal(usage.output, 2 + 68);
-			assert.equal(usage.totalTokens, 12 + 485);
-			const classifierInputCost = 417 / 1_000_000 * 0.042;
-			assert.ok(Math.abs(usage.cost.input - (0.001 + classifierInputCost)) < 1e-12);
-			assert.ok(Math.abs(usage.cost.output - 0.002) < 1e-12);
-			assert.ok(Math.abs(usage.cost.total - (0.003 + classifierInputCost)) < 1e-12);
+			assert.equal(usage.input, 10 + CHAT_TOKENS.input);
+			assert.equal(usage.output, 2 + CHAT_TOKENS.output);
+			assert.equal(usage.totalTokens, 12 + CHAT_TOKENS.total);
+			const cost = laneCost(runtime!, HUNYUAN_ID);
+			assert.ok(Math.abs(usage.cost.input - (0.001 + cost.input)) < 1e-12);
+			assert.ok(Math.abs(usage.cost.output - (0.002 + cost.output)) < 1e-12);
+			assert.ok(Math.abs(usage.cost.total - (0.003 + cost.input + cost.output)) < 1e-12);
+			const persisted = session!.sessionManager.getBranch().filter(entry => entry.type === "message" &&
+				entry.message.role === "toolResult" && entry.message.toolCallId === result.toolCallId);
+			assert.equal(persisted.length, 1, "同一 toolResult 只能持久化一次");
+			const stored = persisted[0];
+			assert.ok(stored.type === "message" && stored.message.role === "toolResult");
+			assert.equal(stored.message.usage?.totalTokens, 12 + CHAT_TOKENS.total, "选型用量落盘且不重复累加");
 		});
 
 		await t.test("显式模型、resume、结果查询、steer 与非 Agent 均不分类", async () => {
-			const classifiersBefore = classifierRequests.length;
+			const hunyuanBefore = hunyuanRequests.length;
 			const callsBefore = fixture.agentCalls.length;
+			const fallbacksBefore = fallbackRequests.length;
 			queueTool("Agent", {
 				subagent_type: "general-purpose", prompt: "显式模型任务", description: "explicit",
 				run_in_background: false, model: "tsgw/gpt-6-astra:max",
 			});
 			await session!.prompt("显式模型不选型");
-			assert.equal(classifierRequests.length, classifiersBefore);
+			assert.equal(hunyuanRequests.length, hunyuanBefore);
 			assert.equal(fixture.agentCalls.length, callsBefore + 1);
 			assert.equal(fixture.agentCalls.at(-1)!.params.model, "tsgw/gpt-6-astra:max");
 
 			queueTool("Agent", { prompt: "续接任务", description: "resume", resume: "session_fixture" });
 			await session!.prompt("resume 不选型");
-			assert.equal(classifierRequests.length, classifiersBefore);
+			assert.equal(hunyuanRequests.length, hunyuanBefore);
 			assert.equal(fixture.agentCalls.length, callsBefore + 2);
 			assert.equal(fixture.agentCalls.at(-1)!.params.resume, "session_fixture");
 			assert.equal(fixture.agentCalls.at(-1)!.params.model, undefined);
@@ -229,61 +224,77 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			await session!.prompt("结果查询不选型");
 			queueTool("steer_subagent", { agent_id: "session_fixture", message: "继续" });
 			await session!.prompt("steer 不选型");
-			assert.equal(classifierRequests.length, classifiersBefore);
+			assert.equal(hunyuanRequests.length, hunyuanBefore);
+			assert.equal(fallbackRequests.length, fallbacksBefore);
 			assert.equal(fixture.agentCalls.length, callsBefore + 2);
 			assert.deepEqual(fixture.resultQueries, [{ agent_id: "session_fixture" }]);
 			assert.deepEqual(fixture.steers, [{ agent_id: "session_fixture", message: "继续" }]);
 		});
 
 		await t.test("model-only Agent 不能通过 ctx.executeTool 嵌套", async () => {
-			const classifiersBefore = classifierRequests.length;
+			const hunyuanBefore = hunyuanRequests.length;
 			const callsBefore = fixture.agentCalls.length;
 			queueTool("probe_nested", { nested: true });
 			await session!.prompt("嵌套探测");
-			assert.equal(classifierRequests.length, classifiersBefore, "不可嵌套的工具调用不应进入选型");
+			assert.equal(hunyuanRequests.length, hunyuanBefore, "不可嵌套的工具调用不应进入选型");
 			assert.equal(fixture.agentCalls.length, callsBefore);
 			assert.equal(fixture.nestedOutcomes.length, 1);
 			assert.equal(fixture.nestedOutcomes[0].isError, true);
 		});
 
-		await t.test("非法 choice 阻止原 Agent 执行", async () => {
+		await t.test("非法 choice 阻止原 Agent 执行，混元用量仍写入会话", async () => {
 			classificationMode = "invalid";
-			const classifiersBefore = classifierRequests.length;
+			const hunyuanBefore = hunyuanRequests.length;
 			const callsBefore = fixture.agentCalls.length;
-			queueTool("Agent", { prompt: "非法选择任务", description: "invalid" });
 			const tokensBefore = session!.getSessionStats().tokens.input;
-			await session!.prompt("非法选择");
-			assert.equal(classifierRequests.length, classifiersBefore + 1);
+			queueTool("Agent", { prompt: "非法选择任务", description: "invalid" });
+			try {
+				await session!.prompt("非法选择");
+			} finally {
+				classificationMode = "select";
+			}
+			assert.equal(hunyuanRequests.length, hunyuanBefore + 1);
+			assert.deepEqual(fallbackRequests.map(request => request.model).sort(), [DEEPSEEK_ID, GLM_ID].sort(),
+				"混元非法结果必须转入两条后备");
 			assert.equal(fixture.agentCalls.length, callsBefore);
 			const result = lastAgentResult(session!);
 			assert.equal(result?.isError, true);
 			assert.match(resultText(result!), /无效|未决|未创建子代理/);
-			assert.equal(result!.usage?.totalTokens, 485, "执行前阻止不触发 tool_result，最终消息仍须计分类用量");
-			assert.equal(((result!.details as AnyRecord).tsgwDelegation as AnyRecord).status, "blocked");
+			assert.equal(result!.usage?.totalTokens, CHAT_TOKENS.total, "执行前阻止不触发 tool_result，最终消息仍须计混元用量");
+			const decision = (result!.details as AnyRecord).tsgwDelegation as AnyRecord;
+			assert.equal(decision.status, "blocked");
+			assert.equal(decision.failureKind, "selection_failed");
+			assert.equal(decision.selectionSource, undefined);
+			assert.equal((decision.selectionErrors as AnyRecord[]).length, 3, "混元非法与两条后备失败都进入安全摘要");
 			const persisted = session!.sessionManager.getBranch().find(entry => entry.type === "message" &&
 				entry.message.role === "toolResult" && entry.message.toolCallId === result!.toolCallId);
 			assert.ok(persisted && persisted.type === "message" && persisted.message.role === "toolResult");
-			assert.equal(persisted.message.usage?.totalTokens, 485, "失败选型用量须写入会话而非仅内存展示");
-			assert.ok(session!.getSessionStats().tokens.input - tokensBefore >= 417, "会话统计须包含失败选型的输入 tokens");
-			classificationMode = "select";
+			assert.equal(persisted.message.usage?.totalTokens, CHAT_TOKENS.total, "失败选型用量须写入会话而非仅内存展示");
+			assert.ok(session!.getSessionStats().tokens.input - tokensBefore >= CHAT_TOKENS.input,
+				"会话统计须包含失败选型的输入 tokens");
 		});
 
 		await t.test("后续 permission handler 仍可阻止已选型的 Agent 创建", async () => {
 			fixture.blockAgent = true;
-			const classifiersBefore = classifierRequests.length;
+			const hunyuanBefore = hunyuanRequests.length;
 			const callsBefore = fixture.agentCalls.length;
 			queueTool("Agent", { prompt: "权限阻止任务", description: "permission" });
-			await session!.prompt("权限阻止");
-			assert.equal(classifierRequests.length, classifiersBefore + 1);
+			try {
+				await session!.prompt("权限阻止");
+			} finally {
+				fixture.blockAgent = false;
+			}
+			assert.equal(hunyuanRequests.length, hunyuanBefore + 1);
 			assert.equal(fixture.agentCalls.length, callsBefore);
 			assert.equal(fixture.permissionBlocks, 1);
 			assert.equal(fixture.permissionSeenModel, selectedModel, "后续权限钩子应看到选型后的 model");
 			const result = lastAgentResult(session!);
 			assert.equal(result?.isError, true);
 			assert.match(resultText(result!), /fixture permission handler blocked Agent/);
-			assert.equal(result!.usage?.totalTokens, 485, "后续权限阻止时分类用量仍计入一次");
-			assert.equal(((result!.details as AnyRecord).tsgwDelegation as AnyRecord).status, "selected");
-			fixture.blockAgent = false;
+			assert.equal(result!.usage?.totalTokens, CHAT_TOKENS.total, "后续权限阻止时选型用量仍计入一次");
+			const decision = (result!.details as AnyRecord).tsgwDelegation as AnyRecord;
+			assert.equal(decision.status, "selected");
+			assert.deepEqual(decision.selectionSource, { type: "chat", model: laneModel(HUNYUAN_ID) });
 		});
 
 		await t.test("重载不会双注入或重复分类", async () => {
@@ -292,14 +303,14 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			session!.setActiveToolsByName([...FIXTURE_TOOLS]);
 			// 重载会重新注册 provider，真实目录需要再次通过宿主刷新后才能参与选型。
 			await refresh();
-			const reloadedModel = runtime!.getModel("tsgw", "gpt-6-sol");
+			const reloadedModel = runtime!.getModel("tsgw", MAIN_MODEL_ID);
 			assert.ok(reloadedModel);
 			await session!.setModel(reloadedModel);
-			const classifiersBefore = classifierRequests.length;
+			const hunyuanBefore = hunyuanRequests.length;
 			const callsBefore = fixture.agentCalls.length;
 			queueTool("Agent", { prompt: "重载后任务", description: "reload" });
 			await session!.prompt("重载后再次选型");
-			assert.equal(classifierRequests.length, classifiersBefore + 1);
+			assert.equal(hunyuanRequests.length, hunyuanBefore + 1);
 			assert.equal(fixture.agentCalls.length, callsBefore + 1);
 			const result = lastAgentResult(session!);
 			assert.equal(result?.isError, false);
@@ -309,12 +320,12 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			assert.equal((details.tsgwDelegation as AnyRecord).model, selectedModel);
 		});
 
-		await t.test("分类期间会话范围变化：执行前重新过滤，接管表只列最新有效候选", async () => {
+		await t.test("选型期间会话范围变化：执行前重新过滤，接管表只列最新有效候选", async () => {
 			classificationMode = "scope-during";
 			const callsBefore = fixture.agentCalls.length;
 			try {
 				queueTool("Agent", { prompt: "核验动态会话范围", description: "scope changed" });
-				await session!.prompt("分类过程中收窄会话范围");
+				await session!.prompt("选型过程中收窄会话范围");
 				assert.equal(fixture.agentCalls.length, callsBefore);
 				const result = lastAgentResult(session!)!;
 				const decision = (result.details as AnyRecord).tsgwDelegation as AnyRecord;
@@ -336,14 +347,14 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 			await session!.reload();
 			session!.setActiveToolsByName([...FIXTURE_TOOLS]);
 			await refresh();
-			const reloadedModel = runtime!.getModel("tsgw", "gpt-6-sol");
+			const reloadedModel = runtime!.getModel("tsgw", MAIN_MODEL_ID);
 			assert.ok(reloadedModel);
 			await session!.setModel(reloadedModel);
-			const classificationsBefore = classifierRequests.length;
+			const hunyuanBefore = hunyuanRequests.length;
 			const callsBefore = fixture.agentCalls.length;
 			queueTool("Agent", { prompt: "子会话内部任务", description: "child role" });
 			await session!.prompt("子代理角色不自动选型");
-			assert.equal(classifierRequests.length, classificationsBefore);
+			assert.equal(hunyuanRequests.length, hunyuanBefore);
 			assert.equal(fixture.agentCalls.length, callsBefore + 1, "不介入，不自行禁止宿主原工具");
 			assert.equal(fixture.agentCalls.at(-1)!.params.model, undefined);
 			assert.equal(fixture.delegationGuidancePresent, false);
@@ -351,6 +362,7 @@ test("Pi SDK delegation：真实宿主分类选型、阻止与结果增强", { t
 
 		assert.deepEqual(errors, []);
 		assert.deepEqual(sandbox.blocked, []);
+		assert.equal(systemoneRequests.length, 0);
 	} finally {
 		try { session?.dispose(); } finally { sandbox.restore(); }
 	}

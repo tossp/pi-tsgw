@@ -1,18 +1,18 @@
 import type { Api, ClassifierContext, Model, Usage } from "@earendil-works/pi-ai";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { CHAT_SELECTION_IDS, selectWithChat } from "./chat-selection.ts";
-import { DESIGN_REVIEW_TARGET } from "./knowledge.ts";
-import { chatFailure, classifierFailure, type SelectionFailure } from "./failure.ts";
-import { chooseClassifier, resolveDelegationChoice, type DelegationCandidate } from "./policy.ts";
+import { selectWithChat } from "./chat-selection.ts";
+import { chatFailure, type SelectionFailure } from "./failure.ts";
+import type { DelegationCandidate } from "./policy.ts";
+import { SELECTION_CHANNELS, type SelectionChannel } from "./selection-channels.ts";
 
 export interface SelectionSource {
-	type: "classifier" | "chat";
+	type: "chat";
 	model: string;
 }
 export interface SelectionError extends SelectionFailure {
 	source: SelectionSource;
 }
-interface RaceOptions {
+interface SelectionOptions {
 	models: readonly Model<Api>[];
 	signal: AbortSignal;
 	deadlineMs: number;
@@ -22,103 +22,76 @@ interface RaceOptions {
 }
 interface SelectionWinner {
 	selected: DelegationCandidate;
-	kind?: string;
+	kind: string;
 	source: SelectionSource;
 }
 
-/** 四路各发一次；失败或非法结果不是胜者，不为等待取消确认延长选型。 */
-export async function raceSelection(
+/** 上游忽略 signal 时也结束本地等待。 */
+export function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+	return new Promise((resolve, reject) => {
+		const abort = () => reject(signal.reason);
+		if (signal.aborted) abort();
+		else signal.addEventListener("abort", abort, { once: true });
+		promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+	});
+}
+
+export async function selectInStages(
 	registry: ExtensionContext["modelRegistry"],
 	context: ClassifierContext,
 	candidates: readonly DelegationCandidate[],
-	options: RaceOptions,
+	options: SelectionOptions,
 ): Promise<{ winner: SelectionWinner } | { failure: SelectionFailure }> {
-	const finished = new AbortController();
-	const signal = AbortSignal.any([options.signal, finished.signal]);
-	let nativeFailure: SelectionFailure | undefined;
+	const { primary, primaryTimeoutMs, backups } = SELECTION_CHANNELS;
 	const failures: SelectionFailure[] = [];
-	const reportError = (source: SelectionSource, failure: SelectionFailure) => {
-		failures.push(failure);
-		options.onError({ source, ...failure });
-	};
-	const invalid: SelectionFailure = {
-		reason: "选型结果无效、未决或不符合固定审阅规则。", failureKind: "invalid_result",
-	};
-	const native = async (): Promise<SelectionWinner> => {
-		let source: SelectionSource | undefined;
-		try {
-			signal.throwIfAborted();
-			if (typeof registry.classify !== "function") {
-				nativeFailure = { reason: "当前宿主不支持原生分类选型。", failureKind: "unsupported" };
-				throw new Error("原生分类不可用。");
-			}
-			const classifiers = await registry.getAvailableOfType("classifier", "tsgw", { signal });
-			signal.throwIfAborted();
-			const classifier = chooseClassifier(classifiers);
-			if (!classifier) {
-				nativeFailure = { reason: "没有可用的 TSGW 文本分类模型。", failureKind: "unavailable" };
-				throw new Error("分类目录无匹配项。");
-			}
-			const remaining = options.deadlineMs - Date.now();
-			if (remaining <= 0) {
-				nativeFailure = { reason: "选型预算已耗尽。", failureKind: "timeout" };
-				throw new Error("选型预算已耗尽。");
-			}
-			source = { type: "classifier", model: `${classifier.provider}/${classifier.id}` };
-			options.onStart(source);
-			const result = await registry.classify(classifier, context, { signal, timeoutMs: remaining, maxRetries: 0 });
-			if (result.usage) options.onUsage(result.usage);
-			signal.throwIfAborted();
-			if (result.stopReason !== "stop") {
-				// 整体取消已由 signal 处理；单通道中止仍按安全错误归因。
-				nativeFailure = classifierFailure(result.errorMessage);
-				throw new Error("分类通道未完成选型。");
-			}
-			const selected = resolveDelegationChoice(result.answers, candidates, DESIGN_REVIEW_TARGET);
-			if (!selected) {
-				nativeFailure = invalid;
-				throw new Error("分类结果无效。");
-			}
-			const answer = result.answers.kind;
-			return { selected, kind: answer?.type === "choice" ? answer.choice : undefined, source };
-		} catch {
-			nativeFailure ??= { reason: "分类请求失败（原因未明）。", failureKind: "unknown" };
-			if (source && !signal.aborted) reportError(source, nativeFailure);
-			throw new Error("原生选型通道未提供有效结果。");
-		}
-	};
-	const chat = async (modelId: (typeof CHAT_SELECTION_IDS)[number]): Promise<SelectionWinner> => {
+	const chat = async (channel: SelectionChannel, signal: AbortSignal, deadlineMs: number) => {
 		let source: SelectionSource | undefined;
 		let failure: SelectionFailure | undefined;
 		try {
-			const result = await selectWithChat(registry, context, candidates, modelId, {
-				...options, signal, onStart: model => {
+			const result = await abortable(selectWithChat(registry, context, candidates, channel, {
+				...options, signal, deadlineMs, onStart: model => {
 					source = { type: "chat", model };
 					options.onStart(source);
 				},
-			});
+			}), signal);
+			signal.throwIfAborted();
 			if (result && !("failure" in result))
-				return { selected: result.selected, kind: result.kind, source: { type: "chat", model: result.model } };
-			if (result) failure = result.failure;
+				return { selected: result.selected, kind: result.kind, source: { type: "chat", model: result.model } } satisfies SelectionWinner;
+			failure = result?.failure;
 		} catch (error) {
-			failure = chatFailure(error instanceof Error ? error.message : undefined);
+			if (!signal.aborted) failure = chatFailure(error instanceof Error ? error.message : undefined);
+			else if (channel === primary && !options.signal.aborted)
+				failure = { failureKind: "timeout", reason: `首选通道请求超时（${primaryTimeoutMs / 1000} 秒上限）。` };
 		}
-		// 未发起的通道和获胜/整体取消导致的中止不作为通道报错。
-		if (source && !signal.aborted) reportError(source, failure ?? invalid);
-		throw new Error("聊天选型通道未提供有效结果。");
+		// 只记录真实发起的失败。整体取消和后备胜出后的取消不计入错误。
+		if (source && failure) {
+			failures.push(failure);
+			options.onError({ source, ...failure });
+		}
+		return undefined;
 	};
+
+	const primaryDeadline = Math.min(options.deadlineMs, Date.now() + primaryTimeoutMs);
+	const primarySignal = AbortSignal.any([options.signal, AbortSignal.timeout(primaryTimeoutMs)]);
+	const winner = await chat(primary, primarySignal, primaryDeadline);
+	options.signal.throwIfAborted();
+	if (winner) return { winner };
+
+	const finished = new AbortController();
+	const signal = AbortSignal.any([options.signal, finished.signal]);
 	try {
-		const winner = await Promise.any([native(), ...CHAT_SELECTION_IDS.map(chat)]);
+		const winner = await Promise.any(backups.map(async channel => {
+			const selected = await chat(channel, signal, options.deadlineMs);
+			if (!selected) throw new Error("后备通道未提供有效选型。");
+			return selected;
+		}));
 		options.signal.throwIfAborted();
 		return { winner };
 	} catch {
 		options.signal.throwIfAborted();
-		if (failures.length > 1) {
-			return { failure: { reason: "所有选型通道均未返回有效结果。", failureKind: "selection_failed" } };
-		}
-		return { failure: failures[0] ?? nativeFailure ?? invalid };
+		if (failures.length > 1) return { failure: { reason: "所有选型通道均未返回有效结果。", failureKind: "selection_failed" } };
+		return { failure: failures[0] ?? { reason: "没有可用的 TSGW 聊天选型通道。", failureKind: "unavailable" } };
 	} finally {
-		// 只取消选型请求，不中断获胜后的目录复核；不保证远端停止处理或计费。
 		finished.abort();
 	}
 }

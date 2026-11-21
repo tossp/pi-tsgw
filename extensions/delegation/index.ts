@@ -9,7 +9,7 @@ import {
 	type DelegationCandidate,
 } from "./policy.ts";
 import type { DelegationFailureKind } from "./failure.ts";
-import { raceSelection, type SelectionError } from "./selection-race.ts";
+import { abortable, selectInStages, type SelectionError, type SelectionSource } from "./selection-race.ts";
 import { DELEGATION_KNOWLEDGE, DELEGATION_MODEL_REFERENCES } from "./knowledge.ts";
 
 const TIMEOUT_MS = 15_000;
@@ -20,11 +20,10 @@ const GUIDANCE = "新建子代理时，直接调用 Agent，写清任务、必�
 
 type Decision = {
 	status: "selected" | "blocked";
-	classifier?: string;
 	chatModel?: string;
 	chatModels?: string[];
 	selectionErrors?: SelectionError[];
-	selectionSource?: { type: "classifier" | "chat"; model: string };
+	selectionSource?: SelectionSource;
 	model?: string;
 	kind?: string;
 	reason?: string;
@@ -47,7 +46,7 @@ function selectionErrorsText(decision: Decision): string {
 
 function failureText(decision: Decision): string {
 	return `TSGW ${decision.reason ?? "分类选型未完成。"}本次未创建子代理。` +
-		`\n选型来源：无（未完成有效选型${decision.classifier ? `；已尝试分类模型 ${decision.classifier}` : ""}` +
+		`\n选型来源：无（未完成有效选型` +
 		`${decision.chatModels?.length ? `；已尝试聊天模型 ${decision.chatModels.join("、")}` : ""}）。` +
 		selectionErrorsText(decision) +
 		(decision.selectionGuide ? `\n\n${decision.selectionGuide}` : "");
@@ -64,16 +63,6 @@ function hasAgent(pi: ExtensionAPI): boolean {
 
 function supplied(value: unknown): boolean {
 	return typeof value === "string" && value.trim().length > 0;
-}
-
-/** 取消要中断等待；上游即使忽略 signal，迟到结果也不能创建子代理。 */
-function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-	return new Promise((resolve, reject) => {
-		const abort = () => reject(new Error("分类等待已取消。"));
-		if (signal.aborted) abort();
-		else signal.addEventListener("abort", abort, { once: true });
-		promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
-	});
 }
 
 function addUsage(first: Usage | undefined, second: Usage | undefined): Usage | undefined {
@@ -143,11 +132,10 @@ export function registerDelegation(pi: ExtensionAPI): void {
 				{ input_files: [...input.input_files] as string[] } : {}),
 			...(typeof input.run_in_background === "boolean" ? { run_in_background: input.run_in_background } : {}),
 		};
-		let classifierId: string | undefined;
 		const chatModelIds: string[] = [];
 		const selectionErrors: SelectionError[] = [];
 		const failure = (reason: string, kind: DelegationFailureKind, guidance?: string): Decision => {
-			return { ...blocked(reason, kind), ...(classifierId ? { classifier: classifierId } : {}),
+			return { ...blocked(reason, kind),
 				...(chatModelIds.length ? { chatModel: chatModelIds[0], chatModels: [...chatModelIds] } : {}),
 				...(selectionErrors.length ? { selectionErrors: [...selectionErrors] } : {}),
 				...(kind === "cancelled" ? {} : { selectionGuide: guidance ?? buildDelegationGuide(attempt.candidates) }) };
@@ -156,7 +144,7 @@ export function registerDelegation(pi: ExtensionAPI): void {
 			signal.throwIfAborted();
 			if (!task.prompt.trim()) return failure("任务提示词为空。", "invalid_input", "请补充任务正文后再派遣。");
 			if (typeof registry.getAvailableOfType !== "function")
-				return failure("当前宿主不支持原生分类选型。", "unsupported");
+				return failure("当前宿主不支持查询选型模型目录。", "unsupported");
 			let models: readonly Model<Api>[] = [];
 			const candidates = async (): Promise<DelegationCandidate[]> => {
 				attempt.candidates = undefined;
@@ -171,15 +159,12 @@ export function registerDelegation(pi: ExtensionAPI): void {
 			const context = buildDelegationContext(task, available);
 			if (Buffer.byteLength(JSON.stringify(context), "utf8") > MAX_CONTEXT_BYTES)
 				return failure("选型材料超过 28 KiB，请精简提示词或显式指定模型；未截断任务。", "invalid_input");
-			const result = await abortable(raceSelection(registry, context, available, {
+			const result = await selectInStages(registry, context, available, {
 				models, signal, deadlineMs: started + TIMEOUT_MS,
-				onStart: source => {
-					if (source.type === "classifier") classifierId = source.model;
-					else chatModelIds.push(source.model);
-				},
+				onStart: source => { chatModelIds.push(source.model); },
 				onUsage: usage => { attempt.usage = addUsage(attempt.usage, usage); },
 				onError: error => { selectionErrors.push(error); },
-			}), signal);
+			});
 			if ("failure" in result) return failure(result.failure.reason, result.failure.failureKind);
 			const { selected, kind, source } = result.winner;
 			// 分类过程中目录可能刷新；必须再次校验，不能静默选另一个模型。
@@ -187,7 +172,7 @@ export function registerDelegation(pi: ExtensionAPI): void {
 			signal.throwIfAborted();
 			if (!current.some(candidate => candidate.model === selected.model))
 				return failure("选定模型或思考档位已不在当前可用候选中。", "model_unavailable");
-			return { status: "selected", classifier: classifierId, model: selected.model,
+			return { status: "selected", model: selected.model,
 				selectionSource: source,
 				...(chatModelIds.length ? { chatModel: chatModelIds[0], chatModels: [...chatModelIds] } : {}),
 				...(selectionErrors.length ? { selectionErrors: [...selectionErrors] } : {}),
@@ -230,8 +215,7 @@ export function registerDelegation(pi: ExtensionAPI): void {
 		const decision = attempt.decision;
 		let summary: string;
 		if (decision.status === "selected") {
-			const sourceType = decision.selectionSource?.type === "chat" ? "聊天模型" : "分类模型";
-			summary = `TSGW 创建前选型：${decision.model}；选型来源：${sourceType} ${decision.selectionSource?.model}`;
+			summary = `TSGW 创建前选型：${decision.model}；选型来源：聊天模型 ${decision.selectionSource?.model}`;
 			if (event.isError) summary += "；Agent 调用未成功。";
 			summary += selectionErrorsText(decision);
 		} else {

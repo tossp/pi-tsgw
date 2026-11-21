@@ -1,9 +1,6 @@
 import type {
 	Api,
-	ClassifierApi,
 	ClassifierContext,
-	ClassifierModel,
-	ClassifierResult,
 	Model,
 	ModelThinkingLevel,
 } from "@earendil-works/pi-ai";
@@ -175,43 +172,7 @@ export function buildDelegationContext(
 	};
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isUnitProbability(value: unknown): value is number {
-	return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1;
-}
-
-/** 分类响应在此校验；下游只使用选项键，不将原始对象断言为宿主答案类型。 */
-function readChoiceKey(value: unknown): string | undefined {
-	if (!isRecord(value) || value.type !== "choice" || typeof value.choice !== "string") return undefined;
-	if (!isRecord(value.probabilities) || !isUnitProbability(value.confidence)) return undefined;
-	for (const probability of Object.values(value.probabilities)) {
-		if (!isUnitProbability(probability)) return undefined;
-	}
-	if (!Object.hasOwn(value.probabilities, value.choice)) return undefined;
-	if (!isUnitProbability(value.probabilities[value.choice])) return undefined;
-	return value.choice;
-}
-
-/**
- * 只按 choice key 解析，不把概率大小映射为型号或档位，也不设置未校准的置信度阈值。
- * 双审一律交回主代理显式安排；正式设计审阅只接受当前候选中指定的审阅组合。
- */
-export function resolveDelegationChoice(
-	answers: ClassifierResult["answers"],
-	candidates: readonly DelegationCandidate[],
-	reviewTarget: Pick<DelegationCandidate, "id" | "level">,
-): DelegationCandidate | undefined {
-	if (!isRecord(answers)) return undefined;
-	const kind = readChoiceKey(answers.kind);
-	const selection = readChoiceKey(answers.selection);
-	if (kind === undefined || selection === undefined) return undefined;
-	return resolveDelegationKeys(kind, selection, candidates, reviewTarget);
-}
-
-/** 原生分类与聊天通道共用相同的候选、档位和固定审阅约束；聊天结果不伪造概率。 */
+/** 校验候选键、档位和固定审阅约束。 */
 export function resolveDelegationKeys(
 	kind: unknown,
 	selection: unknown,
@@ -226,51 +187,4 @@ export function resolveDelegationKeys(
 		if (selected.id !== reviewTarget.id || selected.level !== reviewTarget.level) return undefined;
 	}
 	return selected;
-}
-
-function referenceRate(model: ClassifierModel<ClassifierApi>): number | undefined {
-	const input = model.cost?.input;
-	const output = model.cost?.output;
-	if (typeof input !== "number" || typeof output !== "number") return undefined;
-	if (!Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) return undefined;
-	const total = input + output;
-	return Number.isFinite(total) ? total : undefined;
-}
-
-function compareText(left: string, right: string): number {
-	if (left < right) return -1;
-	if (left > right) return 1;
-	return 0;
-}
-
-/**
- * 在当前 tsgw 文本分类目录中动态选一个模型：已知正价按 input+output 参考费率升序，
- * 未知、缺失、非法或零价与正价分组并排在后面；组内或同价按 provider/id 字典序。
- * 价格只用于确定性选择；只返回一次选择，不重试。
- */
-export function chooseClassifier(
-	models: readonly ClassifierModel<ClassifierApi>[],
-): ClassifierModel<ClassifierApi> | undefined {
-	const ranked: { model: ClassifierModel<ClassifierApi>; rate: number | undefined }[] = [];
-	for (const model of models) {
-		if (model.type !== "classifier" || model.provider !== TSGW_PROVIDER) continue;
-		if (!model.input.includes("text")) continue;
-		ranked.push({ model, rate: referenceRate(model) });
-	}
-
-	ranked.sort((left, right) => {
-		const leftRate = left.rate;
-		const rightRate = right.rate;
-		if (leftRate !== undefined && leftRate > 0) {
-			if (!(rightRate !== undefined && rightRate > 0)) return -1;
-			if (leftRate !== rightRate) return leftRate - rightRate;
-		} else if (rightRate !== undefined && rightRate > 0) {
-			return 1;
-		}
-		const provider = compareText(left.model.provider, right.model.provider);
-		if (provider !== 0) return provider;
-		return compareText(left.model.id, right.model.id);
-	});
-
-	return ranked[0]?.model;
 }

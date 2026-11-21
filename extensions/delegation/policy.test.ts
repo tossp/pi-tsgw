@@ -2,10 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type {
 	Api,
-	ClassifierApi,
-	ClassifierChoiceAnswer,
-	ClassifierModel,
-	ClassifierResult,
 	Model,
 	ModelThinkingLevel,
 } from "@earendil-works/pi-ai";
@@ -13,8 +9,7 @@ import {
 	buildDelegationCandidates,
 	buildDelegationContext,
 	buildDelegationGuide,
-	chooseClassifier,
-	resolveDelegationChoice,
+	resolveDelegationKeys,
 	type DelegationCandidate,
 } from "./policy.ts";
 import type { CandidateKnowledge } from "./knowledge.ts";
@@ -46,24 +41,6 @@ function chatModel(id: string, overrides: Partial<Model<Api>> = {}): Model<Api> 
 	};
 }
 
-function classifierModel(
-	id: string,
-	overrides: Partial<ClassifierModel<ClassifierApi>> = {},
-): ClassifierModel<ClassifierApi> {
-	return {
-		type: "classifier",
-		id,
-		name: id,
-		provider: "tsgw",
-		api: "typesafe-system-one",
-		baseUrl: "https://models.example.test/v1",
-		input: ["text"],
-		cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: 64_000,
-		...overrides,
-	};
-}
-
 function candidate(
 	key: string,
 	id: string,
@@ -78,21 +55,6 @@ function candidate(
 		level,
 		instructions,
 	};
-}
-
-function choice(
-	selected: string,
-	probabilities: Record<string, number> = { [selected]: 0.5 },
-	confidence = 0.5,
-): ClassifierChoiceAnswer {
-	return { type: "choice", choice: selected, probabilities, confidence };
-}
-
-function answers(
-	kind: ClassifierChoiceAnswer,
-	selection: ClassifierChoiceAnswer,
-): ClassifierResult["answers"] {
-	return { kind, selection };
 }
 
 const KNOWLEDGE: readonly CandidateKnowledge[] = [
@@ -224,183 +186,18 @@ test("上下文：state 只含任务与元数据，kind/selection 结构固定�
 	assert.deepEqual(Object.keys(minimalSelection.criteria), ["unresolved"]);
 });
 
-test("解析：按 choice key 选择当前候选，不按置信度或最高概率改选", () => {
-	const first = candidate("option_0", "sample-a", "low");
-	const second = candidate("option_1", "sample-b", "high");
-	const candidates = frozen([first, second]);
-	const selected = resolveDelegationChoice(answers(
-		choice("implement", { implement: 0.2, inspect: 0.1 }, 0),
-		choice("option_1", { option_0: 0.99, option_1: 0.01 }, 0),
-	), candidates, REVIEW_TARGET);
-	assert.equal(selected, second);
-	assert.equal(resolveDelegationChoice(
-		answers(choice("debug"), choice("unresolved")), candidates, REVIEW_TARGET,
-	), undefined);
-	assert.equal(resolveDelegationChoice(
-		answers(choice("debug"), choice("sample-a")), candidates, REVIEW_TARGET,
-	), undefined, "型号名不是当前候选 key");
-});
-
-test("解析：正式审阅匹配传入的型号和档位，双审交回主代理", () => {
+test("解析：要求当前候选键，正式审阅匹配固定型号和档位，双审交回主代理", () => {
 	const review = candidate("option_0", "review-model", "medium");
 	const wrongLevel = candidate("option_1", "review-model", "high");
-	const other = candidate("option_2", "worker-model", "low");
-	const candidates = frozen([review, wrongLevel, other]);
-	assert.equal(resolveDelegationChoice(
-		answers(choice("design_review"), choice("option_0")), candidates, REVIEW_TARGET,
-	), review);
-	for (const key of ["option_1", "option_2"]) {
-		assert.equal(resolveDelegationChoice(
-			answers(choice("design_review"), choice(key)), candidates, REVIEW_TARGET,
-		), undefined);
-	}
-	assert.equal(resolveDelegationChoice(
-		answers(choice("design_review"), choice("option_2")), candidates, { id: "worker-model", level: "low" },
-	), other, "审阅目标来自传入数据，不绑定实际配置或最高档位");
-	assert.equal(resolveDelegationChoice(
-		answers(choice("dual_review"), choice("option_0")), candidates, REVIEW_TARGET,
-	), undefined);
-	for (const candidate of candidates) {
-		for (const kind of ["inspect", "implement", "debug"])
-			assert.equal(resolveDelegationChoice(answers(choice(kind), choice(candidate.key)), candidates, REVIEW_TARGET), candidate);
-	}
-});
-
-test("解析：非法结构、越界概率、缺少所选概率、未知 kind 与不在候选中的选择均拒绝", () => {
-	const validKind = choice("implement");
-	const validSelection = choice("option_2");
-	const candidates = frozen([
-		candidate("option_0", "review-model", "max"),
-		candidate("option_2", "worker-model", "max"),
-	]);
-
-	const malformed: unknown[] = [
-		null,
-		[],
-		{},
-		{ kind: validKind },
-		{ selection: validSelection },
-		{ kind: { ...validKind, type: "score" }, selection: validSelection },
-		{ kind: validKind, selection: { ...validSelection, type: "bool" } },
-		{ kind: { ...validKind, choice: "unknown" }, selection: validSelection },
-		{ kind: { ...validKind, choice: 3 }, selection: validSelection },
-		{ kind: validKind, selection: { ...validSelection, choice: null } },
-		{ kind: validKind, selection: { ...validSelection, probabilities: null } },
-		{ kind: validKind, selection: { ...validSelection, probabilities: [] } },
-		{ kind: { ...validKind, probabilities: {} }, selection: validSelection },
-		{ kind: validKind, selection: { ...validSelection, probabilities: {} } },
-		{ kind: validKind, selection: { ...validSelection, probabilities: { option_0: 0.9 } } },
-		{ kind: validKind, selection: { ...validSelection, probabilities: Object.create({ option_2: 0.9 }) } },
-		{ kind: { ...validKind, probabilities: { implement: Number.NaN } }, selection: validSelection },
-		{ kind: { ...validKind, probabilities: { implement: Number.POSITIVE_INFINITY } }, selection: validSelection },
-		{ kind: validKind, selection: { ...validSelection, probabilities: { option_2: -0.01 } } },
-		{ kind: validKind, selection: { ...validSelection, probabilities: { option_2: 1.01 } } },
-		{ kind: validKind, selection: { ...validSelection, probabilities: { option_2: "0.5" } } },
-		{ kind: validKind, selection: { ...validSelection, probabilities: { option_2: 0.5, extra: Number.NaN } } },
-		{ kind: { ...validKind, confidence: 1.01 }, selection: validSelection },
-		{ kind: validKind, selection: { ...validSelection, confidence: -0.01 } },
-		{ kind: validKind, selection: { ...validSelection, confidence: Number.NaN } },
-		{ kind: validKind, selection: { ...validSelection, confidence: "0.5" } },
-		{ kind: validKind, selection: { ...validSelection, choice: "option_9" } },
-	];
-
-	for (const value of malformed) {
-		assert.equal(
-			resolveDelegationChoice(value as ClassifierResult["answers"], candidates, REVIEW_TARGET),
-			undefined,
-		);
-	}
-});
-
-test("分类器：已知正价按参考费率选择，未知/零价末组按 id 字典序", () => {
-	const cheap = classifierModel("zeta", {
-		cost: { input: 0.01, output: 0.02, cacheRead: 0, cacheWrite: 0 },
-	});
-	const alphaTie = classifierModel("alpha", {
-		cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 },
-	});
-	const betaTie = classifierModel("beta", {
-		cost: { input: 0.2, output: 0.1, cacheRead: 0, cacheWrite: 0 },
-	});
-	const expensive = classifierModel("mid", {
-		cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
-	});
-	const zero = classifierModel("aaa", {
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-	});
-	const zeroOutput = classifierModel("zero-output", {
-		cost: { input: 0.042, output: 0, cacheRead: 0, cacheWrite: 0 },
-	});
-	const otherProvider = classifierModel("cheap-other", {
-		provider: "other",
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-	});
-	const imageOnly = classifierModel("cheap-image", {
-		input: ["image"],
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-	});
-	const negative = classifierModel("negative", {
-		cost: { input: -1, output: 1, cacheRead: 0, cacheWrite: 0 },
-	});
-	const nan = classifierModel("nan", {
-		cost: { input: Number.NaN, output: 1, cacheRead: 0, cacheWrite: 0 },
-	});
-	const infinite = classifierModel("infinite", {
-		cost: { input: Number.POSITIVE_INFINITY, output: 0, cacheRead: 0, cacheWrite: 0 },
-	});
-
-	const models = frozen([
-		zero,
-		expensive,
-		betaTie,
-		otherProvider,
-		imageOnly,
-		alphaTie,
-		nan,
-		negative,
-		infinite,
-		cheap,
-	]);
-	assert.equal(chooseClassifier(models), cheap, "不固定 ID，也不依赖数组顺序");
-	assert.equal(chooseClassifier(frozen([betaTie, zero, alphaTie])), alphaTie, "同价按 id 字典序");
-	assert.equal(
-		chooseClassifier(frozen([zero, zeroOutput])),
-		zeroOutput,
-		"仅输出价为零不等同总价未知",
-	);
-	assert.equal(chooseClassifier(frozen([zero, negative, nan, infinite])), zero, "全部未知/零价时仍返回可用候选");
-	assert.equal(
-		chooseClassifier(frozen([otherProvider, imageOnly])),
-		undefined,
-		"无 tsgw 文本分类模型时不返回候选",
-	);
-});
-
-test("分类器：缺失/非法价格不会丢弃文本候选，唯一未知价格仍可选择", () => {
-	const missing = classifierModel("alpha-missing");
-	delete (missing as Partial<ClassifierModel<ClassifierApi>>).cost;
-	const invalid = classifierModel("invalid-cost", {
-		cost: { input: -1, output: 2, cacheRead: 0, cacheWrite: 0 },
-	});
-	const zero = classifierModel("alpha-zero", {
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-	});
-	const positive = classifierModel("zzz-positive", {
-		cost: { input: 0.01, output: 0.02, cacheRead: 0, cacheWrite: 0 },
-	});
-	const otherProvider = classifierModel("other-provider", {
-		provider: "other",
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-	});
-	const imageOnly = classifierModel("image-only", {
-		input: ["image"],
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-	});
-
-	assert.equal(chooseClassifier(frozen([missing])), missing, "唯一缺失价格候选仍可选择");
-	assert.equal(chooseClassifier(frozen([invalid])), invalid, "唯一非法价格候选仍可选择");
-	assert.equal(chooseClassifier(frozen([missing, zero, positive])), positive, "已知正价优先");
-	assert.equal(chooseClassifier(frozen([zero, missing])), missing, "未知与零价同末组按 id 字典序");
-	assert.equal(chooseClassifier(frozen([missing, zero])), missing, "末组排序不依赖数组顺序");
-	assert.equal(chooseClassifier(frozen([otherProvider, imageOnly])), undefined);
+	const worker = candidate("option_2", "worker-model", "low");
+	const candidates = frozen([review, wrongLevel, worker]);
+	assert.equal(resolveDelegationKeys("design_review", "option_0", candidates, REVIEW_TARGET), review);
+	for (const key of ["option_1", "option_2"])
+		assert.equal(resolveDelegationKeys("design_review", key, candidates, REVIEW_TARGET), undefined);
+	assert.equal(resolveDelegationKeys("design_review", "option_2", candidates, { id: "worker-model", level: "low" }), worker);
+	for (const kind of ["inspect", "implement", "debug"])
+		assert.equal(resolveDelegationKeys(kind, "option_2", candidates, REVIEW_TARGET), worker);
+	for (const [kind, key] of [["dual_review", "option_0"], ["unknown", "option_0"], ["debug", "unresolved"],
+		["debug", "worker-model"], ["debug", "option_9"], [null, "option_0"], ["debug", 2]])
+		assert.equal(resolveDelegationKeys(kind, key, candidates, REVIEW_TARGET), undefined);
 });
