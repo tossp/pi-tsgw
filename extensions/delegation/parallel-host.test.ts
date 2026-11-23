@@ -17,7 +17,7 @@ import {
 } from "./parallel-host.test-support.ts";
 
 const BASE_CATALOG = [MAIN_MODEL_ID, HUNYUAN_ID, "jev-latest", "jev-preview", DEEPSEEK_ID, GLM_ID,
-	"glm-5.3", "gpt-6-astra", "gpt-6.2-astra", "gpt-6.2-sol"];
+	"glm-5.4", "gpt-6-astra", "gpt-6.2-astra", "gpt-6.2-sol"];
 const FIXTURE_TOOLS = ["Agent", "probe_nested", "get_subagent_result", "steer_subagent"];
 const HISTORY_MARKER = "主会话历史标记-DO-NOT-FORWARD";
 const HOST_PROMPT_MARKER = "Host-only private context；不得进入选型请求";

@@ -13,9 +13,9 @@ const cases = [
 	["medium", "high"], ["high", "high"], ["xhigh", "max"], ["max", "max"],
 ] as const;
 
-function apply(payload: Payload, thinkingLevel: ThinkingLevel): Payload {
+function apply(payload: Payload, thinkingLevel: ThinkingLevel, model = config): Payload {
 	return applyModelOperations(payload, {
-		provider: "tsgw", modelId: config.id, api: config.api!, thinkingLevel, tsSearchMode: "live",
+		provider: "tsgw", modelId: model.id, api: model.api!, thinkingLevel, tsSearchMode: "live",
 	}) as Payload;
 }
 
@@ -53,7 +53,7 @@ test("GLM Flash：Anthropic 档位、移除 Chat 字段及写时复制", () => {
 });
 
 // 只替换 HTTP；路径、鉴权、图片、思考块和工具回传使用宿主真实适配器。
-async function fixture() {
+async function fixture(config: ReturnType<typeof glmModels>[number]) {
 	const runtime = await ModelRuntime.create({
 		credentials: {
 			read: async provider => provider === "tsgw" ? { type: "api_key" as const, key: "fixture-key" } : undefined,
@@ -115,7 +115,7 @@ async function fixture() {
 		run: async (level: ThinkingLevel, next = context) => {
 			const result = await runtime.streamSimple(model, next, {
 				reasoning: level === "off" ? undefined : level, maxTokens: 512, maxRetries: 0, cacheRetention: "none", fetch,
-				onPayload: payload => apply(payload as Payload, level),
+				onPayload: payload => apply(payload as Payload, level, config),
 			}).result();
 			if (fetchError) throw fetchError;
 			return result;
@@ -123,31 +123,33 @@ async function fixture() {
 	};
 }
 
-test("GLM Flash：宿主 Messages 路径、图片、无签名 thinking 与工具续轮", async () => {
-	const f = await fixture();
-	const first = await f.run("high");
-	assert.equal(first.stopReason, "toolUse", first.errorMessage ?? "首轮工具调用失败");
-	const call = first.content.find(part => part.type === "toolCall")!;
-	assert.equal(call.name, "probe");
-	assert.equal(first.content.find(part => part.type === "thinking")?.thinking, "先调用工具确认");
-	const second = await f.run("high", { ...f.context, messages: [...f.context.messages, first, {
-		role: "toolResult", toolCallId: call.id, toolName: call.name,
-		content: [{ type: "text", text: "PONG" }], isError: false, timestamp: 1,
-	}] });
-	assert.equal(second.stopReason, "stop", second.errorMessage ?? "工具续轮失败");
-	assert.deepEqual(second.content.filter(part => part.type === "text").map(part => part.text), ["OK"]);
-	const replay = f.requests[1]!.messages as { role: string; content: Payload[] }[];
-	assert.deepEqual(replay[0]!.content.find(part => part.type === "image"), {
-		type: "image", source: { type: "base64", media_type: "image/png", data: "aW1hZ2U=" },
+for (const id of ["glm-5.3-flash", "glm-5.4"]) {
+	test(`${id}：宿主 Messages 路径、图片、无签名 thinking 与工具续轮`, async () => {
+		const f = await fixture(glmModels(root).find(model => model.id === id)!);
+		const first = await f.run("high");
+		assert.equal(first.stopReason, "toolUse", first.errorMessage ?? "首轮工具调用失败");
+		const call = first.content.find(part => part.type === "toolCall")!;
+		assert.equal(call.name, "probe");
+		assert.equal(first.content.find(part => part.type === "thinking")?.thinking, "先调用工具确认");
+		const second = await f.run("high", { ...f.context, messages: [...f.context.messages, first, {
+			role: "toolResult", toolCallId: call.id, toolName: call.name,
+			content: [{ type: "text", text: "PONG" }], isError: false, timestamp: 1,
+		}] });
+		assert.equal(second.stopReason, "stop", second.errorMessage ?? "工具续轮失败");
+		assert.deepEqual(second.content.filter(part => part.type === "text").map(part => part.text), ["OK"]);
+		const replay = f.requests[1]!.messages as { role: string; content: Payload[] }[];
+		assert.deepEqual(replay[0]!.content.find(part => part.type === "image"), {
+			type: "image", source: { type: "base64", media_type: "image/png", data: "aW1hZ2U=" },
+		});
+		const assistant = replay.find(message => message.role === "assistant")!;
+		assert.deepEqual(assistant.content[0], { type: "thinking", thinking: "先调用工具确认", signature: "" });
+		assert.equal(assistant.content[1]!.type, "tool_use");
+		assert.ok(replay.some(message => message.content.some(block => block.type === "tool_result" && block.tool_use_id === call.id)));
+		for (const [level, effort] of cases) {
+			const result = await f.run(level);
+			assert.equal(result.stopReason, "stop", result.errorMessage ?? "档位请求失败");
+			assert.deepEqual(f.requests.at(-1)!.output_config, { effort });
+		}
+		assert.equal(f.requests.length, 9);
 	});
-	const assistant = replay.find(message => message.role === "assistant")!;
-	assert.deepEqual(assistant.content[0], { type: "thinking", thinking: "先调用工具确认", signature: "" });
-	assert.equal(assistant.content[1]!.type, "tool_use");
-	assert.ok(replay.some(message => message.content.some(block => block.type === "tool_result" && block.tool_use_id === call.id)));
-	for (const [level, effort] of cases) {
-		const result = await f.run(level);
-		assert.equal(result.stopReason, "stop", result.errorMessage ?? "档位请求失败");
-		assert.deepEqual(f.requests.at(-1)!.output_config, { effort });
-	}
-	assert.equal(f.requests.length, 9);
-});
+}

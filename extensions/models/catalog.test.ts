@@ -73,27 +73,30 @@ function testModelCapabilities(): void {
 	deepStrictEqual(deepseekPro?.compat, deepseek?.compat);
 	deepStrictEqual(deepseekPro?.thinkingLevelMap, deepseek?.thinkingLevelMap);
 	const glm53Map = { off: null, minimal: "low", low: "low", medium: "high", high: "high", xhigh: "max", max: "max" };
-	for (const [id, input] of [
-		["glm-5.3", ["text"]],
-		["glm-5.3-flash", ["text", "image"]],
-		["MiniMax-M3.1-Flash", ["text", "image"]],
+	for (const [id, input, maxTokens] of [
+		["glm-5.3", ["text"], 131072],
+		["glm-5.3-flash", ["text", "image"], 131072],
+		["glm-5.4", ["text", "image"], 128000],
+		["MiniMax-M3.1-Flash", ["text", "image"], 524288],
 	] as const) {
 		const model = models.find((model) => model.id === id)!;
 		const minimax = id === "MiniMax-M3.1-Flash";
-		const anthropic = minimax || id === "glm-5.3-flash";
+		const anthropic = id !== "glm-5.3";
 		equal(model.api, anthropic ? "anthropic-messages" : "openai-completions");
 		equal(model.baseUrl, anthropic ? ROOT : `${ROOT}/v1`);
 		equal(model.reasoning, true);
 		deepStrictEqual(model.input, input);
-		if (id === "MiniMax-M3.1-Flash") {
+		if (minimax) {
 			deepStrictEqual(model.cost, { input: 0.1475, output: 0.59, cacheRead: 0.01475, cacheWrite: 0 });
 		}
 		equal(model.contextWindow, 1000000);
-		equal(model.maxTokens, id.startsWith("MiniMax-") ? 524288 : 131072);
+		equal(model.maxTokens, maxTokens);
 		deepStrictEqual(model.compat, anthropic ? { forceAdaptiveThinking: true, allowEmptySignature: true } : { supportsDeveloperRole: false });
-		deepStrictEqual(model.thinkingLevelMap, id.startsWith("MiniMax-")
+		deepStrictEqual(model.thinkingLevelMap, minimax
 			? { off: null, minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" } : glm53Map);
 	}
+	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, new Set(["GLM-5.4"]), false, false), []);
+	deepStrictEqual(effectiveModelsForGateway(ROOT, undefined, new Set(["glm-5.4"]), false, false).map(model => model.id), ["glm-5.4"]);
 	const astra = models.find(({ id }) => id === "gpt-6-astra");
 	strictEqual(astra?.api, "openai-responses");
 	deepStrictEqual(astra?.input, ["text", "image"]);

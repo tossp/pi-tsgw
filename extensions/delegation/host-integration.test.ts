@@ -16,7 +16,7 @@ import {
 
 const DEEPSEEK_ID = "deepseek-flash";
 const BASE_CATALOG = [MAIN_MODEL_ID, HUNYUAN_ID, "jev-latest", "jev-preview", DEEPSEEK_ID, GLM_ID,
-	"glm-5.3", "gpt-6-astra", "gpt-6.2-astra", "gpt-6.2-sol"];
+	"glm-5.4", "gpt-6-astra", "gpt-6.2-astra", "gpt-6.2-sol"];
 const FIXTURE_TOOLS = ["Agent", "probe_nested", "get_subagent_result", "steer_subagent"];
 
 type CapturedLaneRequest = { body: AnyRecord; headers: Headers };

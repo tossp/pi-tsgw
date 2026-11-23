@@ -72,7 +72,7 @@ const glmCases = {
 	"glm-5.2": { effort: true, preserve: true },
 	"glm-4.5-air": { effort: false, preserve: false },
 };
-coverage(["glm-5.3", "glm-5.3-flash", ...Object.keys(glmCases)], glmThinking, glmModels(root));
+coverage(["glm-5.3", "glm-5.3-flash", "glm-5.4", ...Object.keys(glmCases)], glmThinking, glmModels(root));
 // 七档思考、流式输出和遗留 effort 分开验证。
 const glm53Efforts = { off: "low", minimal: "low", low: "low", medium: "high", high: "high", xhigh: "max", max: "max" };
 for (const level of levels) {

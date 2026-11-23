@@ -18,7 +18,7 @@ import { isMaximum, isPlainObject, type PayloadWriter, type ThinkingApplier, typ
 export function glmModels(root: string): ProviderModelConfig[] {
 	const v1 = `${root}/v1`;
 	return [
-		...glm53Models(root),
+		...recentGlmModels(root),
 		{
 			id: "glm-5.2",
 			name: "GLM 5.2",
@@ -53,24 +53,25 @@ export function glmModels(root: string): ProviderModelConfig[] {
 	];
 }
 
-/** Flash 使用 Coding Plan 的 Anthropic 兼容入口，GLM-5.3 使用 Chat Completions。 */
-function glm53Models(root: string): ProviderModelConfig[] {
-	const variants: Pick<ProviderModelConfig, "id" | "name" | "input" | "cost">[] = [
-		{ id: "glm-5.3", name: "GLM 5.3", input: ["text"],
+function recentGlmModels(root: string): ProviderModelConfig[] {
+	const variants: Pick<ProviderModelConfig, "id" | "name" | "api" | "input" | "cost" | "maxTokens">[] = [
+		// https://docs.bigmodel.cn/cn/coding-plan/latest-model
+		// 2026-11-23 喜鹊目录确认原生 Messages、1M 上下文和 128000 输出。公开按量价未知，暂以 0 登记。
+		{ id: "glm-5.4", name: "GLM 5.4", api: "anthropic-messages", input: ["text", "image"], maxTokens: 128000,
+			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+		{ id: "glm-5.3", name: "GLM 5.3", api: "openai-completions", input: ["text"], maxTokens: 131072,
 			cost: { input: 1.18, output: 4.13, cacheRead: 0.295, cacheWrite: 0 } },
-		{ id: "glm-5.3-flash", name: "GLM 5.3 Flash", input: ["text", "image"],
+		{ id: "glm-5.3-flash", name: "GLM 5.3 Flash", api: "anthropic-messages", input: ["text", "image"], maxTokens: 131072,
 			cost: { input: 0.118, output: 0.413, cacheRead: 0.033925, cacheWrite: 0 } },
 	];
 	return variants.map((model) => {
-		const anthropic = model.id === "glm-5.3-flash";
+		const anthropic = model.api === "anthropic-messages";
 		return {
 			...model,
-			api: anthropic ? "anthropic-messages" : "openai-completions",
 			baseUrl: anthropic ? root : `${root}/v1`,
 			reasoning: true,
 			thinkingLevelMap: { off: null, minimal: "low", low: "low", medium: "high", high: "high", xhigh: "max", max: "max" },
 			contextWindow: 1000000,
-			maxTokens: 131072,
 			compat: anthropic ? { ...ANTHROPIC_COMPAT, allowEmptySignature: true } : OPENAI_COMPLETIONS_COMPAT,
 		} satisfies ProviderModelConfig;
 	});
@@ -86,7 +87,7 @@ function applyGlm53(writer: PayloadWriter, level: ThinkingLevel): void {
 // Coding Plan 的 Claude Code 契约：adaptive + output_config.effort；不套用 Chat 扩展。
 // https://docs.bigmodel.cn/cn/coding-plan/latest-model
 // 兼容服务的无签名思考块交给宿主保留，避免工具续轮时降为普通文本。
-function applyGlm53Flash(writer: PayloadWriter, level: ThinkingLevel): void {
+function applyGlmCodingPlan(writer: PayloadWriter, level: ThinkingLevel): void {
 	writer.remove("reasoning_effort");
 	writer.remove("tool_stream");
 	writer.setThinking({ type: "adaptive" });
@@ -121,7 +122,8 @@ function applyGlm(writer: PayloadWriter, level: ThinkingLevel, effort = true, pr
 
 export const glmThinking: Record<string, ThinkingApplier> = {
 	"glm-5.3": (w, c) => applyGlm53(w, c.thinkingLevel),
-	"glm-5.3-flash": (w, c) => applyGlm53Flash(w, c.thinkingLevel),
+	"glm-5.3-flash": (w, c) => applyGlmCodingPlan(w, c.thinkingLevel),
+	"glm-5.4": (w, c) => applyGlmCodingPlan(w, c.thinkingLevel),
 	"glm-5.2": (w, c) => applyGlm(w, c.thinkingLevel),
 	"glm-4.5-air": (w, c) => applyGlm(w, c.thinkingLevel, false, false),
 };
