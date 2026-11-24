@@ -1,13 +1,14 @@
 import type { AssistantImages, ImageContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { normalizeImageParameters, type ImageOperation, type TsgwImagesContext, type TsgwImagesResult, type ImageUsageReport } from "#tsgw/models/adapter/images/parameters";
-import { DEFAULT_IMAGE_MODEL, editImageSchema, generateImageSchema, imageToolResultSchema, prepareImageToolParameters } from "./tool-schema.ts";
+import { DEFAULT_IMAGE_MODEL, OPENAI_IMAGE_API } from "#tsgw/models/vendors/openai";
+import { editImageSchema, generateImageSchema, imageToolResultSchema, prepareImageToolParameters } from "./tool-schema.ts";
 import { ImageToolFileError, resolveImageSources, saveImageOutput, validateImageOutput, type ImageFileResult } from "./tool-files.ts";
 
 const namespace = {
 	name: "tsgw_images",
 	description: "tsgw 图片生成与编辑；仅通过 codemode 按需发现和调用。",
-	instructions: "生成用 tsgw_generate_image，编辑用 tsgw_edit_image；两者都需 prompt，编辑另需 images（每项 path、image_url、file_id 择一），局部修改可加 mask。模型固定 gpt-image-2.6-sunburst（默认，成稿）与 gpt-image-2.6-flare（草稿，常用 quality=low）。成功以 requestStatus=succeeded、phase=complete 和 files[] 为准；失败、取消或结果未知不自动重试、不换模型。返回文件是本地临时路径，展示时先 tools.read() 再 image(block)，不打印图片 base64；编辑读取的本地原文件会外传。",
+	instructions: `生成用 tsgw_generate_image，编辑用 tsgw_edit_image；两者都需 prompt，编辑另需 images（每项 path、image_url、file_id 择一），局部修改可加 mask。省略 model 时用 ${DEFAULT_IMAGE_MODEL}；也可显式传网关支持的图片模型 ID。成功以 requestStatus=succeeded、phase=complete 和 files[] 为准；失败、取消或结果未知不自动重试、不换模型。返回文件是本地临时路径，展示时先 tools.read() 再 image(block)，不打印图片 base64；编辑读取的本地原文件会外传。`,
 };
 
 export interface ImageToolDetails {
@@ -48,9 +49,14 @@ export function registerImageTools(pi: ExtensionAPI): void {
 					const registry = ctx.modelRegistry;
 					if (typeof registry.getModelOfType !== "function" || typeof registry.generateImages !== "function")
 						throw new ImageToolFileError("unsupported-host", "图片工具需要支持 modelRegistry.getModelOfType/generateImages 的 Pi 1.2 或更新宿主。");
-					const model = registry.getModelOfType("image", "tsgw", prepared.model);
-					if (!model || model.provider !== "tsgw" || model.id !== prepared.model)
-						throw new ImageToolFileError("model-unavailable", "固定图片模型未在宿主中登记；请检查插件加载状态，不会自动切换型号。");
+					const registered = registry.getModelOfType("image", "tsgw", prepared.model);
+					const base = registered ?? (prepared.model === DEFAULT_IMAGE_MODEL ? undefined :
+						registry.getModelOfType("image", "tsgw", DEFAULT_IMAGE_MODEL));
+					if (!base || base.provider !== "tsgw" || base.api !== OPENAI_IMAGE_API ||
+						base.id !== (registered ? prepared.model : DEFAULT_IMAGE_MODEL))
+						throw new ImageToolFileError("model-unavailable", "宿主中缺少可用的 TSGW 图片模型登记；请检查插件加载与模型配置。");
+					// 未登记的 ID 只用于本次请求，沿用已登记默认模型的网关及协议。
+					const model = registered ?? { ...base, id: prepared.model, name: prepared.model };
 					details.phase = "input";
 					const references = operation === "edit" ? await resolveImageSources(prepared.images, prepared.mask, ctx.cwd, caller) : {};
 					const context: TsgwImagesContext = { input: [{ type: "text", text: prepared.prompt }],

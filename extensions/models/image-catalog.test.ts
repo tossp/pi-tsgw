@@ -8,7 +8,7 @@ import { OPENAI_IMAGE_API as IMAGE_API, OPENAI_IMAGE_MODEL_IDS as IMAGE_MODEL_ID
 
 const root = "https://images.example.test/prefix";
 
-test("图片目录：仅两个精确 ID，能力、地址与未知价格显式声明", () => {
+test("图片目录：已登记模型明确声明能力、地址与未知价格", () => {
 	const models = imageModelsForRoot(root);
 	assert.deepEqual(models.map(model => model.id), [...IMAGE_MODEL_IDS]);
 	for (const model of models) {

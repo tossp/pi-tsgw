@@ -69,9 +69,8 @@ function monochromePng(width: number, height: number): string {
 }
 
 try {
-	await test("两个原生图片 ID 使用默认 payload、Bearer 和调用方 fetch；冻结输入保持不变", async () => {
-		assert.deepEqual([...IMAGE_MODEL_IDS], ["gpt-image-2.6-flare", "gpt-image-2.6-sunburst"]);
-		for (const id of IMAGE_MODEL_IDS) {
+	await test("已登记图片 ID 和自定义 ID 原样发出，使用默认 payload、Bearer 和调用方 fetch", async () => {
+		for (const id of [...IMAGE_MODEL_IDS, "xcm/codex/gpt-image-2"]) {
 			const h = mockFetch(), selected = frozen(model(id));
 			const ctx = frozen({ input: [{ type: "text" as const, text: "画猫" }, { type: "text" as const, text: "水彩" }] });
 			const snapshot = JSON.stringify(ctx);
@@ -152,8 +151,7 @@ try {
 		for (const input of [[], [{ type: "text", text: "" }], [{ type: "text", text: " \n" }],
 			[{ type: "image", data: PNG, mimeType: "image/png" }], [{ type: "text", text: "x".repeat(32001) }],
 			[{ type: "text", text: "x".repeat(16000) }, { type: "text", text: "y".repeat(16000) }]] as ImagesContext["input"][]) await failedInput(input);
-		for (const changed of [{ id: "gpt-image-unknown" }, { id: "gpt-image-2.5-flare" }, { id: "gpt-image-2.5-sunburst" },
-			{ api: "openai-completions" }, { provider: "other" }, { type: "chat" }]) {
+		for (const changed of [{ api: "openai-completions" }, { provider: "other" }, { type: "chat" }]) {
 			await failedInput(context().input, {}, { ...model(), ...changed } as ImageModel<ImageApi>);
 		}
 		const h = mockFetch();

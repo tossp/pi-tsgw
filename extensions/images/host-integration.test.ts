@@ -272,9 +272,9 @@ test("Pi SDK 原生图片：真实 SDK 宿主、codemode、目录和取消", { t
 			}
 		});
 
-		await t.test("无 MCP：真实 codemode getModelOfType/generateImages/image() 将两张图片写入父工具结果", async () => {
+		await t.test("无 MCP：真实 codemode getModelOfType/generateImages/image() 将图片写入父工具结果", async () => {
 			script = `const available = await models.getAvailableOfType("image", "tsgw");
-if (available.length !== 2) throw new Error("expected two authenticated images");
+if (available.length !== ${IMAGE_MODEL_IDS.length}) throw new Error("unexpected image model count");
 for (const id of ${JSON.stringify(IMAGE_MODEL_IDS)}) {
   const model = await models.getModelOfType("image", "tsgw", id);
   const result = await models.generateImages(model, ${JSON.stringify(context)});
@@ -283,20 +283,20 @@ for (const id of ${JSON.stringify(IMAGE_MODEL_IDS)}) {
 }
 text("native-images-completed");`;
 			const before = imageRequests.length;
-			await activeSession.prompt("执行隔离 codemode 图片测试，并展示两个模型的合成像素。");
+			await activeSession.prompt("执行隔离 codemode 图片测试，并展示已登记模型的合成像素。");
 			assert.ok(scriptRequest);
 			assert.equal(script, undefined, "SSE 必须已由真实聊天适配器消费");
-			assert.equal(imageRequests.length, before + 2, "每个模型恰好一次 HTTP");
+			assert.equal(imageRequests.length, before + IMAGE_MODEL_IDS.length, "每个模型恰好一次 HTTP");
 			const results = activeSession.messages.filter(message => message.role === "toolResult");
 			assert.equal(results.length, 1, "原生 codemode 路径保持单个父工具结果");
 			const parent = results[0]!;
 			assert.equal(parent.toolName, "codemode");
 			assert.equal(parent.isError, false, JSON.stringify(parent.content));
-			assert.equal(parent.usage?.input, 6, "两次原生图片请求的真实用量进入父工具结果");
-			assert.equal(parent.usage?.output, 8);
-			assert.equal(parent.usage?.totalTokens, 14);
+			assert.equal(parent.usage?.input, 3 * IMAGE_MODEL_IDS.length, "每次原生图片请求的用量进入父工具结果");
+			assert.equal(parent.usage?.output, 4 * IMAGE_MODEL_IDS.length);
+			assert.equal(parent.usage?.totalTokens, 7 * IMAGE_MODEL_IDS.length);
 			const blocks = parent.content.filter(block => block.type === "image");
-			assert.equal(blocks.length, 2, "不是只检查 adapter 返回值：父工具 result 必须含真实 image block");
+			assert.equal(blocks.length, IMAGE_MODEL_IDS.length, "父工具结果包含每次请求的图片块");
 			for (const block of blocks) assertPng(block);
 			assert.match(JSON.stringify(parent.content.filter(block => block.type === "text")), /native-images-completed/);
 			assert.equal(activeSession.getLastAssistantText(), "fixture reply");
@@ -362,7 +362,7 @@ text({ namespace: ns.name, files: result.files.length, phase: result.phase });`;
 			assert.deepEqual(images().map(model => model.id), [...IMAGE_MODEL_IDS]);
 			assert.ok(runtime.getModels(PROVIDER_ID).length > 0, "过滤仍保留非 GPT 聊天模型");
 			assert.ok(runtime.getModels(PROVIDER_ID).every(model => !model.id.startsWith("gpt-")));
-			for (const alias of ["gpt-image-1", "gpt-image-1.5", "gpt-image-2", "gpt-image-2.5", "gpt-image-2.6", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "dall-e-3"])
+			for (const alias of ["gpt-image-1", "gpt-image-1.5", "gpt-image-2.5", "gpt-image-2.6", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "dall-e-3"])
 				assert.equal(runtime.getModelOfType("image", PROVIDER_ID, alias), undefined);
 			configure({ excludeModels: ["gpt-*"], includeModels: [IMAGE_MODEL_IDS[0]] });
 			await reloadWithCatalog();
@@ -379,7 +379,7 @@ text({ namespace: ns.name, files: result.files.length, phase: result.phase });`;
 			assert.equal(sandbox.catalogCalls, before + 1);
 			const expected = [chatId, ...IMAGE_MODEL_IDS].sort();
 			assert.deepEqual(runtime.getAllModels(PROVIDER_ID).map(model => model.id).sort(), expected);
-			assert.deepEqual(images().map(model => model.id), [...IMAGE_MODEL_IDS], "网关缺席不撤下 sunburst");
+			assert.deepEqual(images().map(model => model.id), [...IMAGE_MODEL_IDS], "网关缺席不撤下已登记的图片模型");
 			sandbox.catalogFails = true;
 			await activeSession.prompt("/tsgw-refresh");
 			assert.equal(sandbox.catalogCalls, before + 2, "运行时失败不得自动重试");

@@ -10,7 +10,7 @@ import type { ImageToolDetails } from "./tools.ts";
 import { imageToolResultSchema } from "./tool-schema.ts";
 import { Compile } from "typebox/compile";
 import { modelsForRoot } from "#tsgw/models/catalog";
-import { OPENAI_IMAGE_MODEL_IDS as IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
+import { DEFAULT_IMAGE_MODEL, OPENAI_IMAGE_MODEL_IDS as IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
 
 // 合成的有效透明 PNG；原始字节用于检验编辑与保存，不调用付费服务。
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
@@ -185,9 +185,12 @@ test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也�
 			return results.at(-1)!;
 		};
 
-		await t.test("默认Sunburst与显式Flare参数实际执行并直接附图", async () => {
+		await t.test("默认和未登记模型通过宿主发送原样 ID 并直接附图", async () => {
+			const customModel = "xcm/codex/gpt-image-2";
+			assert.equal(runtime.getModelOfType("image", "tsgw", customModel), undefined);
 			const cases = [{ prompt: "合成生成测试" },
-				{ prompt: "合成草稿测试", model: "gpt-image-2.6-flare", quality: "low", size: "1024x1024" }];
+				{ prompt: "合成自定义模型测试", model: customModel, quality: "low", size: "1024x1024" },
+				{ prompt: "合成旧型号测试", model: "gpt-image-2.6-flare", quality: "low", size: "1024x1024" }];
 			for (const [i, args] of cases.entries()) {
 				const before = imageRequests.length;
 				const result = await invoke(GENERATED, args);
@@ -195,7 +198,7 @@ test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也�
 				assert.equal(imageRequests.length, before + 1);
 				const request = imageRequests.at(-1)!;
 				assert.equal(request.path, "/v1/images/generations");
-				assert.equal(request.body.model, i === 0 ? "gpt-image-2.6-sunburst" : "gpt-image-2.6-flare");
+				assert.equal(request.body.model, args.model ?? "gpt-image-2");
 				assert.equal(request.body.quality, i === 0 ? "auto" : "low");
 				assert.equal(result.content.filter(block => block.type === "image").length, 1);
 				assert.equal(result.usage?.totalTokens, 7);
@@ -211,6 +214,7 @@ test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也�
 			assert.equal(result.isError, false, JSON.stringify(result.content));
 			const request = imageRequests.at(-1)!;
 			assert.equal(request.path, "/v1/images/edits");
+			assert.equal(request.body.model, "gpt-image-2");
 			assert.deepEqual(request.body.images, [{ image_url: `data:image/png;base64,${PNG}` }, { image_url: `data:image/png;base64,${PNG}` }]);
 			assert.deepEqual(request.body.mask, { image_url: `data:image/png;base64,${PNG}` });
 			assert.deepEqual(readFileSync(join(sandbox.cwd, "source.png")), BYTES);
@@ -235,8 +239,11 @@ test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也�
 		await t.test("编辑URL/file_id直接交上游，不在本机额外下载图片", async () => {
 			const sources = [{ image_url: "https://images.example/source.png" }, { file_id: "file-fixture" }];
 			const mask = { file_id: "file-mask-fixture" };
-			const result = await invoke(EDITED, { prompt: "fixture edit", images: sources, mask });
+			const model = "codex/gpt-image-2";
+			const result = await invoke(EDITED, { prompt: "fixture edit", images: sources, mask, model });
 			assert.equal(result.isError, false, JSON.stringify(result.content));
+			assert.equal(imageRequests.at(-1)!.body.model, model);
+			assert.equal(runtime.getModelOfType("image", "tsgw", model), undefined);
 			assert.deepEqual(imageRequests.at(-1)!.body.images, sources);
 			assert.deepEqual(imageRequests.at(-1)!.body.mask, mask);
 			assert.deepEqual(sandbox.blocked, []);
@@ -303,20 +310,20 @@ test("Pi 1.2 图片工具：显式激活 deferred 工具后不经 codemode 也�
 			assert.equal(http.isError, true);
 			assert.equal(imageRequests.length, before + 1);
 			mode = "ok";
-			configure({ excludeModels: ["gpt-image-2.6-sunburst"] });
+			configure({ excludeModels: [DEFAULT_IMAGE_MODEL] });
 			await reloadWithCatalog();
 			sandbox.catalogIds = modelsForRoot(TEST_ROOT).map(model => model.id);
 			await runtime.refresh({ providers: ["tsgw"], allowNetwork: true, force: true });
 			const fixed = await invoke(GENERATED, { prompt: "fixture fixed image" });
 			assert.equal(fixed.isError, false);
 			assert.equal(imageRequests.length, before + 2);
-			assert.equal(imageRequests.at(-1)!.body.model, IMAGE_MODEL_IDS[1]);
+			assert.equal(imageRequests.at(-1)!.body.model, DEFAULT_IMAGE_MODEL);
 			mode = "missing-model";
 			const rejected = await invoke(GENERATED, { prompt: "fixture unsupported upstream" });
 			assert.equal(rejected.isError, true);
 			assert.equal(imageRequests.length, before + 3, "网关目录缺席时仍发起一次图片请求，由上游拒绝且不重试");
 			assert.equal(toolDetails(rejected.details).error?.code, "request-failed");
-			assert.equal(imageRequests.at(-1)!.body.model, IMAGE_MODEL_IDS[1], "上游缺少默认模型时不切换到 Flare");
+			assert.equal(imageRequests.at(-1)!.body.model, DEFAULT_IMAGE_MODEL, "上游缺少默认模型时不换模型");
 			mode = "ok";
 			configure();
 			await reloadWithCatalog();

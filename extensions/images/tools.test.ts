@@ -8,8 +8,8 @@ import type { Static } from "typebox";
 import type { TsgwImagesContext } from "#tsgw/models/adapter/images/parameters";
 import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { registerImageTools, type ImageToolDetails } from "./tools.ts";
-import { DEFAULT_IMAGE_MODEL, editImageSchema, generateImageSchema, imageToolResultSchema } from "./tool-schema.ts";
-import { OPENAI_IMAGE_API as IMAGE_API, openaiImageModels as imageModelsForRoot } from "#tsgw/models/vendors/openai";
+import { editImageSchema, generateImageSchema, imageToolResultSchema } from "./tool-schema.ts";
+import { DEFAULT_IMAGE_MODEL, OPENAI_IMAGE_API as IMAGE_API, openaiImageModels as imageModelsForRoot } from "#tsgw/models/vendors/openai";
 import { Compile } from "typebox/compile";
 import { HostSandbox, TEST_KEY, TEST_ROOT } from "#tsgw/host-test-support.test";
 import { kimiModels } from "#tsgw/models/vendors/kimi";
@@ -70,17 +70,16 @@ test("工具 deferred 注册并归入 tsgw_images 命名空间；普通生成仅
 	assert.equal(generation.Check({ prompt: "test" }), true);
 	assert.equal(edit.Check({ prompt: "test" }), false);
 	assert.equal(edit.Check({ prompt: "test", images: [{ path: "input.png" }] }), true);
-	for (const input of [{ prompt: "test", unknown: 1 }, { prompt: "test", n: 1.5 }, { prompt: "test", model: "other" },
-		{ prompt: "test", model: "gpt-image-2.5-flare" }, { prompt: "test", model: "gpt-image-2.5-sunburst" }])
+	for (const input of [{ prompt: "test", unknown: 1 }, { prompt: "test", n: 1.5 }, { prompt: "test", model: "" },
+		{ prompt: "test", model: "image with spaces" }, { prompt: "test", model: 123 }])
 		assert.equal(generation.Check(input), false);
 	assert.equal(edit.Check({ prompt: "test", images: [{ path: "a", file_id: "b" }] }), false);
 	assert.equal(generation.Check({ prompt: "test", n: null, stream: null }), true);
 	const typed: Static<typeof generateImageSchema> = { prompt: "test", model: "gpt-image-2.6-flare", quality: "low",
 		background: "transparent", output_format: "webp", moderation: "auto", n: 2, stream: true, partial_images: 1 };
 	assert.equal(generation.Check(typed), true);
-	// @ts-expect-error schema静态类型必须拒绝未知型号，而非never或任意string。
-	const invalidModel: Static<typeof generateImageSchema>["model"] = "other";
-	assert.equal(generation.Check({ prompt: "test", model: invalidModel }), false);
+	const customModel: Static<typeof generateImageSchema>["model"] = "xcm/codex/gpt-image-2";
+	assert.equal(generation.Check({ prompt: "test", model: customModel }), true);
 });
 
 test("工具字符串枚举显式声明类型，联合空值分支保持有效", () => {
@@ -144,7 +143,7 @@ test("Pi Kimi 适配器发送图片工具时保留显式类型、联合空值和
 	} finally { sandbox.restore(); }
 });
 
-test("默认Sunburst与auto通过context.tsgw；600000超时、实际图片块和原始usage/文件", async (t) => {
+test("默认模型与auto通过context.tsgw；600000超时、实际图片块和原始usage/文件", async (t) => {
 	t.mock.method(globalThis, "fetch", () => { throw new Error("工具不得直接请求网络"); });
 	const f = fixture();
 	const result = await f.run();
@@ -231,7 +230,7 @@ test("runtime拒绝未知参数和非法组合，宿主缺少图片登记/预取
 		{ prompt: "test", input_fidelity: "high" }, { prompt: "test", n: 0 }, { prompt: "test", n: 11 }, { prompt: "test", quality: "hd" },
 		{ prompt: "test", output_compression: 80 }, { prompt: "test", output_format: "jpeg", background: "transparent" },
 		{ prompt: "test", timeout_ms: Infinity }, { prompt: "test", timeout_ms: 2_147_483_648 }, { prompt: "test", partial_images: 1 },
-		{ prompt: "test", model: "gpt-image-other" }, { prompt: "test", images: [{ file_id: "file-test" }] },
+		{ prompt: "test", model: "   " }, { prompt: "test", images: [{ file_id: "file-test" }] },
 	]) {
 		const f = fixture();
 		assert.equal((await f.run(args)).isError, true); assert.equal(f.calls.length, 0);

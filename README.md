@@ -38,7 +38,7 @@ pi install npm:pi-tsgw
 
 图片、上传、代理搜索、邮件及 DAV 工具均为 `deferred` 注册，通过 codemode 按需发现和调用，不默认声明完整工具 schema。使用 `describeNamespace("tsgw_images")`、`describeNamespace("tsgw_upload")`、`describeNamespace("tsgw_search")` 、`describeNamespace("tsgw_email")` 或 `describeNamespace("tsgw_dav")` 查看对应能力。用法见[图片技能](skills/tsgw-image-generation/SKILL.md)、[上传技能](skills/tsgw-upload/SKILL.md)、[搜索技能](skills/tsgw-search/SKILL.md)、[邮件技能](skills/tsgw-email/SKILL.md)及[DAV 技能](skills/tsgw-dav/SKILL.md)。
 
-图片工具固定登记已接入的两款模型，不受 `tsgw.includeModels` / `excludeModels` 或网关模型目录缺席影响；仍复用宿主认证，由实际调用确认上游支持，失败不自动重试或换模型。
+图片生成和编辑默认使用 `gpt-image-2`，可传 `model` 指定网关支持的图片模型 ID。图片调用复用宿主认证，失败不自动重试或换模型。
 
 本地上传工具名为 `tsgw_upload_local_file`，不再提供旧名 `upload_local_file`；已有调用需更新。代理搜索仅使用可用目录内的 GPT，支持原生搜索的 TSGW 主模型也可调用；每次由模型选择 `mode: "live" | "cached"`，省略时默认实时。旧全局 `tsgw.tsSearch` 和 `/tsgw-search` 设置入口已移除，底部仅保留 TSGW 入口。
 

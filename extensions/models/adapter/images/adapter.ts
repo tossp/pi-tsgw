@@ -1,5 +1,5 @@
 import type { ProviderHeaders, ProviderImages } from "@earendil-works/pi-ai";
-import { OPENAI_IMAGE_API as IMAGE_API, OPENAI_IMAGE_MODEL_IDS as IMAGE_MODEL_IDS } from "#tsgw/models/vendors/openai";
+import { OPENAI_IMAGE_API as IMAGE_API } from "#tsgw/models/vendors/openai";
 import { abortable, ImageFailure, parseUsage, record } from "./response.ts";
 import type { TsgwImagesResult } from "./parameters.ts";
 import { createImageRequest, serializeImageRequest } from "./request.ts";
@@ -42,8 +42,8 @@ export const generateImages: ProviderImages["generateImages"] = async (model, co
 		options.signal?.addEventListener("abort", cancel, { once: true });
 		if (options.signal?.aborted) cancel();
 		check();
-		if (model.type !== "image" || model.provider !== "tsgw" || model.api !== IMAGE_API ||
-			!IMAGE_MODEL_IDS.some(id => id === model.id)) throw new ImageFailure("不支持此图片模型或协议。");
+		if (model.type !== "image" || model.provider !== "tsgw" || model.api !== IMAGE_API)
+			throw new ImageFailure("不支持此图片模型或协议。");
 		const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 		if (!Number.isFinite(timeout) || timeout < 0 || timeout > MAX_TIMEOUT_MS) throw new ImageFailure("图片请求超时时间无效。");
 		const duration = timeout;

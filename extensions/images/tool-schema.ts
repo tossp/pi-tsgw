@@ -1,10 +1,9 @@
 import { Type } from "typebox";
 import { normalizeImageParameters, type ImageOperation } from "#tsgw/models/adapter/images/parameters";
+import { DEFAULT_IMAGE_MODEL } from "#tsgw/models/vendors/openai";
 
-export const DEFAULT_IMAGE_MODEL = "gpt-image-2.6-sunburst";
 export const DEFAULT_IMAGE_TIMEOUT_MS = 600_000;
 export const MAX_IMAGE_TIMEOUT_MS = 2_147_483_647;
-const IMAGE_MODELS = ["gpt-image-2.6-sunburst", "gpt-image-2.6-flare"] as const;
 const optional = <T extends import("typebox").TSchema>(schema: T) => Type.Optional(Type.Union([schema, Type.Null()]));
 
 export const imageSourceSchema = Type.Union([
@@ -16,8 +15,8 @@ export const imageSourceSchema = Type.Union([
 // Moonshot 拒绝联合分支中缺 type 的枚举；显式 string 并保留 TypeBox 静态类型。
 const common = {
 	prompt: Type.String({ minLength: 1, maxLength: 32_000, description: "图片生成或编辑要求。" }),
-	model: Type.Optional(Type.Enum(IMAGE_MODELS, { type: "string", description: "默认 gpt-image-2.6-sunburst，适合成稿；AI 草稿任务可选 gpt-image-2.6-flare，常配 quality=low。" })),
-	quality: optional(Type.Enum(["auto", "low", "medium", "high", "xhigh", "max"], { type: "string", description: "质量，默认 auto；选择 Flare 不会自动改为 low。" })),
+	model: Type.Optional(Type.String({ minLength: 1, pattern: "^\\S+$", description: `图片模型 ID，默认 ${DEFAULT_IMAGE_MODEL}；也可传当前网关支持的完整 ID。` })),
+	quality: optional(Type.Enum(["auto", "low", "medium", "high", "xhigh", "max"], { type: "string", description: "质量，默认 auto。" })),
 	size: optional(Type.String({ description: "默认 auto；也可宽x高，均为16倍数、边≤3840、宽高比≤3、像素655360..8294400。" })),
 	background: optional(Type.Enum(["auto", "opaque", "transparent"], { type: "string", description: "背景，默认 auto。透明背景需 PNG/WebP。" })),
 	output_format: optional(Type.Enum(["png", "jpeg", "webp"], { type: "string", description: "输出格式，默认 png；原始字节不转码。" })),
@@ -58,7 +57,7 @@ export function prepareImageToolParameters(operation: ImageOperation, value: unk
 	if (Reflect.ownKeys(value).some(key => typeof key !== "string" || !allowed.has(key))) throw new Error("unknown-parameters");
 	if (typeof value.prompt !== "string" || !value.prompt.trim() || value.prompt.length > 32_000) throw new Error("invalid-prompt");
 	const model = value.model === undefined ? DEFAULT_IMAGE_MODEL : value.model;
-	if (typeof model !== "string" || !IMAGE_MODELS.includes(model as typeof IMAGE_MODELS[number])) throw new Error("invalid-model");
+	if (typeof model !== "string" || !model || /\s/.test(model)) throw new Error("invalid-model");
 	const timeoutMs = value.timeout_ms === undefined ? DEFAULT_IMAGE_TIMEOUT_MS : value.timeout_ms;
 	if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > MAX_IMAGE_TIMEOUT_MS)
 		throw new Error("invalid-timeout");
