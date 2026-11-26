@@ -12,7 +12,8 @@ const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as co
 const lite = models.find(model => model.id === ids[0])!;
 const high = models.find(model => model.id === ids[1])!;
 const flash = models.find(model => model.id === ids[2])!;
-for (const model of [lite, high, flash]) {
+const hydrogen = models.find(model => model.id === "gemini-4-hydrogen")!;
+for (const model of [lite, high, flash, hydrogen]) {
 	equal(model.reasoning, true);
 	equal(model.contextWindow, 1048576);
 	equal(model.maxTokens, 65536);
@@ -31,7 +32,9 @@ equal(flash.baseUrl, `${root}/v1beta`);
 deepStrictEqual(flash.thinkingLevelMap, high.thinkingLevelMap);
 deepStrictEqual(flash.cost, high.cost);
 // 网关只列裸 ID 时能登记；保留的旧别名仍受目录交集约束。
-deepStrictEqual(effectiveModelsForGateway(root, undefined, new Set([flash.id]), false, false).map(model => model.id), [flash.id]);
+for (const { id } of [flash, hydrogen]) {
+	deepStrictEqual(effectiveModelsForGateway(root, undefined, new Set([id]), false, false).map(model => model.id), [id]);
+}
 deepStrictEqual(models.map(model => model.id).sort(), Object.keys(geminiThinking).sort());
 
 function freeze(value: unknown): void {
@@ -83,10 +86,12 @@ const runtime = await ModelRuntime.create({ modelsPath: null, refreshOnCreate: f
 	credentials: { read: async id => id === "tsgw" ? { type: "api_key" as const, key: "fixture-key" } : undefined,
 		list: async () => [], modify: async () => undefined, delete: async () => {} },
 });
-runtime.registerProvider("tsgw", { models: [lite, high, flash] });
+runtime.registerProvider("tsgw", { models: [lite, high, flash, hydrogen] });
 const originalFetch = globalThis.fetch;
 try {
-	for (const config of [lite, high, flash]) {
+	for (const config of [lite, high, flash, hydrogen]) {
+		const reasoning: "xhigh" | "low" = config === hydrogen ? "xhigh" : "low";
+		const toolRoundTrip = config === flash || config === hydrogen;
 		let requests = 0;
 		globalThis.fetch = async (input, init) => {
 			requests++;
@@ -95,8 +100,9 @@ try {
 			if (config.api === "google-generative-ai") {
 				equal(new URL(request.url).pathname, `${new URL(config.baseUrl!).pathname}/models/${config.id}:streamGenerateContent`);
 				equal(request.headers.get("x-goog-api-key"), "fixture-key");
-				deepStrictEqual(body.generationConfig.thinkingConfig, { includeThoughts: true, thinkingLevel: "LOW" });
-				if (config.id === flash.id) {
+				const thinkingLevel = config === hydrogen ? "XHIGH" : "LOW";
+				deepStrictEqual(body.generationConfig.thinkingConfig, { includeThoughts: true, thinkingLevel });
+				if (toolRoundTrip) {
 					const calls = body.contents.flatMap((content: any) => content.parts).filter((part: any) => part.functionCall);
 					if (requests === 1) {
 						equal(body.tools[0].functionDeclarations[0].name, "probe");
@@ -122,10 +128,10 @@ try {
 			messages: [{ role: "user" as const, content: "test", timestamp: 0 }],
 			tools: [{ name: "probe", description: "测试工具", parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] } }],
 		};
-		const options = { reasoning: "low" as const, maxTokens: 512, maxRetries: 0,
-			onPayload: (payload: unknown) => apply(config.id, payload as Payload, "low") };
+		const options = { reasoning, maxTokens: 512, maxRetries: 0,
+			onPayload: (payload: unknown) => apply(config.id, payload as Payload, reasoning) };
 		let result = await runtime.streamSimple(model, context, options).result();
-		if (config.id === flash.id) {
+		if (toolRoundTrip) {
 			equal(result.stopReason, "toolUse", result.errorMessage ?? config.id);
 			const call = result.content.find(part => part.type === "toolCall")!;
 			equal(call.name, "probe");
@@ -136,7 +142,7 @@ try {
 		}
 		equal(result.stopReason, "stop", result.errorMessage ?? config.id);
 		deepStrictEqual(result.content.filter(part => part.type === "text").map(part => part.text), ["OK"]);
-		equal(requests, config.id === flash.id ? 2 : 1);
+		equal(requests, toolRoundTrip ? 2 : 1);
 	}
 } finally { globalThis.fetch = originalFetch; }
 console.log("gemini-new.test.ts：混合协议、七档、冻结输入及宿主路径契约通过");

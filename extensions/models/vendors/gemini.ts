@@ -134,6 +134,21 @@ export function geminiModels(root: string): ProviderModelConfig[] {
 			contextWindow: 1048576,
 			maxTokens: 65536,
 		},
+		{
+			id: "gemini-4-hydrogen",
+			name: "Gemini 4 Hydrogen",
+			api: "google-generative-ai",
+			baseUrl: `${root}/v1beta`,
+			// Pi 的 Google 适配器只接受到 high；请求钩子将 xhigh 改写为原生 XHIGH。
+			thinkingLevelMap: { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: "high", max: null },
+			reasoning: true,
+			input: ["text", "image"],
+			// 2026-11-26 核对官方标准层价格（仅隐式缓存）与常规流式上限。
+			// https://ai.google.dev/gemini-api/docs/models/gemini-4-hydrogen
+			cost: { input: 1.5, output: 7.5, cacheRead: 0.075, cacheWrite: 0 },
+			contextWindow: 1048576,
+			maxTokens: 65536,
+		},
 	];
 }
 
@@ -148,13 +163,13 @@ function applyGeminiFlash(writer: PayloadWriter, level: ThinkingLevel): void {
 	writer.setGoogleThinking({ includeThoughts: true, thinkingBudget: budget }, ["thinkingLevel"]);
 }
 
-function applyGeminiPro(writer: PayloadWriter, level: ThinkingLevel): void {
+function applyGeminiPro(writer: PayloadWriter, level: ThinkingLevel, highestLevel: "HIGH" | "XHIGH" = "HIGH"): void {
 	writer.remove("reasoning_effort");
-	const thinkingLevel = level === "off" || level === "minimal" || level === "low"
-		? "LOW"
-		: level === "medium"
-			? "MEDIUM"
-			: "HIGH";
+	let thinkingLevel: string;
+	if (level === "off" || level === "minimal" || level === "low") thinkingLevel = "LOW";
+	else if (level === "medium") thinkingLevel = "MEDIUM";
+	else if (level === "high") thinkingLevel = "HIGH";
+	else thinkingLevel = highestLevel;
 	writer.setGoogleThinking({ includeThoughts: level !== "off", thinkingLevel }, ["thinkingBudget"]);
 }
 
@@ -189,4 +204,5 @@ export const geminiThinking: Record<string, ThinkingApplier> = {
 	"gemini-pro": (w, c) => applyGeminiPro(w, c.thinkingLevel),
 	"gemini-3.8-flash": (w, c) => applyGemini38Flash(w, c.thinkingLevel),
 	"gemini-3.8-flash-high": (w, c) => applyGemini38Flash(w, c.thinkingLevel),
+	"gemini-4-hydrogen": (w, c) => applyGeminiPro(w, c.thinkingLevel, "XHIGH"),
 };

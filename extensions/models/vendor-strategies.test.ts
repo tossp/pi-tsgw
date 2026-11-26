@@ -47,6 +47,7 @@ const geminiCases = {
 	"gemini-3.5-flash-lite": "completions-level",
 	"gemini-3.8-flash": "pro-level",
 	"gemini-3.8-flash-high": "pro-level",
+	"gemini-4-hydrogen": "hydrogen-level",
 } as const;
 coverage(Object.keys(geminiCases), geminiThinking, geminiModels(root));
 for (const [id, kind] of Object.entries(geminiCases)) {
@@ -61,7 +62,12 @@ for (const [id, kind] of Object.entries(geminiCases)) {
 		}
 		if (kind === "flash-budget") expected.thinkingBudget = level === "off" ? 0 : level === "max" ? 24576 : 16000;
 		if (kind === "flash-level") expected.thinkingLevel = ["off", "minimal"].includes(level) ? "MINIMAL" : level === "low" ? "LOW" : level === "medium" ? "MEDIUM" : "HIGH";
-		if (kind === "pro-level") expected.thinkingLevel = ["off", "minimal", "low"].includes(level) ? "LOW" : level === "medium" ? "MEDIUM" : "HIGH";
+		if (kind === "pro-level" || kind === "hydrogen-level") {
+			if (["off", "minimal", "low"].includes(level)) expected.thinkingLevel = "LOW";
+			else if (level === "medium") expected.thinkingLevel = "MEDIUM";
+			else if (kind === "hydrogen-level" && ["xhigh", "max"].includes(level)) expected.thinkingLevel = "XHIGH";
+			else expected.thinkingLevel = "HIGH";
+		}
 		deepStrictEqual(result.config, { temperature: 0.2, thinkingConfig: expected }, `${id}/${level}`);
 		equal(Object.hasOwn(result, "reasoning_effort"), false);
 	}
